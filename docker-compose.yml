@@ -1,11 +1,13 @@
 # =============================================================================
-# macolima — persistent hardened Claude Code container
+# macolima — multi-profile hardened Claude Code stack
 # =============================================================================
-# This is the day-to-day persistent container. For ephemeral one-off runs,
-# see scripts/run-ephemeral.sh which applies the same hardening at `docker run`.
+# This compose file is parameterized by PROFILE (e.g. work, personal, sideproject).
+# Drive it via scripts/profile.sh, which sets COMPOSE_PROJECT_NAME=macolima-<profile>
+# and exports PROFILE=<profile>. Each profile gets its own containers, its own
+# networks, its own named volume, and its own persistent dirs on the drive.
 #
 # Network model: the agent container has NO direct network. All outbound HTTP(S)
-# is forced through the egress-proxy (Squid) sidecar with a domain allowlist.
+# is forced through the per-profile egress-proxy (Squid) with a domain allowlist.
 # =============================================================================
 
 services:
@@ -18,13 +20,9 @@ services:
       context: .
       dockerfile: Dockerfile
     image: macolima:latest
-    container_name: claude-agent
-    hostname: claude-agent
+    container_name: claude-agent-${PROFILE:?PROFILE env var required — use scripts/profile.sh}
+    hostname: claude-agent-${PROFILE}
 
-    # Rootfs is writable so VS Code Dev Containers can patch /etc/environment
-    # and install the remote server. Agent is non-root + seccomp + cap_drop ALL,
-    # so writes to system dirs are blocked by file permissions, not the mount.
-    # tmpfs entries kept for noexec/nosuid hardening on volatile paths.
     tmpfs:
       - /tmp:size=1g,noexec,nosuid,nodev
       - /run:size=64m,noexec,nosuid,nodev
@@ -51,23 +49,22 @@ services:
         hard: 512
 
     volumes:
-      # Your repo tree — writable so Claude Code can edit files.
-      - /Volumes/DataDrive/repo:/workspace:rw
-      # OAuth token + Claude settings. Persist across restarts.
-      - /Volumes/DataDrive/.claude-colima/claude-home:/home/agent/.claude:rw
-      # Claude Code's top-level state file — holds oauthAccount + first-run state.
-      # Without this, every container recreate triggers a fresh login prompt.
-      - /Volumes/DataDrive/.claude-colima/claude.json:/home/agent/.claude.json:rw
-      # Caches (npm, uv, pip). Persist across restarts to avoid re-downloads.
-      - /Volumes/DataDrive/.claude-colima/workspace-cache:/home/agent/.cache:rw
-      # VS Code Dev Containers server + extensions. Named volume (not a
-      # drive bind mount) because virtiofs on macOS mis-handles utime during
-      # tar extraction of the server binary. The volume still lives on the
-      # drive via Colima's VM disk image, just inside the VM's ext4.
+      # Repo subtree for this profile (must already exist).
+      - /Volumes/DataDrive/repo/${PROFILE}:/workspace:rw
+      # Per-profile Claude state (tokens, sessions, settings, MCP).
+      - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/claude-home:/home/agent/.claude:rw
+      # Per-profile .claude.json (oauthAccount, first-run state). chmod 644 on host.
+      - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/claude.json:/home/agent/.claude.json:rw
+      # Per-profile cache (npm, uv, pip).
+      - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/cache:/home/agent/.cache:rw
+      # Per-profile gh/glab tokens and git config (via GIT_CONFIG_GLOBAL below).
+      # We mount .config/ (a directory) rather than .gitconfig (a file) — atomic
+      # rename() during `git config --global` set fails across a single-file
+      # bind mount with EBUSY. Directory mounts don't have that issue.
+      - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/config:/home/agent/.config:rw
+      # Named volume for VS Code Server — avoids virtiofs utime issues.
       - vscode-server:/home/agent/.vscode-server:rw
 
-    # Agent lives on the INTERNAL network only (no outbound NAT).
-    # The only reachable host is egress-proxy, which bridges to the external net.
     networks:
       - sandbox-internal
     environment:
@@ -76,6 +73,10 @@ services:
       - http_proxy=http://egress-proxy:3128
       - https_proxy=http://egress-proxy:3128
       - NO_PROXY=localhost,127.0.0.1,egress-proxy
+      - MACOLIMA_PROFILE=${PROFILE}
+      # Route git's global config through the mounted .config/ dir so it persists
+      # across container recreates AND avoids single-file bind-mount EBUSY.
+      - GIT_CONFIG_GLOBAL=/home/agent/.config/git/config
     depends_on:
       - egress-proxy
 
@@ -84,11 +85,11 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # Egress proxy: domain-allowlisted outbound traffic
+  # Egress proxy: per-profile, domain-allowlisted outbound traffic
   # ---------------------------------------------------------------------------
   egress-proxy:
     image: ubuntu/squid:latest
-    container_name: egress-proxy
+    container_name: egress-proxy-${PROFILE}
     hostname: egress-proxy
     read_only: true
     tmpfs:
@@ -101,14 +102,12 @@ services:
     cap_drop:
       - ALL
     cap_add:
-      - SETUID            # squid drops from root to the `proxy` user at startup
-      - SETGID            # ...and switches group too
+      - SETUID
+      - SETGID
     security_opt:
       - no-new-privileges:true
     mem_limit: 512m
     cpus: 0.5
-    # Proxy straddles both networks: reachable by the agent (internal) and
-    # has outbound internet itself (external).
     networks:
       - sandbox-internal
       - sandbox-external
@@ -117,9 +116,9 @@ services:
 networks:
   sandbox-internal:
     driver: bridge
-    internal: true          # no outbound NAT from this network
+    internal: true
   sandbox-external:
     driver: bridge
 
 volumes:
-  vscode-server:            # named volume inside VM — avoids virtiofs utime issues
+  vscode-server:

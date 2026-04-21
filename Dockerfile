@@ -41,13 +41,36 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
  && mv /root/.local/bin/uv /usr/local/bin/uv \
  && mv /root/.local/bin/uvx /usr/local/bin/uvx
 
+# ---------- GitHub CLI (gh) -------------------------------------------------
+RUN install -d -m 0755 /etc/apt/keyrings \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+ && chmod 0644 /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends gh \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# ---------- GitLab CLI (glab) — official binary ------------------------------
+ARG GLAB_VERSION=1.92.1
+RUN ARCH="$(dpkg --print-architecture)" \
+ && case "$ARCH" in amd64) GARCH=x86_64 ;; arm64) GARCH=arm64 ;; *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; esac \
+ && curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${GARCH}.tar.gz" \
+      | tar -xz -C /tmp bin/glab \
+ && mv /tmp/bin/glab /usr/local/bin/glab \
+ && rm -rf /tmp/bin \
+ && chmod 0755 /usr/local/bin/glab \
+ && glab --version
+
 # ---------- non-root user ----------------------------------------------------
 # ubuntu:24.04 ships with a default `ubuntu` user at UID 1000 — remove it so
 # we can create `agent` at that UID (needed to match host file ownership via
 # virtiofs bind mounts).
 RUN userdel -r ubuntu 2>/dev/null || true \
  && useradd --create-home --shell /bin/bash --uid 1000 agent \
- && mkdir -p /workspace /home/agent/.claude /home/agent/.cache /home/agent/.npm /home/agent/.vscode-server \
+ && mkdir -p /workspace /home/agent/.claude /home/agent/.cache /home/agent/.npm /home/agent/.vscode-server /home/agent/.config \
  && chown -R agent:agent /workspace /home/agent
 
 # ---------- zsh + oh-my-zsh + powerlevel10k + plugins -----------------------
