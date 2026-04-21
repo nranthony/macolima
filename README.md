@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/macolima_silly_logo.png" alt="macolima" width="520">
+</p>
+
 # macolima
 
 Hardened multi-profile sandbox for running Claude Code in auto mode on macOS. Colima-based Linux VM on an external drive. Each profile is a fully isolated stack (own containers, own networks, own persistent state) built from a single shared image.

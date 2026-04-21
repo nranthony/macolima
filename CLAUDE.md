@@ -85,6 +85,9 @@ Do not "simplify" this by re-adding a `.gitconfig` bind mount — it will silent
 ### Squid needs SETUID + SETGID caps
 Squid starts as root then drops to the `proxy` user — needs `SETUID`/`SETGID`. Without them: crash-loop exit 134. `NET_BIND_SERVICE` NOT needed (port 3128 is unprivileged). Also `pinger_enable off` in `squid.conf` — ICMP pinger wants `CAP_NET_RAW` we don't grant.
 
+### tmpfs mounts under `/home/agent/` need `uid=1000,gid=1000`
+A bare `tmpfs: - /path:size=N,nosuid,nodev` mount comes up owned by `root:root` mode 755 — it shadows the Dockerfile-created dir. The agent can't write → any tool trying to populate `~/.local/share` or `~/.npm-global` fails with `cannot make directory ... permission denied`. Fix: always append `uid=1000,gid=1000,mode=0755` to tmpfs entries that land inside `/home/agent/`. Applies to `.local` and `.npm-global`; `/tmp` and `/run` are system dirs where root:root is correct.
+
 ### `setup.sh` must stay bash 3.2-compatible
 macOS ships `/bin/bash` 3.2 and `env bash` often resolves to it. No `;;&` case fall-through, no `mapfile`, no `${var,,}`, no associative arrays. When the `--github` / `--gitlab` / `--both` branch needs shared logic, use a helper function called from multiple case arms — not `;;&`.
 

@@ -85,7 +85,6 @@ RUN set -eux; \
     ZSH_CUSTOM="$HOME/.oh-my-zsh/custom"; \
     git clone --depth=1 https://github.com/romkatv/powerlevel10k.git              "$ZSH_CUSTOM/themes/powerlevel10k"; \
     git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git      "$ZSH_CUSTOM/plugins/zsh-autosuggestions"; \
-    git clone --depth=1 https://github.com/marlonrichert/zsh-autocomplete.git     "$ZSH_CUSTOM/plugins/zsh-autocomplete"; \
     git clone --depth=1 https://github.com/zsh-users/zsh-history-substring-search.git "$ZSH_CUSTOM/plugins/zsh-history-substring-search"; \
     git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git  "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
 USER root
