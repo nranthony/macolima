@@ -55,6 +55,9 @@ services:
       - /Volumes/DataDrive/repo:/workspace:rw
       # OAuth token + Claude settings. Persist across restarts.
       - /Volumes/DataDrive/.claude-colima/claude-home:/home/agent/.claude:rw
+      # Claude Code's top-level state file — holds oauthAccount + first-run state.
+      # Without this, every container recreate triggers a fresh login prompt.
+      - /Volumes/DataDrive/.claude-colima/claude.json:/home/agent/.claude.json:rw
       # Caches (npm, uv, pip). Persist across restarts to avoid re-downloads.
       - /Volumes/DataDrive/.claude-colima/workspace-cache:/home/agent/.cache:rw
       # VS Code Dev Containers server + extensions. Named volume (not a

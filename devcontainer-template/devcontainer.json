@@ -6,6 +6,7 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "mounts": [
     "source=/Volumes/DataDrive/.claude-colima/claude-home,target=/home/agent/.claude,type=bind",
+    "source=/Volumes/DataDrive/.claude-colima/claude.json,target=/home/agent/.claude.json,type=bind",
     "source=/Volumes/DataDrive/.claude-colima/workspace-cache,target=/home/agent/.cache,type=bind",
     "source=/Volumes/DataDrive/.claude-colima/vscode-server,target=/home/agent/.vscode-server,type=bind"
   ],
@@ -30,7 +31,17 @@
   },
   "customizations": {
     "vscode": {
-      "extensions": ["anthropic.claude-code"]
+      "extensions": ["anthropic.claude-code"],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "zsh": { "path": "/usr/bin/zsh" }
+        },
+        "telemetry.telemetryLevel": "off",
+        "update.mode": "none",
+        "extensions.autoUpdate": false,
+        "settingsSync.ignoredExtensions": ["*"]
+      }
     }
   }
 }

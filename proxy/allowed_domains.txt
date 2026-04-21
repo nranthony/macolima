@@ -32,3 +32,8 @@ deb.nodesource.com
 # .debian.org
 # archive.ubuntu.com
 # security.ubuntu.com
+
+# --- VS Code Marketplace (extensions) ---
+marketplace.visualstudio.com
+.vscode-unpkg.net
+update.code.visualstudio.com

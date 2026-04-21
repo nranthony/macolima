@@ -25,6 +25,7 @@ RUN apt-get update \
       python3 python3-pip python3-venv \
       ripgrep jq less vim-tiny \
       openssh-client \
+      zsh lsd fontconfig locales \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -46,15 +47,34 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 # virtiofs bind mounts).
 RUN userdel -r ubuntu 2>/dev/null || true \
  && useradd --create-home --shell /bin/bash --uid 1000 agent \
- && mkdir -p /workspace /home/agent/.claude /home/agent/.cache /home/agent/.npm \
+ && mkdir -p /workspace /home/agent/.claude /home/agent/.cache /home/agent/.npm /home/agent/.vscode-server \
  && chown -R agent:agent /workspace /home/agent
+
+# ---------- zsh + oh-my-zsh + powerlevel10k + plugins -----------------------
+# Installed as the agent user so ownership is correct. Dotfiles are baked in.
+COPY --chown=agent:agent config/.zshrc      /home/agent/.zshrc
+COPY --chown=agent:agent config/.p10k.zsh   /home/agent/.p10k.zsh
+
+USER agent
+RUN set -eux; \
+    export RUNZSH=no CHSH=no; \
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended --keep-zshrc; \
+    ZSH_CUSTOM="$HOME/.oh-my-zsh/custom"; \
+    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git              "$ZSH_CUSTOM/themes/powerlevel10k"; \
+    git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git      "$ZSH_CUSTOM/plugins/zsh-autosuggestions"; \
+    git clone --depth=1 https://github.com/marlonrichert/zsh-autocomplete.git     "$ZSH_CUSTOM/plugins/zsh-autocomplete"; \
+    git clone --depth=1 https://github.com/zsh-users/zsh-history-substring-search.git "$ZSH_CUSTOM/plugins/zsh-history-substring-search"; \
+    git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git  "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
+USER root
+RUN usermod -s /usr/bin/zsh agent
 
 USER agent
 WORKDIR /workspace
 
 ENV HOME=/home/agent \
     PATH="/home/agent/.local/bin:${PATH}" \
-    NPM_CONFIG_PREFIX="/home/agent/.npm-global"
+    NPM_CONFIG_PREFIX="/home/agent/.npm-global" \
+    SHELL=/usr/bin/zsh
 
 # Expected runtime bind mounts (see docker-compose.yml):
 #   /workspace              <- /Volumes/DataDrive/repo
