@@ -1,0 +1,34 @@
+# =============================================================================
+# Outbound domain allowlist for Claude Code sandbox
+# =============================================================================
+# One domain per line. A leading dot (e.g. .github.com) matches all subdomains.
+# Keep this list minimal — fewer domains = smaller attack surface.
+# =============================================================================
+
+# --- Claude / Anthropic ---
+.anthropic.com
+.claude.com
+.claude.ai
+statsig.anthropic.com
+
+# --- Source code / git ---
+.github.com
+.githubusercontent.com
+.githubassets.com
+
+# --- Python package ecosystem ---
+.pypi.org
+.files.pythonhosted.org
+.astral.sh
+
+# --- Node.js / npm ---
+.registry.npmjs.org
+.npmjs.com
+.nodejs.org
+deb.nodesource.com
+
+# --- OS packages (only needed if you apt-get inside the container) ---
+# .ubuntu.com
+# .debian.org
+# archive.ubuntu.com
+# security.ubuntu.com

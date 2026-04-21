@@ -1,0 +1,36 @@
+{
+  "//": "Copy this file to <your-repo>/.devcontainer/devcontainer.json. VS Code will then offer 'Reopen in Container' for that repo.",
+  "name": "Claude Sandbox (macolima)",
+  "image": "macolima:latest",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "mounts": [
+    "source=/Volumes/DataDrive/.claude-colima/claude-home,target=/home/agent/.claude,type=bind",
+    "source=/Volumes/DataDrive/.claude-colima/workspace-cache,target=/home/agent/.cache,type=bind",
+    "source=/Volumes/DataDrive/.claude-colima/vscode-server,target=/home/agent/.vscode-server,type=bind"
+  ],
+  "remoteUser": "agent",
+  "runArgs": [
+    "--read-only",
+    "--tmpfs", "/tmp:size=1g,noexec,nosuid,nodev",
+    "--tmpfs", "/run:size=64m,noexec,nosuid,nodev",
+    "--tmpfs", "/home/agent/.npm-global:size=512m,nosuid,nodev",
+    "--tmpfs", "/home/agent/.local:size=256m,nosuid,nodev",
+    "--tmpfs", "/var/devcontainer:size=16m,nosuid,nodev",
+    "--security-opt", "no-new-privileges:true",
+    "--cap-drop", "ALL",
+    "--pids-limit", "512",
+    "--memory", "8g",
+    "--cpus", "4",
+    "--network", "macolima_sandbox-internal"
+  ],
+  "containerEnv": {
+    "HTTP_PROXY": "http://egress-proxy:3128",
+    "HTTPS_PROXY": "http://egress-proxy:3128"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code"]
+    }
+  }
+}

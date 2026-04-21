@@ -1,0 +1,122 @@
+# =============================================================================
+# macolima — persistent hardened Claude Code container
+# =============================================================================
+# This is the day-to-day persistent container. For ephemeral one-off runs,
+# see scripts/run-ephemeral.sh which applies the same hardening at `docker run`.
+#
+# Network model: the agent container has NO direct network. All outbound HTTP(S)
+# is forced through the egress-proxy (Squid) sidecar with a domain allowlist.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Claude Code agent container
+  # ---------------------------------------------------------------------------
+  claude-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: macolima:latest
+    container_name: claude-agent
+    hostname: claude-agent
+
+    # Rootfs is writable so VS Code Dev Containers can patch /etc/environment
+    # and install the remote server. Agent is non-root + seccomp + cap_drop ALL,
+    # so writes to system dirs are blocked by file permissions, not the mount.
+    # tmpfs entries kept for noexec/nosuid hardening on volatile paths.
+    tmpfs:
+      - /tmp:size=1g,noexec,nosuid,nodev
+      - /run:size=64m,noexec,nosuid,nodev
+      - /home/agent/.npm-global:size=512m,nosuid,nodev
+      - /home/agent/.local:size=256m,nosuid,nodev
+
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./seccomp.json
+
+    cap_drop:
+      - ALL
+
+    pids_limit: 512
+    mem_limit: 8g
+    memswap_limit: 8g
+    cpus: 4
+    ulimits:
+      nofile:
+        soft: 2048
+        hard: 8192
+      nproc:
+        soft: 512
+        hard: 512
+
+    volumes:
+      # Your repo tree — writable so Claude Code can edit files.
+      - /Volumes/DataDrive/repo:/workspace:rw
+      # OAuth token + Claude settings. Persist across restarts.
+      - /Volumes/DataDrive/.claude-colima/claude-home:/home/agent/.claude:rw
+      # Caches (npm, uv, pip). Persist across restarts to avoid re-downloads.
+      - /Volumes/DataDrive/.claude-colima/workspace-cache:/home/agent/.cache:rw
+      # VS Code Dev Containers server + extensions. Named volume (not a
+      # drive bind mount) because virtiofs on macOS mis-handles utime during
+      # tar extraction of the server binary. The volume still lives on the
+      # drive via Colima's VM disk image, just inside the VM's ext4.
+      - vscode-server:/home/agent/.vscode-server:rw
+
+    # Agent lives on the INTERNAL network only (no outbound NAT).
+    # The only reachable host is egress-proxy, which bridges to the external net.
+    networks:
+      - sandbox-internal
+    environment:
+      - HTTP_PROXY=http://egress-proxy:3128
+      - HTTPS_PROXY=http://egress-proxy:3128
+      - http_proxy=http://egress-proxy:3128
+      - https_proxy=http://egress-proxy:3128
+      - NO_PROXY=localhost,127.0.0.1,egress-proxy
+    depends_on:
+      - egress-proxy
+
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Egress proxy: domain-allowlisted outbound traffic
+  # ---------------------------------------------------------------------------
+  egress-proxy:
+    image: ubuntu/squid:latest
+    container_name: egress-proxy
+    hostname: egress-proxy
+    read_only: true
+    tmpfs:
+      - /var/spool/squid:size=256m
+      - /var/log/squid:size=64m
+      - /run:size=8m
+    volumes:
+      - ./proxy/squid.conf:/etc/squid/squid.conf:ro
+      - ./proxy/allowed_domains.txt:/etc/squid/allowed_domains.txt:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID            # squid drops from root to the `proxy` user at startup
+      - SETGID            # ...and switches group too
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 0.5
+    # Proxy straddles both networks: reachable by the agent (internal) and
+    # has outbound internet itself (external).
+    networks:
+      - sandbox-internal
+      - sandbox-external
+    restart: unless-stopped
+
+networks:
+  sandbox-internal:
+    driver: bridge
+    internal: true          # no outbound NAT from this network
+  sandbox-external:
+    driver: bridge
+
+volumes:
+  vscode-server:            # named volume inside VM — avoids virtiofs utime issues
