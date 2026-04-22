@@ -15,13 +15,17 @@ FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194
 LABEL description="Hardened sandbox for Claude Code on Colima/macOS"
 
 # ---------- system packages --------------------------------------------------
-# bubblewrap + socat: required by Claude Code's in-process sandbox.
 # tini: PID 1 signal handling.
+# bubblewrap + socat deliberately NOT installed — Claude Code's in-process
+# sandbox uses them, but that sandbox cannot function inside this container
+# (bwrap needs unprivileged user namespaces, which seccomp correctly blocks).
+# Removing them physically closes the socat raw-TCP exfil channel and means
+# neither the agent nor a shell user can invoke them.
 # Everything else: dev essentials for typical agent work.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl wget git \
-      bubblewrap socat tini \
+      tini \
       build-essential \
       python3 python3-pip python3-venv \
       ripgrep jq less vim-tiny \

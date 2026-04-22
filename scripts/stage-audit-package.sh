@@ -31,7 +31,7 @@ if [[ "$action" == "--clean" ]]; then
 fi
 
 rm -rf "$dest"
-mkdir -p "$dest/proxy" "$dest/scripts" "$dest/scripts/config"
+mkdir -p "$dest/proxy" "$dest/scripts" "$dest/config"
 
 cp "$MACOLIMA_DIR/CLAUDE.md"                       "$dest/CLAUDE.md"
 cp "$MACOLIMA_DIR/Dockerfile"                      "$dest/Dockerfile"
@@ -42,7 +42,7 @@ cp "$MACOLIMA_DIR/proxy/squid.conf"                "$dest/proxy/squid.conf"
 cp "$MACOLIMA_DIR/scripts/verify-sandbox.sh"       "$dest/scripts/verify-sandbox.sh"
 cp "$MACOLIMA_DIR/scripts/setup.sh"                "$dest/scripts/setup.sh"
 cp "$MACOLIMA_DIR/scripts/profile.sh"              "$dest/scripts/profile.sh"
-cp "$MACOLIMA_DIR/scripts/config/claude-settings.json" "$dest/scripts/config/claude-settings.json"
+cp "$MACOLIMA_DIR/config/claude-settings.json"    "$dest/config/claude-settings.json"
 cp "$MACOLIMA_DIR/claude_internal_audit.md"        "$dest/claude_internal_audit.md"
 
 chmod -R a-w "$dest"

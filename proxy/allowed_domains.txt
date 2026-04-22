@@ -3,39 +3,54 @@
 # =============================================================================
 # One domain per line. A leading dot (e.g. .github.com) matches all subdomains.
 # Keep this list minimal — fewer domains = smaller attack surface.
+#
+# Two-phase usage pattern:
+#   - AUTONOMOUS runs (agent driving): only this default list — Anthropic + VS
+#     Code Marketplace. No git remotes, no package registries. Agent can't
+#     clone, install, or push to anything. Web search still works because
+#     WebSearch/WebFetch run server-side on Anthropic's infra.
+#   - PLANNING runs (you driving): uncomment the "planning only" section
+#     below, restart Squid (`docker compose restart egress-proxy` via
+#     scripts/profile.sh), do your installs/clones/pushes, then re-comment
+#     and restart before firing off any autonomous work.
 # =============================================================================
 
-# --- Claude / Anthropic ---
+# --- Claude / Anthropic (always on) ---
 .anthropic.com
 .claude.com
 .claude.ai
 statsig.anthropic.com
 
+# --- VS Code Marketplace (IDE integration) ---
+marketplace.visualstudio.com
+.vscode-unpkg.net
+update.code.visualstudio.com
+
+# =============================================================================
+# === Planning-mode only — uncomment when you're driving, re-comment before ===
+# === handing the session to the agent. ======================================
+# =============================================================================
+
 # --- Source code / git ---
-.github.com
-.githubusercontent.com
-.githubassets.com
-.gitlab.com
-.gitlab-static.net
+# .github.com
+# .githubusercontent.com
+# .githubassets.com
+# .gitlab.com
+# .gitlab-static.net
 
 # --- Python package ecosystem ---
-.pypi.org
-.files.pythonhosted.org
-.astral.sh
+# .pypi.org
+# .files.pythonhosted.org
+# .astral.sh
 
 # --- Node.js / npm ---
-.registry.npmjs.org
-.npmjs.com
-.nodejs.org
-deb.nodesource.com
+# .registry.npmjs.org
+# .npmjs.com
+# .nodejs.org
+# deb.nodesource.com
 
 # --- OS packages (only needed if you apt-get inside the container) ---
 # .ubuntu.com
 # .debian.org
 # archive.ubuntu.com
 # security.ubuntu.com
-
-# --- VS Code Marketplace (extensions) ---
-marketplace.visualstudio.com
-.vscode-unpkg.net
-update.code.visualstudio.com

@@ -132,16 +132,29 @@ A bare `tmpfs: - /path:size=N,nosuid,nodev` mount comes up owned by `root:root` 
 ### `setup.sh` must stay bash 3.2-compatible
 macOS ships `/bin/bash` 3.2 and `env bash` often resolves to it. No `;;&` case fall-through, no `mapfile`, no `${var,,}`, no associative arrays. When the `--github` / `--gitlab` / `--both` branch needs shared logic, use a helper function called from multiple case arms — not `;;&`.
 
-### Claude Code's bwrap sandbox and permission prompts — both disabled inside the container
-Two related settings, same rationale: **the container is the security boundary**, so Claude Code's in-process defenses-in-depth are redundant here and actively get in the way.
+### Claude Code's bwrap sandbox is disabled; the container is the boundary
+Claude Code's `Bash` tool wraps every command in `bwrap` (bubblewrap). bwrap implements its isolation by calling `unshare(CLONE_NEWUSER)`, which our seccomp filter **correctly blocks** (unprivileged user namespaces are a non-negotiable deny). Result: every Bash call fails with `bwrap: No permissions to create new namespace` before the command runs. Two sandboxes with incompatible mechanisms; the container is the stronger outer boundary.
 
-1. **`sandbox.enabled: false`** — Claude Code's `Bash` tool wraps every command in `bwrap` (bubblewrap). bwrap implements its isolation by calling `unshare(CLONE_NEWUSER)`, which our seccomp filter **correctly blocks** (unprivileged user namespaces are a non-negotiable deny). Result: every Bash call fails with `bwrap: No permissions to create new namespace` before the command runs. Two sandboxes with incompatible mechanisms.
+Three consequences, all load-bearing:
 
-2. **`permissions.defaultMode: "bypassPermissions"`** — skips the per-tool permission prompts (`Allow? (y/n)`). Those prompts exist to protect a user's host machine from a runaway agent. In here, the agent is already non-root, cap-dropped, seccomp-filtered, on an internal network, with no host FS reachable — there is nothing a permission prompt would protect. The prompts only slow down long-running tasks.
+1. **`sandbox.enabled: false`** in `~/.claude/settings.json` — Claude Code uses unsandboxed execution.
+2. **`bubblewrap` and `socat` are NOT installed** in the Dockerfile. They were only there to support the in-process sandbox; with it disabled, they become dead weight, and `socat` in particular is a raw-TCP exfil channel that bypasses the HTTP-only Squid egress policy. Keeping them installed would be a real hole.
+3. **`config/claude-settings.json`** is the per-profile settings template. `ensure_state()` in `profile.sh` copies it into `profiles/<p>/claude-home/settings.json` on first `up` (only if the file is absent — existing profiles keep customizations). Persists across `--recreate` via the bind mount.
 
-Both live in `scripts/config/claude-settings.json`, which `ensure_state()` in `profile.sh` copies into `profiles/<p>/claude-home/settings.json` on first `up` (only if the file is absent — existing profiles keep customizations). Persists across `--recreate` via the bind mount.
+Do **not** "re-harden" by re-enabling `sandbox.enabled` or re-adding `bubblewrap`/`socat` to the image. bwrap's threat model protects a real host filesystem from a rogue command; there is no reachable host filesystem from inside this container. Existing profiles whose `settings.json` predates this template need the keys added manually once.
 
-Do **not** "re-harden" by re-enabling either. bwrap's threat model protects a real host filesystem from a rogue command; permission prompts protect a user's attention span from autonomous misuse. Neither threat exists here. Existing profiles whose `settings.json` predates this template need the keys added manually once.
+### Permissions posture: plan interactively, execute autonomously
+The agent's permission posture and the proxy's egress allowlist are designed around a two-phase workflow:
+
+- **Planning runs** (you're driving, approving each step): uncomment the planning-mode section in `proxy/allowed_domains.txt` (github/pypi/npm/nodejs), restart Squid, do clones/installs/pushes yourself. `permissions.defaultMode: "acceptEdits"` means Edit/Write auto-apply, Bash is prompt-gated.
+- **Autonomous runs** (agent driving): re-comment the planning-mode domains, restart Squid. The agent's allow list covers routine read-only and non-destructive Bash; its deny list blocks network tools (`curl`, `wget`, `ssh`, `scp`, `rsync`, `git push/clone/fetch`, `gh`, `glab`), package installers (`pip`, `npm`, `uv`, `pipx`, `cargo`, `go install`), and shell-escape patterns (`bash -c`, `python -c`, `node -e`). Web search still works because `WebSearch`/`WebFetch` execute server-side on Anthropic's infra, not through the container's network.
+
+The discipline: **if the agent says it needs a new package or a fresh clone, that's a planning-phase signal** — exit autonomous mode, you do it yourself, resume. Don't widen the agent's permissions to cover one-off installs; widen them only for patterns you'll keep seeing.
+
+Reload Squid after toggling the allowlist:
+```bash
+PROFILE=<p> COMPOSE_PROJECT_NAME=macolima-<p> docker compose restart egress-proxy
+```
 
 ### Ubuntu 24.04 default `ubuntu` user at UID 1000
 Dockerfile does `userdel -r ubuntu 2>/dev/null || true` before creating `agent` at UID 1000. Don't remove that line.
