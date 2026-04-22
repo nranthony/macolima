@@ -1,0 +1,64 @@
+# =============================================================================
+# .trivyignore.yaml — CVEs & misconfigs explicitly accepted for macolima.
+# =============================================================================
+# Every entry MUST carry a statement (why accepted) and expired_at (when to
+# re-evaluate). On the expiry date the entry becomes inactive and the
+# finding re-appears in scans — that's the re-check signal.
+#
+# Workflow on re-check:
+#   1. Re-run `scripts/trivy-scan.sh image`.
+#   2. If still present: check upstream for a fix. If fixed, bump the tool
+#      in the Dockerfile and re-scan (the entry can then be deleted).
+#      If not fixed, extend expired_at with a refreshed statement.
+#   3. If gone: delete the entry.
+# =============================================================================
+
+vulnerabilities:
+  # --- glab / Go stdlib 1.26.1 ---------------------------------------------
+  # glab v1.92.1 (latest as of 2026-04-21) is built with Go 1.26.1. Upstream
+  # has not yet shipped a release on Go 1.26.2+, which fixes these.
+  # In this sandbox, glab only calls gitlab.com over TLS via the Squid egress
+  # proxy; Squid is HTTP-proxy (not MITM), so the TLS session terminates at
+  # gitlab.com and glab's x509 code is the validator. An attacker would need
+  # to MITM that session — requires compromising the Squid proxy or the
+  # Colima VM's networking, neither of which is reachable from the agent.
+  - id: CVE-2026-32280
+    statement: "glab Go stdlib 1.26.1 TLS DoS; upstream awaiting rebuild. See .trivyignore.yaml header."
+    expired_at: 2026-05-21
+  - id: CVE-2026-32281
+    statement: "glab Go stdlib 1.26.1 x509 DoS; upstream awaiting rebuild."
+    expired_at: 2026-05-21
+  - id: CVE-2026-32283
+    statement: "glab Go stdlib 1.26.1 TLS key update DoS; upstream awaiting rebuild."
+    expired_at: 2026-05-21
+  - id: CVE-2026-33810
+    statement: "glab Go stdlib 1.26.1 x509 DNS constraint bypass; upstream awaiting rebuild."
+    expired_at: 2026-05-21
+
+  # --- mongosh-bundled transitive deps -------------------------------------
+  # mongosh ships vendored node_modules and rolls them up slowly. In this
+  # sandbox mongosh only talks to the per-profile mongo:27017 sibling on
+  # sandbox-internal (a DB we control) — none of these CVEs have a reachable
+  # exploit path: no untrusted FTP server, no untrusted template input, no
+  # HTTP router, no attacker-supplied glob patterns. Re-check in 90 days.
+  - id: CVE-2026-39983
+    statement: "mongosh-bundled basic-ftp 5.2.0 CRLF injection; agent only talks to internal mongo, no FTP."
+    expired_at: 2026-07-21
+  - id: GHSA-6v7q-wjvx-w8wg
+    statement: "mongosh-bundled basic-ftp CRLF arbitrary FTP command; same reasoning as CVE-2026-39983."
+    expired_at: 2026-07-21
+  - id: GHSA-rp42-5vxx-qpwr
+    statement: "mongosh-bundled basic-ftp DoS via Client.list(); no external FTP use."
+    expired_at: 2026-07-21
+  - id: CVE-2026-4800
+    statement: "mongosh-bundled lodash 4.17.23 template injection; no untrusted template input path."
+    expired_at: 2026-07-21
+  - id: CVE-2026-4926
+    statement: "mongosh-bundled path-to-regexp 8.3.0 ReDoS; mongosh exposes no HTTP router."
+    expired_at: 2026-07-21
+
+misconfigurations:
+  # --- Dockerfile cosmetic -------------------------------------------------
+  - id: DS-0026
+    statement: "No HEALTHCHECK — interactive dev container, not orchestrated by anything that reads the signal."
+    expired_at: 2027-04-21

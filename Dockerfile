@@ -4,9 +4,10 @@
 # Design notes:
 #   - Non-root user `agent` (UID 1000).
 #   - No sudo. Tools are baked in at build time; if you need more, rebuild.
-#   - Root filesystem is made read-only at runtime (see docker-compose.yml).
-#     Writable paths are provided via tmpfs / bind mounts.
-#   - Base image digest should be pinned. First-time setup scripts update it.
+#   - Isolation comes from runtime: cap_drop: ALL, seccomp, no_new_privs,
+#     internal network. Rootfs is NOT read-only (tried and removed — broke
+#     VS Code Dev Containers with no security gain). See CLAUDE.md.
+#   - Base image digest is pinned. First-time setup scripts update it.
 # =============================================================================
 
 FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
@@ -25,14 +26,20 @@ RUN apt-get update \
       python3 python3-pip python3-venv \
       ripgrep jq less vim-tiny \
       openssh-client \
+      postgresql-client \
       zsh lsd fontconfig locales \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # ---------- Node.js + Claude Code -------------------------------------------
+# Upgrade bundled npm first — NodeSource ships an older npm whose own
+# vendored deps (cross-spawn, glob, minimatch, tar) accumulate CVEs between
+# NodeSource publishes. Pulling latest npm before installing global packages
+# means mongosh/claude-code get extracted by the newer tar, too.
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
- && npm install -g @anthropic-ai/claude-code \
+ && npm install -g npm@latest \
+ && npm install -g @anthropic-ai/claude-code mongosh@latest \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -54,6 +61,12 @@ RUN install -d -m 0755 /etc/apt/keyrings \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # ---------- GitLab CLI (glab) — official binary ------------------------------
+# Target: a release built with Go >= 1.26.2 (earlier Go stdlib has
+# crypto/x509 + crypto/tls CVEs — CVE-2026-32280/32281/32283/33810).
+# Latest as of 2026-04-21 is v1.92.1, still built with Go 1.26.1 — those
+# CVEs are accepted via .trivyignore pending an upstream rebuild. Re-check
+# https://gitlab.com/gitlab-org/cli/-/releases when bumping, and confirm
+# the Go version in the release notes before expecting those CVEs to clear.
 ARG GLAB_VERSION=1.92.1
 RUN ARCH="$(dpkg --print-architecture)" \
  && case "$ARCH" in amd64) GARCH=x86_64 ;; arm64) GARCH=arm64 ;; *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; esac \

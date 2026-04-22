@@ -157,6 +157,43 @@ scripts/profile.sh list
 
 Each profile gets its own 8g memory / 4 CPU envelope and its own Squid proxy. Three concurrent profiles ≈ 24g of headroom needed in Colima's VM.
 
+## Databases (optional)
+
+Postgres 18 and Mongo 8 sibling containers ship in `docker-compose.yml` but are gated behind compose `profiles:` — they stay dormant unless you opt in per-profile. Both sit on `sandbox-internal` (no external reachability) and use named volumes (`macolima-<p>_postgres-data` / `_mongo-data`) inside the VM's ext4 to avoid virtiofs permission issues.
+
+```bash
+# Bring up a profile with Postgres, Mongo, or both
+COMPOSE_PROFILES=db-postgres          scripts/profile.sh <p> up
+COMPOSE_PROFILES=db-mongo             scripts/profile.sh <p> up
+COMPOSE_PROFILES=db-all               scripts/profile.sh <p> up
+```
+
+On first `up`, `profiles/<p>/db.env.example` is seeded. Copy to `db.env`, set real passwords, re-up:
+
+```bash
+cp /Volumes/DataDrive/.claude-colima/profiles/<p>/db.env.example \
+   /Volumes/DataDrive/.claude-colima/profiles/<p>/db.env
+chmod 600 /Volumes/DataDrive/.claude-colima/profiles/<p>/db.env
+# edit passwords, then:
+COMPOSE_PROFILES=db-all scripts/profile.sh <p> up
+```
+
+Inside the agent the DBs are reachable as `postgres:5432` and `mongo:27017`; `psql` and `mongosh` are preinstalled, and the creds come in via env. For host GUI access (TablePlus, Compass), uncomment the `ports:` block on the relevant service — loopback-only, never `0.0.0.0`.
+
+Backups: `pg_dump` / `mongodump` into `/workspace`, which is the one bind mount on the external drive and survives a VM rebuild. Current caveat: the agent holds DB **admin** creds — see `CLAUDE.md` for the planned least-privilege split.
+
+## Web UIs (Streamlit, Dash, Jupyter, dashboards)
+
+Default path is **VS Code Dev Containers port forwarding** — when attached, any port a process binds inside the container is auto-forwarded to `localhost:<same-port>` on your Mac via the `docker exec` channel. No compose changes, no open host ports. Bind to `0.0.0.0` inside the container so VS Code sees the listener:
+
+```bash
+streamlit run app.py --server.address 0.0.0.0
+# dash / flask: app.run(host="0.0.0.0")
+# jupyter:       jupyter lab --ip 0.0.0.0 --no-browser
+```
+
+For non-VS Code use, add a loopback port to the `claude-agent` service: `ports: ["127.0.0.1:8501:8501"]`. This is inbound from your Mac only; it does not grant the agent any new outbound capability.
+
 ## Authentication inside a profile
 
 ### Claude Code

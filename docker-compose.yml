@@ -69,6 +69,12 @@ services:
 
     networks:
       - sandbox-internal
+    env_file:
+      # Optional DB creds — only present for profiles that opted into the
+      # postgres/mongo sibling containers. required: false so profiles
+      # without DBs still come up cleanly.
+      - path: /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/db.env
+        required: false
     environment:
       - HTTP_PROXY=http://egress-proxy:3128
       - HTTPS_PROXY=http://egress-proxy:3128
@@ -84,6 +90,68 @@ services:
 
     working_dir: /workspace
     command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Optional: Postgres sibling (opt-in via COMPOSE_PROFILES=db-postgres)
+  # ---------------------------------------------------------------------------
+  # On sandbox-internal only — the agent reaches it at host `postgres:5432`.
+  # Data lives in a named volume (macolima-<profile>_postgres-data) inside
+  # the Colima VM's ext4, avoiding virtiofs UID/permission issues that bit
+  # .vscode-server. Back up anything important with `pg_dump` to /workspace.
+  # Credentials come from profiles/<profile>/db.env (template seeded by
+  # scripts/profile.sh). File is optional — without POSTGRES_PASSWORD the
+  # image refuses to start, which is the behavior we want.
+  postgres:
+    image: postgres:18
+    container_name: postgres-${PROFILE}
+    hostname: postgres
+    profiles: ["db-postgres", "db-all"]
+    env_file:
+      - path: /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/db.env
+        required: false
+    volumes:
+      # pg 18+ wants the mount at /var/lib/postgresql (not .../data); the
+      # image manages a version-subdir inside to support pg_upgrade --link.
+      - postgres-data:/var/lib/postgresql:rw
+    networks:
+      - sandbox-internal
+    # Uncomment to expose to host GUI tools (TablePlus, DBeaver, psql on mac).
+    # Loopback-only — do not bind 0.0.0.0.
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Optional: MongoDB sibling (opt-in via COMPOSE_PROFILES=db-mongo)
+  # ---------------------------------------------------------------------------
+  # Reach from the agent at host `mongo:27017`. Named volume for data.
+  # If MONGO_INITDB_ROOT_USERNAME/PASSWORD are unset the image starts
+  # without auth — that's acceptable on sandbox-internal (no external
+  # reachability), but set them in db.env if you plan to publish the port.
+  mongo:
+    image: mongo:8
+    container_name: mongo-${PROFILE}
+    hostname: mongo
+    profiles: ["db-mongo", "db-all"]
+    env_file:
+      - path: /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/db.env
+        required: false
+    volumes:
+      - mongo-data:/data/db:rw
+    networks:
+      - sandbox-internal
+    # Uncomment to expose to host GUI tools (Compass, mongosh on mac).
+    # ports:
+    #   - "127.0.0.1:27017:27017"
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -124,3 +192,5 @@ networks:
 
 volumes:
   vscode-server:
+  postgres-data:
+  mongo-data:

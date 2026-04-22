@@ -82,6 +82,20 @@ ensure_state() {
     chmod 644 "$p/claude.json"
   fi
   mkdir -p "$p/config/git"
+  # Seed a db.env.example so users know which keys to set if they opt into
+  # the Postgres/Mongo sibling containers. We never write db.env itself —
+  # user copies the example and fills in secrets.
+  if [[ ! -f "$p/db.env.example" ]]; then
+    cat > "$p/db.env.example" <<'EOF'
+# Copy to db.env and fill in. Only needed if you run the postgres/mongo
+# sibling containers (COMPOSE_PROFILES=db-postgres or db-mongo).
+POSTGRES_USER=agent
+POSTGRES_PASSWORD=change-me
+POSTGRES_DB=dev
+MONGO_INITDB_ROOT_USERNAME=agent
+MONGO_INITDB_ROOT_PASSWORD=change-me
+EOF
+  fi
   # Seed settings.json if absent.
   if [[ ! -f "$p/claude-home/settings.json" ]] && [[ -f "$SCRIPT_DIR/config/claude-settings.json" ]]; then
     cp "$SCRIPT_DIR/config/claude-settings.json" "$p/claude-home/settings.json"

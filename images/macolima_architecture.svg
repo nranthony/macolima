@@ -1,0 +1,270 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <!-- Arrow markers -->
+    <marker id="arr-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/>
+    </marker>
+    <marker id="arr-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+    </marker>
+    <marker id="arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/>
+    </marker>
+    <marker id="arr-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+    </marker>
+  </defs>
+
+  <!-- ===== Canvas ===== -->
+  <rect width="1440" height="1180" fill="#ffffff"/>
+
+  <!-- ===== Title ===== -->
+  <text x="720" y="34" font-size="22" font-weight="700" text-anchor="middle" fill="#111827">macolima architecture</text>
+  <text x="720" y="56" font-size="13" text-anchor="middle" fill="#6b7280">Hardened multi-profile sandbox · Mac (Apple Silicon) → Colima VM → per-profile Docker stacks</text>
+
+  <!-- ===== Mac host outer box ===== -->
+  <rect x="20" y="74" width="1400" height="990" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="40" y="98" font-size="14" font-weight="700" fill="#374151">macOS · Apple Silicon</text>
+
+  <!-- ===== Mac tools strip ===== -->
+  <!-- Browser box -->
+  <rect x="40" y="112" width="670" height="70" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
+  <text x="56" y="134" font-size="13" font-weight="700" fill="#111827">Mac browser</text>
+  <text x="56" y="152" font-size="12" fill="#4b5563">• <tspan font-family="'SF Mono', Menlo, Consolas, monospace">claude login</tspan> — OAuth device flow (token lands in container)</text>
+  <text x="56" y="168" font-size="12" fill="#4b5563">• gh / glab → use <tspan font-weight="600">token paste</tspan>; OAuth callback can't reach sandbox-internal</text>
+
+  <!-- VS Code box -->
+  <rect x="720" y="112" width="680" height="70" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
+  <text x="736" y="134" font-size="13" font-weight="700" fill="#111827">VS Code · Dev Containers</text>
+  <text x="736" y="152" font-size="12" fill="#4b5563">• Attach to running <tspan font-family="'SF Mono', Menlo, Consolas, monospace">claude-agent-&lt;p&gt;</tspan>, or use <tspan font-family="'SF Mono', Menlo, Consolas, monospace">devcontainer.json</tspan></text>
+  <text x="736" y="168" font-size="12" fill="#4b5563">• Port forwarding (Streamlit/Dash/Jupyter) via <tspan font-family="'SF Mono', Menlo, Consolas, monospace">docker exec</tspan> channel — no published ports</text>
+
+  <!-- ===== External Drive (left column) ===== -->
+  <rect x="40" y="198" width="370" height="846" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="56" y="222" font-size="14" font-weight="700" fill="#1e40af">External drive</text>
+  <text x="56" y="240" font-size="12" font-family="'SF Mono', Menlo, Consolas, monospace" fill="#1e3a8a">/Volumes/DataDrive</text>
+
+  <!-- Drive: VM state -->
+  <rect x="56" y="258" width="338" height="54" rx="5" fill="#ffffff" stroke="#93c5fd" stroke-width="1"/>
+  <text x="70" y="278" font-size="12" font-weight="700" fill="#1e3a8a">.colima/</text>
+  <text x="70" y="296" font-size="11" fill="#475569">Colima VM state (disk image, config, lima dirs)</text>
+
+  <!-- Drive: repos -->
+  <rect x="56" y="322" width="338" height="70" rx="5" fill="#ffffff" stroke="#93c5fd" stroke-width="1"/>
+  <text x="70" y="342" font-size="12" font-weight="700" fill="#1e3a8a">repo/&lt;profile&gt;/</text>
+  <text x="70" y="360" font-size="11" fill="#475569">Your git clones for this profile</text>
+  <text x="70" y="376" font-size="11" fill="#2563eb" font-family="'SF Mono', Menlo, Consolas, monospace">→ bind-mounted as /workspace</text>
+
+  <!-- Drive: per-profile state -->
+  <rect x="56" y="402" width="338" height="620" rx="5" fill="#ffffff" stroke="#93c5fd" stroke-width="1"/>
+  <text x="70" y="422" font-size="12" font-weight="700" fill="#1e3a8a">.claude-colima/profiles/&lt;p&gt;/</text>
+  <text x="70" y="440" font-size="11" fill="#475569">Per-profile persistent state (survives recreate)</text>
+
+  <!-- sub-items -->
+  <g font-size="11.5" fill="#111827">
+    <!-- claude-home -->
+    <rect x="78" y="454" width="310" height="52" rx="4" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="90" y="471" font-family="'SF Mono', Menlo, Consolas, monospace" font-weight="700">claude-home/</text>
+    <text x="90" y="487" fill="#475569">tokens · sessions · MCP · projects</text>
+    <text x="90" y="502" font-family="'SF Mono', Menlo, Consolas, monospace" font-size="10.5" fill="#2563eb">→ ~/.claude/</text>
+
+    <!-- claude.json -->
+    <rect x="78" y="514" width="310" height="52" rx="4" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="90" y="531" font-family="'SF Mono', Menlo, Consolas, monospace" font-weight="700">claude.json</text>
+    <text x="90" y="547" fill="#475569">single file, chmod 644, contains `{}`</text>
+    <text x="90" y="562" font-family="'SF Mono', Menlo, Consolas, monospace" font-size="10.5" fill="#2563eb">→ ~/.claude.json</text>
+
+    <!-- cache -->
+    <rect x="78" y="574" width="310" height="52" rx="4" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="90" y="591" font-family="'SF Mono', Menlo, Consolas, monospace" font-weight="700">cache/</text>
+    <text x="90" y="607" fill="#475569">npm · uv · pip caches</text>
+    <text x="90" y="622" font-family="'SF Mono', Menlo, Consolas, monospace" font-size="10.5" fill="#2563eb">→ ~/.cache/</text>
+
+    <!-- config -->
+    <rect x="78" y="634" width="310" height="92" rx="4" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="90" y="651" font-family="'SF Mono', Menlo, Consolas, monospace" font-weight="700">config/</text>
+    <text x="90" y="667" fill="#475569" font-family="'SF Mono', Menlo, Consolas, monospace" font-size="10.5">  gh/            # GitHub token</text>
+    <text x="90" y="681" fill="#475569" font-family="'SF Mono', Menlo, Consolas, monospace" font-size="10.5">  glab-cli/      # GitLab token</text>
+    <text x="90" y="695" fill="#475569" font-family="'SF Mono', Menlo, Consolas, monospace" font-size="10.5">  git/config     # GIT_CONFIG_GLOBAL</text>
+    <text x="90" y="715" font-family="'SF Mono', Menlo, Consolas, monospace" font-size="10.5" fill="#2563eb">→ ~/.config/</text>
+
+    <!-- db.env -->
+    <rect x="78" y="734" width="310" height="52" rx="4" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="3 2"/>
+    <text x="90" y="751" font-family="'SF Mono', Menlo, Consolas, monospace" font-weight="700">db.env</text>
+    <text x="90" y="767" fill="#475569">DB creds (when DBs opted-in)</text>
+    <text x="90" y="782" font-family="'SF Mono', Menlo, Consolas, monospace" font-size="10.5" fill="#2563eb">→ container env</text>
+  </g>
+
+  <text x="56" y="816" font-size="11" fill="#1e40af" font-style="italic">One subtree per profile →</text>
+  <text x="56" y="832" font-size="11" fill="#1e40af" font-style="italic">no cross-profile credential or session leakage.</text>
+
+  <!-- Isolation tag -->
+  <rect x="56" y="852" width="338" height="66" rx="5" fill="#dbeafe" stroke="#3b82f6" stroke-dasharray="3 2"/>
+  <text x="70" y="872" font-size="12" font-weight="700" fill="#1e3a8a">Shared across profiles</text>
+  <text x="70" y="890" font-size="11" fill="#1e3a8a">• <tspan font-family="'SF Mono', Menlo, Consolas, monospace">proxy/allowed_domains.txt</tspan> (egress allowlist)</text>
+  <text x="70" y="906" font-size="11" fill="#1e3a8a">• <tspan font-family="'SF Mono', Menlo, Consolas, monospace">macolima:latest</tspan> image (built once)</text>
+
+  <!-- Bind-mount legend -->
+  <text x="56" y="948" font-size="11" fill="#2563eb" font-weight="700">Legend</text>
+  <line x1="56" y1="962" x2="96" y2="962" stroke="#2563eb" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arr-blue)"/>
+  <text x="104" y="966" font-size="11" fill="#475569">bind mount</text>
+  <line x1="56" y1="982" x2="96" y2="982" stroke="#dc2626" stroke-width="2" marker-end="url(#arr-red)"/>
+  <text x="104" y="986" font-size="11" fill="#475569">sandbox-internal (no internet)</text>
+  <line x1="56" y1="1002" x2="96" y2="1002" stroke="#16a34a" stroke-width="2" marker-end="url(#arr-green)"/>
+  <text x="104" y="1006" font-size="11" fill="#475569">sandbox-egress (allowlist)</text>
+  <rect x="58" y="1018" width="38" height="10" fill="none" stroke="#6b7280" stroke-dasharray="3 2"/>
+  <text x="104" y="1027" font-size="11" fill="#475569">optional (compose profile)</text>
+
+  <!-- ===== Colima VM ===== -->
+  <rect x="430" y="198" width="970" height="846" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.75"/>
+  <text x="448" y="222" font-size="14" font-weight="700" fill="#5b21b6">Colima VM · Apple Virtualization.framework (vz)</text>
+  <text x="448" y="240" font-size="11.5" fill="#6d28d9">rootless Linux VM on the external drive — all Docker lives here</text>
+
+  <!-- ===== Profile stack ===== -->
+  <rect x="450" y="260" width="930" height="770" rx="10" fill="#ffffff" stroke="#4f46e5" stroke-width="1.5"/>
+  <text x="468" y="284" font-size="14" font-weight="700" fill="#3730a3">Profile stack · Compose project <tspan font-family="'SF Mono', Menlo, Consolas, monospace">macolima-&lt;p&gt;</tspan></text>
+  <text x="468" y="302" font-size="11.5" fill="#4338ca">One stack per profile. Concurrent. Shared image, isolated networks &amp; state.</text>
+
+  <!-- =====  CLAUDE AGENT (hero element) ===== -->
+  <rect x="468" y="322" width="440" height="338" rx="8" fill="#111827" stroke="#111827"/>
+  <text x="486" y="348" font-size="15" font-weight="700" fill="#f9fafb"><tspan font-family="'SF Mono', Menlo, Consolas, monospace">claude-agent-&lt;p&gt;</tspan></text>
+  <text x="486" y="366" font-size="11.5" fill="#9ca3af">the sandboxed agent container</text>
+
+  <!-- security pills -->
+  <g font-size="10.5" font-weight="600">
+    <rect x="486" y="380" width="118" height="22" rx="11" fill="#1f2937" stroke="#4b5563"/>
+    <text x="545" y="395" text-anchor="middle" fill="#fbbf24">UID 1000 · non-root</text>
+
+    <rect x="610" y="380" width="98" height="22" rx="11" fill="#1f2937" stroke="#4b5563"/>
+    <text x="659" y="395" text-anchor="middle" fill="#fbbf24">cap_drop: ALL</text>
+
+    <rect x="714" y="380" width="88" height="22" rx="11" fill="#1f2937" stroke="#4b5563"/>
+    <text x="758" y="395" text-anchor="middle" fill="#fbbf24">seccomp.json</text>
+
+    <rect x="486" y="408" width="120" height="22" rx="11" fill="#1f2937" stroke="#4b5563"/>
+    <text x="546" y="423" text-anchor="middle" fill="#fbbf24">no-new-privileges</text>
+
+    <rect x="612" y="408" width="122" height="22" rx="11" fill="#1f2937" stroke="#4b5563"/>
+    <text x="673" y="423" text-anchor="middle" fill="#fbbf24">bwrap (in-process)</text>
+
+    <rect x="740" y="408" width="112" height="22" rx="11" fill="#1f2937" stroke="#4b5563"/>
+    <text x="796" y="423" text-anchor="middle" fill="#fbbf24">4 CPU · 8 GB mem</text>
+  </g>
+
+  <!-- divider -->
+  <line x1="486" y1="446" x2="890" y2="446" stroke="#374151"/>
+  <text x="486" y="466" font-size="11.5" font-weight="700" fill="#d1d5db">Inside the container</text>
+
+  <!-- toolchain -->
+  <g font-size="11" fill="#e5e7eb">
+    <text x="486" y="486"><tspan font-family="'SF Mono', Menlo, Consolas, monospace" fill="#fbbf24">claude</tspan>  Claude Code CLI (auto mode)</text>
+    <text x="486" y="504"><tspan font-family="'SF Mono', Menlo, Consolas, monospace" fill="#fbbf24">gh</tspan> / <tspan font-family="'SF Mono', Menlo, Consolas, monospace" fill="#fbbf24">glab</tspan>  GitHub / GitLab CLIs + git credential helpers</text>
+    <text x="486" y="522"><tspan font-family="'SF Mono', Menlo, Consolas, monospace" fill="#fbbf24">zsh</tspan> + powerlevel10k (gitstatusd)</text>
+    <text x="486" y="540"><tspan font-family="'SF Mono', Menlo, Consolas, monospace" fill="#fbbf24">node</tspan> · <tspan font-family="'SF Mono', Menlo, Consolas, monospace" fill="#fbbf24">psql</tspan> · <tspan font-family="'SF Mono', Menlo, Consolas, monospace" fill="#fbbf24">mongosh</tspan></text>
+  </g>
+
+  <line x1="486" y1="554" x2="890" y2="554" stroke="#374151"/>
+  <text x="486" y="574" font-size="11.5" font-weight="700" fill="#d1d5db">Mount points (pre-created in Dockerfile, chown agent:agent)</text>
+
+  <g font-size="10.5" fill="#9ca3af" font-family="'SF Mono', Menlo, Consolas, monospace">
+    <text x="486" y="592">/workspace                     ← repo/&lt;p&gt;/</text>
+    <text x="486" y="608">/home/agent/.claude/           ← claude-home/</text>
+    <text x="486" y="624">/home/agent/.claude.json       ← claude.json</text>
+    <text x="486" y="640">/home/agent/.cache/            ← cache/</text>
+    <text x="486" y="656">/home/agent/.config/           ← config/</text>
+  </g>
+
+  <!-- ===== Sibling DB containers (optional) ===== -->
+  <!-- Postgres -->
+  <rect x="928" y="322" width="215" height="150" rx="8" fill="#f0fdf4" stroke="#059669" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="946" y="346" font-size="13" font-weight="700" fill="#065f46"><tspan font-family="'SF Mono', Menlo, Consolas, monospace">postgres-&lt;p&gt;</tspan></text>
+  <text x="946" y="364" font-size="11" fill="#047857"><tspan font-family="'SF Mono', Menlo, Consolas, monospace">postgres:18</tspan> · optional</text>
+  <text x="946" y="384" font-size="10.5" fill="#065f46">compose profile: <tspan font-family="'SF Mono', Menlo, Consolas, monospace">db-postgres</tspan></text>
+  <text x="946" y="402" font-size="10.5" fill="#065f46">reachable at <tspan font-family="'SF Mono', Menlo, Consolas, monospace">postgres:5432</tspan></text>
+  <text x="946" y="422" font-size="10.5" fill="#065f46">named volume:</text>
+  <text x="946" y="438" font-size="10" font-family="'SF Mono', Menlo, Consolas, monospace" fill="#065f46">macolima-&lt;p&gt;_postgres-data</text>
+  <text x="946" y="460" font-size="10" fill="#6b7280" font-style="italic">(VM ext4, not drive)</text>
+
+  <!-- Mongo -->
+  <rect x="1155" y="322" width="215" height="150" rx="8" fill="#f0fdf4" stroke="#059669" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="1173" y="346" font-size="13" font-weight="700" fill="#065f46"><tspan font-family="'SF Mono', Menlo, Consolas, monospace">mongo-&lt;p&gt;</tspan></text>
+  <text x="1173" y="364" font-size="11" fill="#047857"><tspan font-family="'SF Mono', Menlo, Consolas, monospace">mongo:8</tspan> · optional</text>
+  <text x="1173" y="384" font-size="10.5" fill="#065f46">compose profile: <tspan font-family="'SF Mono', Menlo, Consolas, monospace">db-mongo</tspan></text>
+  <text x="1173" y="402" font-size="10.5" fill="#065f46">reachable at <tspan font-family="'SF Mono', Menlo, Consolas, monospace">mongo:27017</tspan></text>
+  <text x="1173" y="422" font-size="10.5" fill="#065f46">named volume:</text>
+  <text x="1173" y="438" font-size="10" font-family="'SF Mono', Menlo, Consolas, monospace" fill="#065f46">macolima-&lt;p&gt;_mongo-data</text>
+  <text x="1173" y="460" font-size="10" fill="#6b7280" font-style="italic">(VM ext4, not drive)</text>
+
+  <!-- Named volumes panel -->
+  <rect x="928" y="486" width="442" height="110" rx="8" fill="#faf5ff" stroke="#a855f7" stroke-width="1"/>
+  <text x="946" y="508" font-size="12.5" font-weight="700" fill="#6b21a8">Named Docker volumes (inside VM's ext4)</text>
+  <text x="946" y="528" font-size="11" fill="#6b21a8">Bypass virtiofs for perf + correctness (fsync, uid-sensitive writes).</text>
+  <g font-size="10.5" font-family="'SF Mono', Menlo, Consolas, monospace" fill="#581c87">
+    <text x="946" y="548">macolima-&lt;p&gt;_vscode-server   — VS Code server extracts cleanly</text>
+    <text x="946" y="564">macolima-&lt;p&gt;_postgres-data   — pg_ctl happy with uid 999</text>
+    <text x="946" y="580">macolima-&lt;p&gt;_mongo-data      — mongod happy with uid 999</text>
+  </g>
+
+  <!-- ===== Egress proxy ===== -->
+  <rect x="468" y="684" width="440" height="116" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+  <text x="486" y="708" font-size="13.5" font-weight="700" fill="#78350f"><tspan font-family="'SF Mono', Menlo, Consolas, monospace">egress-proxy-&lt;p&gt;</tspan>  ·  Squid</text>
+  <text x="486" y="726" font-size="11" fill="#92400e">the only path out — enforces the shared domain allowlist</text>
+  <g font-size="11" fill="#78350f">
+    <text x="486" y="748">• Caps: <tspan font-family="'SF Mono', Menlo, Consolas, monospace">SETUID</tspan> + <tspan font-family="'SF Mono', Menlo, Consolas, monospace">SETGID</tspan> only (runs as <tspan font-family="'SF Mono', Menlo, Consolas, monospace">proxy</tspan> user)</text>
+    <text x="486" y="764">• HTTP &amp; HTTPS CONNECT on :3128; <tspan font-family="'SF Mono', Menlo, Consolas, monospace">read_only: true</tspan> rootfs</text>
+    <text x="486" y="780">• Hot reload of <tspan font-family="'SF Mono', Menlo, Consolas, monospace">allowed_domains.txt</tspan> via <tspan font-family="'SF Mono', Menlo, Consolas, monospace">docker compose restart</tspan></text>
+  </g>
+
+  <!-- ===== Concurrent profiles note ===== -->
+  <rect x="928" y="612" width="442" height="188" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-width="1"/>
+  <text x="946" y="634" font-size="12.5" font-weight="700" fill="#3730a3">Multi-profile isolation</text>
+  <text x="946" y="652" font-size="11" fill="#3730a3">Each profile is its own Compose project → its own</text>
+  <g font-size="11" fill="#3730a3">
+    <text x="946" y="672">• container names (<tspan font-family="'SF Mono', Menlo, Consolas, monospace">claude-agent-work</tspan>, …-personal, …)</text>
+    <text x="946" y="690">• networks (<tspan font-family="'SF Mono', Menlo, Consolas, monospace">macolima-work_sandbox-internal</tspan>, …)</text>
+    <text x="946" y="708">• named volumes (<tspan font-family="'SF Mono', Menlo, Consolas, monospace">macolima-work_vscode-server</tspan>, …)</text>
+    <text x="946" y="726">• state dir under <tspan font-family="'SF Mono', Menlo, Consolas, monospace">.claude-colima/profiles/&lt;p&gt;/</tspan></text>
+  </g>
+  <line x1="946" y1="740" x2="1352" y2="740" stroke="#c7d2fe"/>
+  <text x="946" y="758" font-size="11" fill="#3730a3">Run concurrently; ≈8 GB mem per profile. Three profiles ≈ 24 GB.</text>
+  <text x="946" y="776" font-size="11" fill="#3730a3" font-style="italic">No IP-level cross-talk. <tspan font-family="'SF Mono', Menlo, Consolas, monospace">docker exec</tspan> into the wrong one → "no such container".</text>
+
+  <!-- ===== Network edges (on top of everything in this layer) ===== -->
+  <!-- agent → proxy (sandbox-internal) -->
+  <line x1="688" y1="660" x2="688" y2="684" stroke="#dc2626" stroke-width="2.5" marker-end="url(#arr-red)"/>
+  <rect x="712" y="662" width="118" height="20" rx="4" fill="#fef2f2" stroke="#dc2626" stroke-width="1"/>
+  <text x="771" y="676" font-size="10.5" font-weight="600" text-anchor="middle" fill="#991b1b">sandbox-internal</text>
+  <line x1="700" y1="672" x2="712" y2="672" stroke="#dc2626" stroke-width="1.2"/>
+
+  <!-- agent → DB zone (sandbox-internal). One arrow; both DBs are on the same network, visually grouped. -->
+  <line x1="908" y1="396" x2="928" y2="396" stroke="#dc2626" stroke-width="2.5" marker-end="url(#arr-red)"/>
+  <!-- link line between the two DBs to visually tie them to the same network -->
+  <line x1="1143" y1="396" x2="1155" y2="396" stroke="#dc2626" stroke-width="2" stroke-dasharray="3 2"/>
+
+  <!-- proxy → Internet (sandbox-egress), exits the VM and Mac -->
+  <path d="M 688 800 L 688 1084" stroke="#16a34a" stroke-width="2.5" marker-end="url(#arr-green)"/>
+  <rect x="702" y="920" width="130" height="20" rx="4" fill="#f0fdf4" stroke="#16a34a" stroke-width="1"/>
+  <text x="767" y="934" font-size="10.5" font-weight="600" text-anchor="middle" fill="#166534">sandbox-egress</text>
+
+  <!-- "only path out" callout at the Mac boundary crossing -->
+  <rect x="496" y="1054" width="194" height="22" rx="11" fill="#ffffff" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="593" y="1069" font-size="11" font-weight="700" text-anchor="middle" fill="#166534">only path leaving the host</text>
+
+  <!-- ===== Bind-mount arrows from drive → agent (each lands on its specific row) ===== -->
+  <!-- repo/<p>/ → /workspace -->
+  <path d="M 394 357 C 430 590 440 592 468 592" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#arr-blue)"/>
+  <!-- claude-home/ → /home/agent/.claude/ -->
+  <path d="M 394 480 C 430 605 440 608 468 608" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#arr-blue)"/>
+  <!-- claude.json → /home/agent/.claude.json -->
+  <path d="M 394 540 C 430 622 440 624 468 624" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#arr-blue)"/>
+  <!-- cache/ → /home/agent/.cache/ -->
+  <path d="M 394 600 C 430 638 440 640 468 640" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#arr-blue)"/>
+  <!-- config/ → /home/agent/.config/ -->
+  <path d="M 394 680 C 430 656 440 656 468 656" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#arr-blue)"/>
+
+  <!-- ===== Internet cloud (outside Mac) ===== -->
+  <ellipse cx="688" cy="1120" rx="230" ry="36" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.5"/>
+  <text x="688" y="1114" font-size="12.5" font-weight="700" text-anchor="middle" fill="#374151">Internet — only what's on the allowlist</text>
+  <text x="688" y="1134" font-size="11" text-anchor="middle" fill="#6b7280" font-family="'SF Mono', Menlo, Consolas, monospace">anthropic.com · api.github.com · gitlab.com · npmjs · pypi · …</text>
+
+</svg>
