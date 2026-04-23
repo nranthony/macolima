@@ -16,11 +16,16 @@ LABEL description="Hardened sandbox for Claude Code on Colima/macOS"
 
 # ---------- system packages --------------------------------------------------
 # tini: PID 1 signal handling.
-# bubblewrap + socat deliberately NOT installed — Claude Code's in-process
-# sandbox uses them, but that sandbox cannot function inside this container
-# (bwrap needs unprivileged user namespaces, which seccomp correctly blocks).
-# Removing them physically closes the socat raw-TCP exfil channel and means
-# neither the agent nor a shell user can invoke them.
+# bubblewrap + socat + openssh-client deliberately NOT installed:
+#   - bwrap needs unprivileged user namespaces, which seccomp correctly
+#     blocks — Claude Code's in-process sandbox can't run here anyway.
+#   - socat was a raw-TCP exfil channel bypassing Squid's HTTP-only egress.
+#   - openssh-client (ssh/scp/sftp/ssh-agent/...) is the tool surface that
+#     would weaponize VS Code's SSH_AUTH_SOCK forwarding if it ever
+#     reappears. Removing the package physically closes the SSH exfil path
+#     even if the host-side VS Code setting reverts. No legitimate agent
+#     workflow needs it: gh/glab authenticate with HTTPS tokens, git uses
+#     HTTPS remotes, and agent-mode already denies `git push/clone/fetch`.
 # Everything else: dev essentials for typical agent work.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -29,9 +34,10 @@ RUN apt-get update \
       build-essential \
       python3 python3-pip python3-venv \
       ripgrep jq less vim-tiny \
-      openssh-client \
       postgresql-client \
       zsh lsd fontconfig locales \
+ && apt-get purge -y openssh-client 2>/dev/null || true \
+ && apt-get autoremove -y \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

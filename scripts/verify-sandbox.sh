@@ -65,12 +65,42 @@ else
   pass "disallowed domain blocked by proxy"
 fi
 
-# bwrap + socat are deliberately NOT installed (Claude Code's bwrap sandbox
-# can't run here — seccomp correctly blocks unprivileged user namespaces —
-# and socat was a raw-TCP exfil channel bypassing Squid HTTP egress). Absent
-# is correct; presence is drift.
+# bwrap + socat + ssh are deliberately NOT installed (Claude Code's bwrap
+# sandbox can't run here — seccomp correctly blocks unprivileged user
+# namespaces — socat was a raw-TCP exfil channel bypassing Squid HTTP
+# egress, and openssh-client is the tool surface that would weaponize
+# any re-injected SSH_AUTH_SOCK). Absent is correct; presence is drift.
 command -v bwrap >/dev/null && fail "bwrap present (should be uninstalled)" || pass "bwrap absent (intended)"
 command -v socat >/dev/null && fail "socat present (should be uninstalled)" || pass "socat absent (intended)"
+command -v ssh   >/dev/null && fail "ssh present (openssh-client should be purged)" || pass "ssh absent (intended)"
+
+# VS Code Dev Containers leakage — controls we documented after the
+# therapod audit. Each of these maps to a specific finding with a known
+# regression risk (host VS Code settings can revert, copyGitConfig can
+# get re-enabled, etc.). Keep these tight — they're tripwires, not an
+# audit substitute.
+[[ -z "${SSH_AUTH_SOCK:-}" ]] && pass "SSH_AUTH_SOCK unset (no agent forwarding)" \
+  || fail "SSH_AUTH_SOCK=$SSH_AUTH_SOCK (VS Code SSH agent forwarding — disable remote.SSH.enableAgentForwarding)"
+# shellcheck disable=SC2144 -- single-path test, no glob expansion needed
+if ls /tmp/vscode-ssh-auth-*.sock >/dev/null 2>&1; then
+  fail "VS Code SSH auth socket present in /tmp"
+else
+  pass "no VS Code SSH auth socket in /tmp"
+fi
+[[ ! -e /home/agent/.gitconfig ]] && pass "no host .gitconfig copied into rootfs" \
+  || fail "/home/agent/.gitconfig present (disable dev.containers.copyGitConfig on host)"
+if [[ -f /home/agent/.config/git/config ]] && grep -qE '^\s*helper\s*=' /home/agent/.config/git/config; then
+  fail "credential.helper present in .config/git/config (VS Code injection — profile.sh ensure_state should strip it)"
+else
+  pass "no credential.helper in .config/git/config"
+fi
+# Any UID-0 process other than PID 1 is drift — VS Code's attach flow
+# occasionally leaves orphan `docker exec -u root` shells. Count them
+# without counting the probe itself (awk invoked by verify-sandbox runs
+# as the agent, not root, so it won't appear).
+ROOT_PROCS=$(ps -eo pid,user | awk 'NR>1 && $2=="root" && $1!=1 {n++} END{print n+0}')
+[[ "$ROOT_PROCS" -eq 0 ]] && pass "no stray UID-0 processes" \
+  || fail "$ROOT_PROCS UID-0 process(es) running besides PID 1 (likely VS Code attach orphan)"
 
 # Claude CLI present
 command -v claude >/dev/null && pass "claude CLI present" || fail "claude CLI missing"
