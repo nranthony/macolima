@@ -14,7 +14,7 @@ Both set `COMPOSE_PROJECT_NAME=macolima-<profile>` and `PROFILE=<profile>` befor
 
 ## Non-negotiable invariants
 
-- **Agent runs as UID 1000 (`agent`)**, never root. `cap_drop: ALL`. No sudo. No suid binaries.
+- **Agent runs as UID 1000 (`agent`)**, never root. `cap_drop: ALL`. `no_new_privs=1`. No sudo. The stock Ubuntu SUID set (`su`, `mount`, `umount`, `passwd`, `chfn`, `chsh`, `gpasswd`, `newgrp`, `unix_chkpwd`, etc.) is present but neutralized by no_new_privs + dropped caps — any SUID binary outside that stock set is drift.
 - **Agent has no direct network.** `sandbox-internal` is `internal: true`. Only reachable host is `egress-proxy`.
 - **Proxy-allowed domains live in `proxy/allowed_domains.txt`.** Shared across profiles. Change → `COMPOSE_PROJECT_NAME=macolima-<p> PROFILE=<p> docker compose restart egress-proxy` (no rebuild).
 - **Base image is digest-pinned** (`FROM ubuntu:24.04@sha256:...`). Don't replace with a tag.
@@ -216,8 +216,10 @@ docker exec claude-agent-<p> sh -c 'cat /tmp/gitstatus.*.log'
 # Verify a domain reaches through the proxy
 scripts/profile.sh <p> exec curl -sI https://<host>/ -o /dev/null -w '%{http_code}\n'
 
-# Inside-container hardening sweep
-scripts/profile.sh <p> exec bash /workspace/<any>/macolima/scripts/verify-sandbox.sh
+# Inside-container hardening sweep — stage the audit package first so the
+# script is available inside the container (it's not in /workspace otherwise)
+scripts/stage-audit-package.sh <p>
+scripts/profile.sh <p> exec bash /workspace/temp_audit_package/scripts/verify-sandbox.sh
 
 # Trivy scan (host-side, requires `brew install trivy`) — config + secret + image
 scripts/trivy-scan.sh                    # all three (default)

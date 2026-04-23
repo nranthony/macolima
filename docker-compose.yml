@@ -28,8 +28,8 @@ services:
       - /run:size=64m,noexec,nosuid,nodev
       # uid/gid/mode: tmpfs mounts over Dockerfile-created dirs as root:root 755 by
       # default, blocking the non-root agent from writing. Force agent ownership.
-      - /home/agent/.npm-global:size=512m,nosuid,nodev,uid=1000,gid=1000,mode=0755
-      - /home/agent/.local:size=256m,nosuid,nodev,uid=1000,gid=1000,mode=0755
+      - /home/agent/.npm-global:size=512m,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0755
+      - /home/agent/.local:size=256m,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0755
 
     security_opt:
       - no-new-privileges:true

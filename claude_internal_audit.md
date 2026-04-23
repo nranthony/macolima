@@ -37,12 +37,32 @@ Expected contents of `/workspace/temp_audit_package/`:
 - `seccomp.json`       — seccomp allowlist; review white-box before any
                          syscall probing
 - `proxy/allowed_domains.txt`, `proxy/squid.conf` — egress policy
-- `scripts/verify-sandbox.sh` — in-container hardening sweep. **Run
+- `scripts/verify-sandbox.sh` — legacy in-container tripwire. **Run
                          this first** (`bash
                          /workspace/temp_audit_package/scripts/verify-sandbox.sh`)
-                         and use its output as the baseline; note which
-                         invariants it already covers so you don't
-                         duplicate work.
+                         but treat the following asserts as **known
+                         stale** — the real invariants have moved on,
+                         and a FAIL/WARN on any of these is *expected*,
+                         not drift:
+                           • `rootfs read-only` — `read_only: true` was
+                             removed (broke VS Code Dev Containers).
+                             Writable rootfs is now correct; non-root +
+                             `cap_drop: ALL` is the boundary.
+                           • `bubblewrap present` — `bwrap` + `socat`
+                             were deliberately uninstalled (Claude Code's
+                             bwrap sandbox can't run here; `socat` was a
+                             raw-TCP exfil channel). Absence is correct.
+                           • `proxied request to allowed domain works`
+                             using `https://api.github.com` — in
+                             autonomous mode `.github.com` is commented
+                             out in `allowed_domains.txt`, so this WARNs
+                             by design. Use `https://api.anthropic.com`
+                             as the reliable proxy-success probe.
+                         The other asserts (non-root, seccomp mode 2,
+                         caps dropped, direct egress blocked, disallowed
+                         domain blocked, claude CLI present) are still
+                         valid. Use those as baseline; re-verify
+                         everything else from scratch.
 - `scripts/setup.sh`, `scripts/profile.sh` — for reference only; their
                          host-side equivalents do things like
                          `setup.sh <p> --verify`. You can't run them
@@ -88,9 +108,14 @@ Ground rules (read-only audit):
 Scope — verify and report on:
 
 1. Identity & privileges: uid/gid, effective and bounding capabilities
-   (capsh --print or reading /proc/self/status), no_new_privs, sudo/suid
-   presence. Expected **for the agent container**: UID 1000 "agent",
-   empty capability sets, no_new_privs=1, no sudo. Note: `egress-proxy`
+   (capsh --print or reading /proc/self/status), no_new_privs, sudo
+   presence, **full SUID/SGID inventory** (`find / -perm /6000 -type f
+   2>/dev/null`). Expected **for the agent container**: UID 1000 "agent",
+   empty capability sets, no_new_privs=1, no sudo. A small set of stock
+   Ubuntu SUID binaries (`su`, `mount`, `umount`, `passwd`, `chfn`,
+   `chsh`, `gpasswd`, `newgrp`, `unix_chkpwd`, etc.) is expected and
+   neutralized by no_new_privs + cap_drop: ALL — list them, flag anything
+   outside that stock set as DRIFT. Note: `egress-proxy`
    legitimately holds `CAP_SETUID`+`CAP_SETGID` (Squid starts as root
    then drops to `proxy`); that is NOT drift. `NET_BIND_SERVICE` is
    explicitly not granted to Squid (port 3128 is unprivileged).
@@ -184,6 +209,14 @@ Scope — verify and report on:
 13. Secrets hygiene:
     - Env vars, mounted config, anything credential-like in the agent's
       home. Redact values in the report.
+    - **SSH agent forwarding**: check `env | grep SSH_AUTH_SOCK` and
+      `ls -la /tmp/ssh-* /tmp/vscode-ssh-* 2>/dev/null`. The compose
+      file does not forward the host SSH agent, but VS Code Dev
+      Containers can inject `SSH_AUTH_SOCK` per user setting
+      (`remote.SSH.enableAgentForwarding`). Presence = the agent can
+      authenticate as you to anything your host keys reach, bypassing
+      the sandbox network identity — flag as **WEAK** with the socket
+      path so I can disable the VS Code setting.
     - **Known weak spot**: if DB siblings are up, `db.env` injects
       `POSTGRES_USER`/`POSTGRES_PASSWORD` and `MONGO_INITDB_ROOT_*`
       into the agent as ambient env — these are DB **superuser**
@@ -208,7 +241,10 @@ Before running anything:
 1. Confirm `/workspace/temp_audit_package/` exists and lists the
    expected files; if anything is missing, tell me so I can re-stage.
 2. Run `bash /workspace/temp_audit_package/scripts/verify-sandbox.sh`
-   and summarize which invariants it already covers.
+   and summarize which invariants it already covers. Explicitly call
+   out any of the three known-stale asserts above (rootfs RO /
+   bubblewrap present / github.com via proxy) so I can see you
+   recognized them as legacy rather than drift.
 3. Summarize your plan in one paragraph: what you'll check beyond
    verify-sandbox.sh, what local probes you intend to run in `/tmp`,
    and anything you want me to approve up front.

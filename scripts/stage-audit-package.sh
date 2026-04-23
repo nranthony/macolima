@@ -24,6 +24,11 @@ target_workspace="$REPO_ROOT/$profile"
 
 dest="$target_workspace/temp_audit_package"
 
+# Prior runs chmod -R a-w the tree, so restore write before rm or it errors.
+if [[ -d "$dest" ]]; then
+  chmod -R u+w "$dest" 2>/dev/null || true
+fi
+
 if [[ "$action" == "--clean" ]]; then
   rm -rf "$dest"
   echo "removed $dest"
@@ -46,7 +51,7 @@ cp "$MACOLIMA_DIR/config/claude-settings.json"    "$dest/config/claude-settings.
 cp "$MACOLIMA_DIR/claude_internal_audit.md"        "$dest/claude_internal_audit.md"
 
 chmod -R a-w "$dest"
-chmod u+w "$dest" "$dest/proxy" "$dest/scripts"
+chmod u+w "$dest" "$dest/proxy" "$dest/scripts" "$dest/config"
 
 echo "staged audit package at:"
 echo "  host:      $dest"

@@ -103,6 +103,15 @@ EOF
   if [[ ! -f "$p/claude-home/settings.json" ]] && [[ -f "$SCRIPT_DIR/config/claude-settings.json" ]]; then
     cp "$SCRIPT_DIR/config/claude-settings.json" "$p/claude-home/settings.json"
   fi
+  # Defensive scrub: VS Code Dev Containers can inject a host-routed git
+  # credential helper into .config/git/config (via VSCODE_GIT_IPC_HANDLE +
+  # a node shim in .vscode-server). That helper forwards git auth to the
+  # host's credential manager, bypassing the sandbox's network identity.
+  # Strip any credential.helper on every `up` so the setting can't survive
+  # across recreates even if `dev.containers.copyGitConfig` re-enables.
+  if [[ -f "$p/config/git/config" ]]; then
+    git config --file "$p/config/git/config" --unset-all credential.helper 2>/dev/null || true
+  fi
 }
 
 # --- ensure repo subfolder exists -------------------------------------------

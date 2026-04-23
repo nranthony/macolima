@@ -254,8 +254,9 @@ Each profile is a separate sandbox. Within one profile:
 | Resource limits | `docker-compose.yml` | cgroups + ulimits |
 | No direct internet | `docker-compose.yml` | Docker network isolation |
 | Egress domain allowlist | `proxy/allowed_domains.txt` | Squid sidecar |
-| In-process sandbox (bwrap) | Claude settings | bubblewrap |
 | Auth token isolation | per-profile bind mount | filesystem |
+
+Claude Code's in-process bwrap sandbox is **disabled** (`sandbox.enabled: false` in the settings template) and `bubblewrap` + `socat` are not installed in the image. bwrap needs unprivileged user namespaces, which our seccomp filter correctly blocks, and `socat` was a raw-TCP exfil channel bypassing the HTTP-only Squid egress. The container is the boundary; see `CLAUDE.md` for the full rationale.
 
 The profile layer adds **cross-profile** isolation:
 - Separate networks → no IP-level cross-talk between profiles.
