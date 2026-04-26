@@ -81,12 +81,16 @@ docker pull ubuntu:24.04
 DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ubuntu:24.04 | sed 's/.*@//')
 sed -i '' "s|ubuntu:24.04@sha256:[a-f0-9]*|ubuntu:24.04@$DIGEST|" Dockerfile
 
-# 3. Start Colima
+# 3. Start Colima (must use this wrapper — bare `colima start` after a
+#    previous `colima delete` will come up with 2 CPU / 2 GB / no mounts
+#    and break stack bring-up)
 scripts/colima-up.sh
 
 # 4. Build the image (shared across all profiles)
 PROFILE=_build docker compose build claude-agent
 ```
+
+> **After a `colima delete`, always re-run `scripts/colima-up.sh`** — mount paths (`/Volumes/DataDrive/repo`, `/Volumes/DataDrive/.claude-colima`) and resource flags (`--cpu 6 --memory 10 --disk 80 --mount-type virtiofs`) are **not** persisted across a delete. Symptoms of a bare restart: `range of CPUs is from 0.01 to 2.00` on `up`, or `not a directory: Are you trying to mount a directory onto a file` on `rebuild`. See `CLAUDE.md` → "Colima VM delete wipes mount + resource config".
 
 ## Using profiles
 
@@ -230,9 +234,27 @@ Not wired up by default. The proxy would need to allow CONNECT on port 22 (`squi
 
 Two paths — pick based on how you work.
 
-**A. Attach to a running profile:** `scripts/profile.sh work up`, then `Cmd-Shift-P → Dev Containers: Attach to Running Container → claude-agent-work`.
+**A. Attach to a running profile:** `scripts/profile.sh work up`, then `Cmd-Shift-P → Dev Containers: Attach to Running Container → claude-agent-work`. This is the recommended path.
 
-**B. Dev Container in a specific repo:** copy `devcontainer-template/devcontainer.json` into `<repo>/.devcontainer/`. Note that the template mounts the hard-coded `work` profile's state — duplicate it per profile if needed, or parameterize via VS Code container env.
+**B. Per-repo attach config:** copy `devcontainer-template/devcontainer.json` into `<repo>/.devcontainer/`. The template is *attach-only* — it has no `image`/`runArgs`/`mounts`/`network` fields. It exists so VS Code picks up the right `remoteUser: agent`, `updateRemoteUserUID: false`, and `overrideCommand: false` settings on attach, and nothing more. Compose owns the container's hardening; a devcontainer.json that tried to re-declare `runArgs` would either fight compose or spin up a parallel container with weaker settings.
+
+### Required host settings — Dev Containers leakage hardening
+
+VS Code injects three host→container bridges by default that **bypass the sandbox network identity**. Disable all three in your host `settings.json` (`~/Library/Application Support/Code/User/settings.json` on macOS):
+
+```jsonc
+"dev.containers.copyGitConfig": false,
+"dev.containers.gitCredentialHelperConfigLocation": "none",
+"remote.SSH.enableAgentForwarding": false
+```
+
+- `copyGitConfig` copies your host `~/.gitconfig` into the rootfs overlay (includes `osxkeychain` / `git-credential-manager` references).
+- `gitCredentialHelperConfigLocation` injects an IPC-backed helper shim into `~/.config/git/config` that forwards git auth to the host credential manager — **separate setting from `copyGitConfig`**.
+- `enableAgentForwarding` injects `SSH_AUTH_SOCK=/tmp/vscode-ssh-auth-*.sock` so the agent can reach any host your SSH keys authenticate to.
+
+Plus a per-repo `.devcontainer/devcontainer.json` with `"updateRemoteUserUID": false` — without it, VS Code runs `usermod` as root during attach, which can leave a stray UID-0 shell orphaned in the container. A ready template is at `devcontainer-template/devcontainer.json`.
+
+The inside-container tripwire (`scripts/verify-sandbox.sh`) checks all three leakage paths plus the UID-0 orphan; if anything comes back from a reattach, it will FAIL loudly.
 
 Install MesloLGS NF on the Mac for p10k icons:
 ```bash
@@ -265,6 +287,27 @@ The profile layer adds **cross-profile** isolation:
 
 Rootfs is **not** `read_only: true` on the agent — it broke VS Code Dev Containers' `/etc/environment` patching with no security gain given the non-root + cap-drop controls.
 
+### Self-audit from inside the sandbox
+
+Each profile ships with the `audit-sandbox` skill at `~/.claude/skills/audit-sandbox/` (seeded by `ensure_state()` from `config/skills/audit-sandbox/SKILL.md`). To run:
+
+```bash
+# host: stage the audit package into this profile's workspace
+scripts/stage-audit-package.sh <profile>
+
+# attach and invoke the skill
+scripts/profile.sh <profile> attach
+# inside the container's claude prompt:
+/audit-sandbox
+```
+
+The skill follows `claude_internal_audit.md` — runs the `verify-sandbox.sh` tripwire first (expects 18/18 PASS), then deeper invariant checks (caps, seccomp, mounts, proxy egress, VS Code leakage, etc.), and writes two artifacts to `~/.claude/audits/` inside the container (host path: `/Volumes/DataDrive/.claude-colima/profiles/<profile>/claude-home/audits/`):
+
+- `<YYYY-MM-DD>-<profile>-report.md` — markdown report, invariants tagged OK/DRIFT/WEAK/UNKNOWN
+- `<YYYY-MM-DD>-<profile>-commands.sh` — replayable command log
+
+If you edit `claude_internal_audit.md`, just re-run `stage-audit-package.sh` — the skill reads the staged file rather than duplicating its content. If you edit `config/skills/audit-sandbox/SKILL.md` itself, run `scripts/profile.sh <profile> reset-skills` to refresh existing profiles (new profiles pick it up automatically on first `up`).
+
 ## Updating
 
 ```bash
@@ -291,6 +334,9 @@ See `CLAUDE.md` for root-caused gotchas. Common ones:
 
 - **`PROFILE env var required`** → you ran `docker compose` directly instead of `scripts/profile.sh`.
 - **`Repo dir does not exist`** → make `/Volumes/DataDrive/repo/<profile>/` first.
+- **`range of CPUs is from 0.01 to 2.00`** on `up`/`rebuild` → Colima VM was created with defaults (2 CPU). You likely did `colima delete` then bare `colima start`. Fix: re-run `scripts/colima-up.sh`.
+- **`not a directory: Are you trying to mount a directory onto a file`** on `up`/`rebuild` → Colima VM is missing the `/Volumes/DataDrive` virtiofs mount, so Docker can't see the host bind-mount source. Same cause as above. Fix: re-run `scripts/colima-up.sh`.
+- **Tripwire FAIL on `credential.helper`** but value is `!/usr/local/bin/glab auth git-credential` (or `gh`) → that's the **in-container** helper from `glab`/`gh auth setup-git`, which is expected and benign. The tripwire only flags host-reaching helpers (`vscode-server | vscode-remote-containers | osxkeychain | git-credential-manager`); if yours matches one of those, check your host VS Code settings (see "VS Code integration" above).
 - **Claude asks to log in after recreate** → check `claude.json` exists, is 644, and contains `{}` (not empty) under the profile's dir.
 - **`claude login` → "invalid JSON: Unexpected EOF"** → `claude.json` is 0 bytes. `profile.sh` now seeds `{}` automatically; for older profiles: `echo '{}' > /V/.../profiles/<p>/claude.json`.
 - **`gh`/`glab auth login` browser redirect shows "this site can't be reached"** → expected; use token flow instead (see Authentication above).

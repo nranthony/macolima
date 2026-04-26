@@ -89,10 +89,18 @@ else
 fi
 [[ ! -e /home/agent/.gitconfig ]] && pass "no host .gitconfig copied into rootfs" \
   || fail "/home/agent/.gitconfig present (disable dev.containers.copyGitConfig on host)"
-if [[ -f /home/agent/.config/git/config ]] && grep -qE '^\s*helper\s*=' /home/agent/.config/git/config; then
-  fail "credential.helper present in .config/git/config (VS Code injection — profile.sh ensure_state should strip it)"
+# Only flag host-reaching helpers. Benign in-container helpers (e.g. glab
+# auth setup-git writes `!/usr/local/bin/glab auth git-credential`, gh does
+# the same via /usr/local/bin/gh) are expected and use the sandbox's own
+# tokens. The injections we're watching for are VS Code Dev Containers'
+# IPC-backed shim (vscode-server / vscode-remote-containers paths) and macOS
+# host helpers (osxkeychain, git-credential-manager) leaked via copyGitConfig.
+if [[ -f /home/agent/.config/git/config ]] && \
+   grep -qE 'helper\s*=.*(vscode-server|vscode-remote-containers|osxkeychain|git-credential-manager)' \
+     /home/agent/.config/git/config; then
+  fail "host-reaching credential.helper in .config/git/config (VS Code shim or macOS helper — profile.sh ensure_state should strip it)"
 else
-  pass "no credential.helper in .config/git/config"
+  pass "no host-reaching credential.helper in .config/git/config"
 fi
 # Any UID-0 process other than PID 1 is drift — VS Code's attach flow
 # occasionally leaves orphan `docker exec -u root` shells. Count them

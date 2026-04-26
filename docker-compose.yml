@@ -38,6 +38,9 @@ services:
     cap_drop:
       - ALL
 
+    # pids_limit is the cgroup-level cap; nproc ulimit was a redundant second
+    # lever on the same number (512). Keep only pids_limit — covers all
+    # processes in the namespace regardless of user.
     pids_limit: 512
     mem_limit: 8g
     memswap_limit: 8g
@@ -46,9 +49,6 @@ services:
       nofile:
         soft: 2048
         hard: 8192
-      nproc:
-        soft: 512
-        hard: 512
 
     volumes:
       # Repo subtree for this profile (must already exist).
@@ -103,7 +103,11 @@ services:
   # scripts/profile.sh). File is optional — without POSTGRES_PASSWORD the
   # image refuses to start, which is the behavior we want.
   postgres:
-    image: postgres:18
+    # Pinned by digest (postgres:18 as of 2026-04-24). Bump in lockstep with
+    # host Homebrew postgresql@18 during upgrades. To refresh:
+    #   docker pull postgres:18 && docker image inspect postgres:18 \
+    #     --format '{{index .RepoDigests 0}}'
+    image: postgres:18@sha256:78481659c47e862334611ccdaf7c369c986b3046da9857112f3b309114a65fb4
     container_name: postgres-${PROFILE}
     hostname: postgres
     profiles: ["db-postgres", "db-all"]
@@ -134,7 +138,10 @@ services:
   # without auth — that's acceptable on sandbox-internal (no external
   # reachability), but set them in db.env if you plan to publish the port.
   mongo:
-    image: mongo:8
+    # Pinned by digest (mongo:8 as of 2026-04-24). To refresh:
+    #   docker pull mongo:8 && docker image inspect mongo:8 \
+    #     --format '{{index .RepoDigests 0}}'
+    image: mongo:8@sha256:7abfba0d07c9330373f8173981ea4d09cd8a82cdf0e86ccaf7008848d1d24f62
     container_name: mongo-${PROFILE}
     hostname: mongo
     profiles: ["db-mongo", "db-all"]
@@ -158,13 +165,25 @@ services:
   # Egress proxy: per-profile, domain-allowlisted outbound traffic
   # ---------------------------------------------------------------------------
   egress-proxy:
-    image: ubuntu/squid:latest
+    # Pinned by digest (ubuntu/squid:latest as of 2026-04-24). Squid is the
+    # single choke-point for all agent egress, so an unvetted tag bump could
+    # re-open a bypass. To refresh:
+    #   docker pull ubuntu/squid:latest && docker image inspect ubuntu/squid:latest \
+    #     --format '{{index .RepoDigests 0}}'
+    image: ubuntu/squid:latest@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
     container_name: egress-proxy-${PROFILE}
     hostname: egress-proxy
     read_only: true
     tmpfs:
-      - /var/spool/squid:size=256m
-      - /var/log/squid:size=64m
+      # Squid starts as root (writes /run/squid.pid, opens cache.log) then
+      # drops to user `proxy` (uid 13, baked into ubuntu/squid image) via
+      # cache_effective_user. After drop, Squid opens access.log and writes
+      # cache disk. Tmpfs ownership needs to satisfy both phases:
+      #   /var/spool/squid  — post-drop only → proxy:proxy
+      #   /var/log/squid    — cache.log (root) + access.log (proxy) → root:proxy 0775
+      #   /run              — /run/squid.pid written by root → leave default
+      - /var/spool/squid:size=256m,uid=13,gid=13,mode=0750
+      - /var/log/squid:size=64m,uid=0,gid=13,mode=0775
       - /run:size=8m
     volumes:
       - ./proxy/squid.conf:/etc/squid/squid.conf:ro

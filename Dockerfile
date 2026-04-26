@@ -36,7 +36,11 @@ RUN apt-get update \
       ripgrep jq less vim-tiny \
       postgresql-client \
       zsh lsd fontconfig locales \
- && apt-get purge -y openssh-client 2>/dev/null || true \
+ && apt-get purge -y openssh-client \
+ && if dpkg -l openssh-client 2>/dev/null | awk '/^ii/{found=1} END{exit !found}'; then \
+      echo "FATAL: openssh-client still installed after purge — invariant violated" >&2; \
+      exit 1; \
+    fi \
  && apt-get autoremove -y \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -110,6 +114,32 @@ RUN set -eux; \
     git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git      "$ZSH_CUSTOM/plugins/zsh-autosuggestions"; \
     git clone --depth=1 https://github.com/zsh-users/zsh-history-substring-search.git "$ZSH_CUSTOM/plugins/zsh-history-substring-search"; \
     git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git  "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
+
+# Pre-install gitstatusd into the image so p10k finds it locally on first
+# shell start. Otherwise p10k fetches it from github.com/romkatv/gitstatus
+# releases — which the autonomous proxy allowlist correctly blocks (we
+# dropped the .github.com wildcard per audit M3). The plugin checks
+# `$gitstatus_dir/usrbin/$file` BEFORE its $HOME/.cache fallback, so the
+# binary placed there is shadowing-proof against the bind-mounted .cache
+# (which gets nuked by `scripts/profile.sh <p> wipe`).
+#
+# Version + sha256 are pinned by p10k itself in install.info — we parse
+# the entry that matches this build's uname -m so re-cloning p10k
+# automatically picks up upstream's pin without a Dockerfile bump.
+RUN set -eux; \
+    GS_DIR="$HOME/.oh-my-zsh/custom/themes/powerlevel10k/gitstatus"; \
+    uname_s="linux"; \
+    uname_m="$(uname -m)"; \
+    LINE="$(awk -v m="$uname_m" '/^uname_s_glob="linux"/ && $0 ~ "uname_m_glob=\""m"\""' "$GS_DIR/install.info" | head -1)"; \
+    [ -n "$LINE" ] || { echo "no install.info entry for linux/$uname_m" >&2; exit 1; }; \
+    eval "$LINE"; \
+    URL="https://github.com/romkatv/gitstatus/releases/download/${version}/${file}.tar.gz"; \
+    curl -fsSL "$URL" -o /tmp/gsd.tar.gz; \
+    echo "${sha256}  /tmp/gsd.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/gsd.tar.gz -C "$GS_DIR/usrbin/"; \
+    rm /tmp/gsd.tar.gz; \
+    chmod +x "$GS_DIR/usrbin/$file"; \
+    test -x "$GS_DIR/usrbin/$file"
 USER root
 RUN usermod -s /usr/bin/zsh agent
 

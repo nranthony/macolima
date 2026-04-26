@@ -14,7 +14,7 @@ Both set `COMPOSE_PROJECT_NAME=macolima-<profile>` and `PROFILE=<profile>` befor
 
 ## Non-negotiable invariants
 
-- **Agent runs as UID 1000 (`agent`)**, never root. `cap_drop: ALL`. `no_new_privs=1`. No sudo. The stock Ubuntu SUID set (`su`, `mount`, `umount`, `passwd`, `chfn`, `chsh`, `gpasswd`, `newgrp`, `unix_chkpwd`, etc.) is present but neutralized by no_new_privs + dropped caps — any SUID binary outside that stock set is drift.
+- **Agent runs as UID 1000 (`agent`)**, never root. `cap_drop: ALL`. `no_new_privs=1`. No sudo. The stock Ubuntu SUID set (`su`, `mount`, `umount`, `passwd`, `chfn`, `chsh`, `gpasswd`, `newgrp`, `unix_chkpwd`, `chage`, `expiry`, `pam_extrausers_chkpwd`, etc.) is present but neutralized by no_new_privs + dropped caps — any SUID binary outside that stock set is drift. **`ssh-agent` and `ssh-keysign` are NOT stock here** — `openssh-client` is deliberately purged (see below), so their presence would be drift.
 - **Agent has no direct network.** `sandbox-internal` is `internal: true`. Only reachable host is `egress-proxy`.
 - **Proxy-allowed domains live in `proxy/allowed_domains.txt`.** Shared across profiles. Change → `COMPOSE_PROJECT_NAME=macolima-<p> PROFILE=<p> docker compose restart egress-proxy` (no rebuild).
 - **Base image is digest-pinned** (`FROM ubuntu:24.04@sha256:...`). Don't replace with a tag.
@@ -126,6 +126,30 @@ Do not "simplify" this by re-adding a `.gitconfig` bind mount — it will silent
 ### Squid needs SETUID + SETGID caps
 Squid starts as root then drops to the `proxy` user — needs `SETUID`/`SETGID`. Without them: crash-loop exit 134. `NET_BIND_SERVICE` NOT needed (port 3128 is unprivileged). Also `pinger_enable off` in `squid.conf` — ICMP pinger wants `CAP_NET_RAW` we don't grant.
 
+### Squid log/spool tmpfs ownership is split-phase
+Squid does some work as root (`/run/squid.pid`, opening `cache.log`) and some as `proxy` user, uid 13 (`access.log`, cache disk). The compose tmpfs mounts reflect this:
+
+| tmpfs | owner/mode | why |
+|---|---|---|
+| `/var/spool/squid` | `proxy:proxy 0750` | Written only post-drop. |
+| `/var/log/squid` | `root:proxy 0775` | `cache.log` opened by root, `access.log` by proxy — both need to write. |
+| `/run` | default (root:root) | `/run/squid.pid` created by root. Don't add `uid=13` here or PID write fails. |
+
+If you change any of these, expect crash-loop on next `--force-recreate` (not just restart — tmpfs options only re-apply on recreate). Symptoms map to which phase failed: `Cannot open '...access.log'` = log tmpfs wrong, `failed to open /run/squid.pid` = `/run` was made non-root-writable.
+
+### Squid allowlist: port-restrict non-CONNECT methods
+`squid.conf` has `acl Safe_ports port 80 443` + `http_access deny !Safe_ports`. Without that, the `http_access allow allowed_domains` line forwards GET/POST to **any** port on allowed hosts (e.g. `GET http://api.anthropic.com:22/` would be handed off to upstream). The `Safe_ports` restriction stops that and is independent of the CONNECT/`SSL_ports` rule (which only governs HTTPS tunnels). If you ever need a different non-443 port, add it to `Safe_ports`, not just to `allowed_domains.txt`.
+
+### Squid allowlist: avoid wildcards under vendor parents you don't control
+Default autonomous-mode allowlist lists specific subdomains (`api.anthropic.com`, `console.anthropic.com`, `statsig.anthropic.com`, `api.claude.com`, `claude.ai`) rather than `.anthropic.com` / `.claude.ai`. Wildcards under a parent are an exfil channel any time a vendor adds a user-controllable subdomain (status pages, marketing, hosted docs). When Claude Code starts hitting a new subdomain, the proxy returns 403 — `docker exec -u proxy egress-proxy-<p> tail -f /var/log/squid/access.log` shows which one to add. `.vscode-unpkg.net` stays a wildcard because the VS Code extension fetcher legitimately rotates across many subdomains under that single MS-controlled parent.
+
+### Squid access log lives on tmpfs as `proxy:proxy 0640`
+Forensic trail of every request the agent made through the proxy. Tmpfs-backed, so logs reset on `--force-recreate` of `egress-proxy`. Read it as the proxy user (file is mode 0640, dir is mode 0775):
+```bash
+docker exec -u proxy egress-proxy-<profile> tail -f /var/log/squid/access.log
+```
+If you ever need long-term retention, add a second `access_log` directive in `squid.conf` pointing at a host-bind-mounted file (and grant the bind-mount source `proxy` write access).
+
 ### tmpfs mounts under `/home/agent/` need `uid=1000,gid=1000`
 A bare `tmpfs: - /path:size=N,nosuid,nodev` mount comes up owned by `root:root` mode 755 — it shadows the Dockerfile-created dir. The agent can't write → any tool trying to populate `~/.local/share` or `~/.npm-global` fails with `cannot make directory ... permission denied`. Fix: always append `uid=1000,gid=1000,mode=0755` to tmpfs entries that land inside `/home/agent/`. Applies to `.local` and `.npm-global`; `/tmp` and `/run` are system dirs where root:root is correct.
 
@@ -138,16 +162,26 @@ Claude Code's `Bash` tool wraps every command in `bwrap` (bubblewrap). bwrap imp
 Three consequences, all load-bearing:
 
 1. **`sandbox.enabled: false`** in `~/.claude/settings.json` — Claude Code uses unsandboxed execution.
-2. **`bubblewrap` and `socat` are NOT installed** in the Dockerfile. They were only there to support the in-process sandbox; with it disabled, they become dead weight, and `socat` in particular is a raw-TCP exfil channel that bypasses the HTTP-only Squid egress policy. Keeping them installed would be a real hole.
+2. **`bubblewrap`, `socat`, and `openssh-client` are NOT installed** in the Dockerfile. Each was either dead weight or an exfil path:
+   - `bubblewrap` only supported the in-process sandbox (now disabled).
+   - `socat` was a raw-TCP exfil channel bypassing the HTTP-only Squid egress.
+   - `openssh-client` (`ssh`/`scp`/`sftp`/`ssh-agent`/...) is the tool surface that weaponizes VS Code's `SSH_AUTH_SOCK` forwarding. Removing the package physically closes the SSH exfil path. **There is no host-side VS Code setting that disables Dev Containers' SSH agent forwarding** — `remote.SSH.enableAgentForwarding` only governs the separate Remote-SSH extension. The actual env-level mitigation lives in `devcontainer.json` (`remoteEnv: { SSH_AUTH_SOCK: "" }`) plus a defense-in-depth `unset SSH_AUTH_SOCK` baked into `config/.zshrc`. With `openssh-client` gone the socket is unusable regardless. No legitimate agent workflow needs SSH: gh/glab use HTTPS tokens, git remotes are HTTPS, and agent-mode already denies `git push|clone|fetch`.
 3. **`config/claude-settings.json`** is the per-profile settings template. `ensure_state()` in `profile.sh` copies it into `profiles/<p>/claude-home/settings.json` on first `up` (only if the file is absent — existing profiles keep customizations). Persists across `--recreate` via the bind mount.
 
-Do **not** "re-harden" by re-enabling `sandbox.enabled` or re-adding `bubblewrap`/`socat` to the image. bwrap's threat model protects a real host filesystem from a rogue command; there is no reachable host filesystem from inside this container. Existing profiles whose `settings.json` predates this template need the keys added manually once.
+### Per-profile Claude Code skills are seeded from `config/skills/`
+Skills live at `config/skills/<name>/SKILL.md` in the repo and are seeded into each profile's `claude-home/skills/<name>/` by `ensure_state()` on first `up` — same pattern as `claude-settings.json`: copy only if absent, so user customisations to a skill survive subsequent `up`s. To force-refresh from template (e.g. after editing a SKILL.md upstream), use `scripts/profile.sh <p> reset-skills` — it backs up the existing skill dir to `<name>.bak.<stamp>/` before replacing. `clean --deep` sweeps those backups.
+
+The shipped skill is `audit-sandbox`. It wraps the in-container security audit (`claude_internal_audit.md`): the agent reads the staged audit prompt and writes report + replayable command log to `~/.claude/audits/`. Invocation inside the container: `/audit-sandbox`. Prerequisite: the host has run `scripts/stage-audit-package.sh <profile>` first (the skill aborts with a clear message if `/workspace/temp_audit_package/` isn't present). When updating `claude_internal_audit.md`, no skill change is needed — the skill points at the staged file rather than duplicating it.
+
+Do **not** "re-harden" by re-enabling `sandbox.enabled` or re-adding `bubblewrap`/`socat`/`openssh-client` to the image. bwrap's threat model protects a real host filesystem from a rogue command; there is no reachable host filesystem from inside this container. Existing profiles whose `settings.json` predates this template need the keys added manually once.
 
 ### Permissions posture: plan interactively, execute autonomously
 The agent's permission posture and the proxy's egress allowlist are designed around a two-phase workflow:
 
 - **Planning runs** (you're driving, approving each step): uncomment the planning-mode section in `proxy/allowed_domains.txt` (github/pypi/npm/nodejs), restart Squid, do clones/installs/pushes yourself. `permissions.defaultMode: "acceptEdits"` means Edit/Write auto-apply, Bash is prompt-gated.
-- **Autonomous runs** (agent driving): re-comment the planning-mode domains, restart Squid. The agent's allow list covers routine read-only and non-destructive Bash; its deny list blocks network tools (`curl`, `wget`, `ssh`, `scp`, `rsync`, `git push/clone/fetch`, `gh`, `glab`), package installers (`pip`, `npm`, `uv`, `pipx`, `cargo`, `go install`), and shell-escape patterns (`bash -c`, `python -c`, `node -e`). Web search still works because `WebSearch`/`WebFetch` execute server-side on Anthropic's infra, not through the container's network.
+- **Autonomous runs** (agent driving): re-comment the planning-mode domains, restart Squid. The agent's allow list covers routine read-only and non-destructive Bash; its deny list blocks network tools (`curl`, `wget`, `ssh`, `scp`, `rsync`, `git push/clone/fetch`, `gh`, `glab`), package installers (`pip`, `npm`, `uv`, `pipx`, `cargo`, `go install`), and shell-escape patterns (`bash -c`, `python -c`, `node -e`, `uv run bash`, `perl`, `ruby`, `lua`, `env`, `xargs`). Web search still works because `WebSearch`/`WebFetch` execute server-side on Anthropic's infra, not through the container's network.
+
+The deny list is **defense in depth, not the security boundary**. Claude Code's permission matcher keys on the command prefix, so denies can be routed around by wrapper idioms that are hard to enumerate exhaustively — e.g. `find . -exec …`, `make` targets, `npm run` scripts, and `<interpreter> /tmp/script.<ext>` all run arbitrary code and can't be denied without breaking the tool's normal use. When the deny list misses, the real boundary still holds: the egress proxy (domain + port allowlist), seccomp (no user namespaces → no in-container bwrap/nsenter), non-root + `cap_drop: ALL`.
 
 The discipline: **if the agent says it needs a new package or a fresh clone, that's a planning-phase signal** — exit autonomous mode, you do it yourself, resume. Don't widen the agent's permissions to cover one-off installs; widen them only for patterns you'll keep seeing.
 
@@ -155,6 +189,50 @@ Reload Squid after toggling the allowlist:
 ```bash
 PROFILE=<p> COMPOSE_PROJECT_NAME=macolima-<p> docker compose restart egress-proxy
 ```
+
+### Colima VM delete wipes mount + resource config — always use `scripts/colima-up.sh`
+`colima delete` does what it says — it wipes the VM and Colima's persisted config for it. A subsequent bare `colima start` creates a fresh VM with **2 CPU / 2 GB RAM / 60 GB disk / no host mounts**, because none of the flags you passed originally are remembered across a delete. That immediately breaks this stack in two ways:
+
+1. **CPU limit error on container start**: `range of CPUs is from 0.01 to 2.00`. The compose file asks for `cpus: 4`, the fresh VM only has 2 → Docker refuses to schedule. You'll see this during `rebuild` or `up`.
+2. **Bind-mount error on container start**: `error mounting ".../proxy/squid.conf" to rootfs at "/etc/squid/squid.conf": not a directory: Are you trying to mount a directory onto a file (or vice-versa)?` — the source path isn't visible inside the VM because the `/Volumes/DataDrive` virtiofs mount is gone. The Docker daemon inside the VM then auto-creates the missing source as a directory and tries to mount that dir onto `/etc/squid/squid.conf` (which is a file in the Squid image), hence the error.
+
+Fix: **always use `scripts/colima-up.sh` after a delete**, never bare `colima start`. The wrapper encodes the required flags (`--cpu 6 --memory 10 --disk 80 --mount-type virtiofs --mount /Volumes/DataDrive/repo:w --mount /Volumes/DataDrive/.claude-colima:w`). Those persist into `colima.yaml` so subsequent stop/start cycles without flags work — until the next delete.
+
+If you need to sanity-check mounts after a VM start:
+```bash
+colima ssh -- ls /Volumes/DataDrive/repo/nranthony/macolima/proxy/squid.conf
+```
+Should print the path. If it errors, the mount didn't land; re-run `scripts/colima-up.sh`.
+
+External disks live under `_lima/_disks/<name>/datadisk` (separate from the profile dir — Lima's external-disk feature). `colima delete` doesn't always remove them, which is why `--disk N` can produce a "disk size cannot be reduced" WARN; it's cosmetic. To truly reset disk size, stop Colima and `rm -rf` the `_disks/colima/` subdir before starting.
+
+### VS Code Dev Containers leakage hardening
+VS Code's Dev Containers extension injects several host→container forwards by default that **bypass the sandbox network identity**: `SSH_AUTH_SOCK` + the underlying `/tmp/vscode-ssh-auth-*.sock`, the host `.gitconfig` copied into the rootfs overlay, and an IPC-backed `git-credential-helper` shim wired into `~/.config/git/config`. Hardening lives in three layers (container, repo, host); the tripwire (`verify-sandbox.sh`) checks all four leakage items.
+
+1. **In-container** (Dockerfile + `config/.zshrc`):
+   - `openssh-client` is purged. Closes the SSH exfil path at the tool level: even if the env var + socket leak in, no `ssh`/`scp`/`ssh-add` exists to use them.
+   - `config/.zshrc` runs `unset SSH_AUTH_SOCK` so any interactive shell (including `docker exec` paths that bypass `devcontainer.json`'s `remoteEnv`) starts with the env cleared. Defense-in-depth on top of the per-repo fix.
+2. **Per-repo** (`.devcontainer/devcontainer.json` — see `devcontainer-template/devcontainer.json` for the canonical copy). Each workspace that gets attached should have one. Required keys:
+   - `"remoteUser": "agent"`, `"containerUser": "agent"` — match the Dockerfile USER.
+   - `"updateRemoteUserUID": false` — critical. Without this, VS Code runs `usermod` as root during attach to align UIDs, which spawns a root shell that sometimes orphans (the "stray UID-0 process" drift seen in the pre-hardening audit). `"overrideCommand": false` — keep compose's `sleep infinity` as PID 1.
+   - `"remoteEnv": { "SSH_AUTH_SOCK": "" }` — the actual fix for SSH-agent injection. The Dev Containers extension has **no settings-level disable** for SSH agent forwarding; `remote.SSH.enableAgentForwarding` only governs the unrelated Remote-SSH extension. `remoteEnv` runs *after* VS Code's auto-injection and overrides the env. The socket file in `/tmp/` may still appear (cosmetic) but the env is empty so nothing references it.
+   - Workspace-scoped fallback for git-config copy + credential helper, under `customizations.vscode.settings` (NOT a top-level `settings` key — that location was deprecated and is silently ignored, which masked H2-style drift in the 2026-04-25 audit until we noticed):
+     ```jsonc
+     "customizations": { "vscode": { "settings": {
+       "dev.containers.copyGitConfig": false,
+       "dev.containers.gitCredentialHelperConfigLocation": "none"
+     } } }
+     ```
+3. **Host VS Code settings** (`~/Library/Application Support/Code/User/settings.json` on macOS) — these are the primary defense for the git-config and credential-helper paths; the workspace-scoped block above is belt-and-braces:
+   - `"dev.containers.copyGitConfig": false` — blocks the host `.gitconfig` copy into the rootfs overlay.
+   - `"dev.containers.gitCredentialHelperConfigLocation": "none"` — blocks the IPC-backed credential helper shim. **Separate setting** from `copyGitConfig`; disabling `copyGitConfig` alone is not sufficient (the 2026-04-25 audit caught the helper still being injected because we hadn't set this one).
+   - `"remote.SSH.enableAgentForwarding": false` — fine to set, but **does not affect Dev Containers attach**. It only governs Remote-SSH chained connections. Don't rely on it for sandbox hardening.
+
+**`ensure_state()` defensive scrub**: on every `up`, `profile.sh` scans `profiles/<p>/config/git/config` for helpers whose value matches any of `vscode-server | vscode-remote-containers | osxkeychain | git-credential-manager` and strips only those lines. Note: VS Code re-injects the helper *on every attach*, *after* `ensure_state()` has already run — so the scrub is correct in design but is a stale defense within an attach session. The host setting (`gitCredentialHelperConfigLocation: "none"`) is what actually prevents re-injection. **The scrub intentionally preserves `!/usr/local/bin/glab auth git-credential` and `!/usr/local/bin/gh auth git-credential`** — those are the legitimate in-container helpers installed by `glab auth setup-git` / `gh auth setup-git`, which use in-container tokens from `~/.config/{glab-cli,gh}/` and have no host reach. Do not broaden the scrub to "any helper" — that would break authenticated `git push`.
+
+`verify-sandbox.sh`'s credential helper tripwire uses the same host-reaching patterns, so benign glab/gh helpers PASS.
+
+**`VSCODE_GIT_ASKPASS_*` envs** (informational): the same VS Code attach mechanism that injects the credential helper also exports `GIT_ASKPASS`, `VSCODE_GIT_ASKPASS_NODE`, `VSCODE_GIT_ASKPASS_MAIN`, `VSCODE_GIT_IPC_HANDLE`. They route `git` HTTPS auth prompts through the host VS Code UI for credential entry. With autonomous mode's `git push|clone|fetch|pull` denies these are dormant; in planning mode they become a host-reaching prompt path. **Don't paste a host credential into a container `git` prompt** — VS Code will happily relay it.
 
 ### Ubuntu 24.04 default `ubuntu` user at UID 1000
 Dockerfile does `userdel -r ubuntu 2>/dev/null || true` before creating `agent` at UID 1000. Don't remove that line.
@@ -201,6 +279,16 @@ scripts/setup.sh <p> --recreate
 # Full rebuild + recreate (covers Dockerfile changes)
 scripts/profile.sh <p> rebuild
 
+# Blank-slate a profile but KEEP auth (claude creds + claude.json + gh + glab + git identity).
+# Tears down containers, drops vscode-server volume, nukes everything else under
+# profiles/<p>/ except the auth files, then re-seeds settings.json + skills from
+# config/. DB volumes (postgres-data/mongo-data) are preserved unless you pass
+# --all-volumes. Confirms first; --dry-run prints the plan, --yes skips the prompt.
+scripts/profile.sh <p> wipe --dry-run
+scripts/profile.sh <p> wipe                    # interactive (type profile name to confirm)
+scripts/profile.sh <p> wipe --yes              # non-interactive
+scripts/profile.sh <p> wipe --all-volumes      # also drop postgres/mongo named volumes
+
 # Recreate only (covers seccomp / mounts / env / squid.conf changes)
 PROFILE=<p> COMPOSE_PROJECT_NAME=macolima-<p> docker compose up -d --force-recreate
 
@@ -239,7 +327,7 @@ Accepted CVEs/misconfigs live in `.trivyignore.yaml` with dated `expired_at` fie
 - Don't `docker compose` directly without `PROFILE` set — use `scripts/profile.sh`.
 - Don't add `read_only: true` to the agent container.
 - Don't mount `.vscode-server` as a drive bind mount.
-- Don't add broad wildcards (`*.microsoft.com`) to the proxy allowlist — pin to specific services.
+- Don't add broad wildcards (`*.microsoft.com`, `.anthropic.com`) to the proxy allowlist — pin to specific subdomains. Sole exception: `.vscode-unpkg.net` (vendor-controlled CDN that legitimately rotates subdomains).
 - Don't share the same profile dir between two profiles via symlinks "to save space" — the whole point is isolation.
 - Don't commit secrets from `profiles/<name>/` into git — that dir is user state, not repo content. It lives on the drive, outside this repo.
 - Don't chmod `.claude/.credentials.json` to anything other than 600.

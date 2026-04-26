@@ -1,38 +1,46 @@
 {
-  "//": "Copy this file to <your-repo>/.devcontainer/devcontainer.json. VS Code will then offer 'Reopen in Container' for that repo.",
-  "name": "Claude Sandbox (macolima)",
-  "image": "macolima:latest",
+  "//": [
+    "Minimal ATTACH-mode devcontainer for macolima. Copy this file to",
+    "<your-repo>/.devcontainer/devcontainer.json so VS Code can attach cleanly",
+    "to the already-running claude-agent-<profile> container.",
+    "",
+    "Workflow:",
+    "  1. scripts/profile.sh <profile> up        # starts the compose stack",
+    "  2. VS Code: Remote Explorer → Attach to Running Container →",
+    "     claude-agent-<profile>                 # picks up this config",
+    "",
+    "Do NOT add runArgs, mounts, image, or network here — compose already",
+    "configures those (cap_drop, seccomp, internal network, per-profile binds).",
+    "Duplicating them in a devcontainer.json either fights compose (start fails)",
+    "or — worse — starts a fresh parallel container with weaker settings and",
+    "shared state. The three keys below are the ones VS Code actually needs",
+    "at attach time; everything else is handled by docker-compose.yml."
+  ],
+  "name": "Claude Sandbox (macolima, attach)",
   "workspaceFolder": "/workspace",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
-  "mounts": [
-    "source=/Volumes/DataDrive/.claude-colima/claude-home,target=/home/agent/.claude,type=bind",
-    "source=/Volumes/DataDrive/.claude-colima/claude.json,target=/home/agent/.claude.json,type=bind",
-    "source=/Volumes/DataDrive/.claude-colima/workspace-cache,target=/home/agent/.cache,type=bind",
-    "source=/Volumes/DataDrive/.claude-colima/vscode-server,target=/home/agent/.vscode-server,type=bind"
-  ],
+
   "remoteUser": "agent",
-  "runArgs": [
-    "--read-only",
-    "--tmpfs", "/tmp:size=1g,noexec,nosuid,nodev",
-    "--tmpfs", "/run:size=64m,noexec,nosuid,nodev",
-    "--tmpfs", "/home/agent/.npm-global:size=512m,nosuid,nodev",
-    "--tmpfs", "/home/agent/.local:size=256m,nosuid,nodev",
-    "--tmpfs", "/var/devcontainer:size=16m,nosuid,nodev",
-    "--security-opt", "no-new-privileges:true",
-    "--cap-drop", "ALL",
-    "--pids-limit", "512",
-    "--memory", "8g",
-    "--cpus", "4",
-    "--network", "macolima_sandbox-internal"
-  ],
-  "containerEnv": {
-    "HTTP_PROXY": "http://egress-proxy:3128",
-    "HTTPS_PROXY": "http://egress-proxy:3128"
+  "containerUser": "agent",
+
+  "//remoteEnv.SSH_AUTH_SOCK": "Empty out the SSH agent socket env var that VS Code Dev Containers auto-injects on every attach. There is no first-class disable knob for this in the Dev Containers extension; remote.SSH.enableAgentForwarding only governs the Remote-SSH extension. Audit 2026-04-25 confirmed the env was being injected with a fresh UUID each attach despite that host setting. With openssh-client purged from the image the socket is unusable, but emptying the env removes the tripwire signal too.",
+  "remoteEnv": {
+    "SSH_AUTH_SOCK": ""
   },
+
+  "//updateRemoteUserUID": "Critical. Without this VS Code runs `usermod` as root during attach to align UIDs, which spawns a root shell that sometimes orphans — the 'stray UID-0 process' drift the tripwire watches for.",
+  "updateRemoteUserUID": false,
+
+  "//overrideCommand": "Keep compose's `sleep infinity` as PID 1. Overriding would replace it with /bin/sh -c 'while sleep ...' and lose tini signal handling.",
+  "overrideCommand": false,
+
   "customizations": {
     "vscode": {
       "extensions": ["anthropic.claude-code"],
+      "//dev.containers.*": "Workspace-scoped belt-and-braces for the host VS Code settings that close attach-time host reach. The host settings (~/Library/Application Support/Code/User/settings.json on macOS) are the actual fix; mirroring them here makes the workspace robust if a fresh host machine has them unset. Audit 2026-04-25 caught the IPC credential helper drifting back in (H1) — gitCredentialHelperConfigLocation is the key that closes it, separate from copyGitConfig.",
       "settings": {
+        "dev.containers.copyGitConfig": false,
+        "dev.containers.gitCredentialHelperConfigLocation": "none",
+        "remote.SSH.enableAgentForwarding": false,
         "terminal.integrated.defaultProfile.linux": "zsh",
         "terminal.integrated.profiles.linux": {
           "zsh": { "path": "/usr/bin/zsh" }

@@ -16,12 +16,22 @@
 # =============================================================================
 
 # --- Claude / Anthropic (always on) ---
-.anthropic.com
-.claude.com
-.claude.ai
+# Specific subdomains only — broad wildcards (`.anthropic.com`, `.claude.com`,
+# `.claude.ai`) were dropped per security audit M3. A future subdomain that
+# hosts user-controllable content under one of those parents would otherwise
+# become an exfil channel. Add specific hosts here as Claude Code needs them;
+# the error from the proxy (403) tells you which to add.
+api.anthropic.com
+console.anthropic.com
 statsig.anthropic.com
+api.claude.com
+platform.claude.com 
+claude.ai
 
 # --- VS Code Marketplace (IDE integration) ---
+# `.vscode-unpkg.net` is kept as a wildcard because VS Code's extension-package
+# fetcher rotates across many subdomains (CDN fronts). Microsoft-controlled;
+# no known third-party-owned subdomain under that parent.
 marketplace.visualstudio.com
 .vscode-unpkg.net
 update.code.visualstudio.com
