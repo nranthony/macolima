@@ -58,28 +58,48 @@ update.code.visualstudio.com
 # handing the session back to the agent. Each block is independent.
 
 # --- Source code / git [git] ---
-# .github.com
-# .githubusercontent.com
-# .githubassets.com
-# .gitlab.com
-# .gitlab-static.net
-
-# --- Python package ecosystem [pypi] ---
+# Pinned hosts (per CLAUDE.md discipline: no parent wildcards under vendors
+# we don't control). If a TCP_DENIED hits a sibling subdomain that's clearly
+# legitimate during planning, add the specific host here — never widen back
+# to `.github.com`. Common GitHub install/clone paths only need the hosts
+# below; widen only on observed need. Note: raw.githubusercontent.com lives
+# in the persistent [github-raw] block, not here — adds to the surface
+# regardless of whether this planning block is open.
+# github.com
+# api.github.com
+# codeload.github.com
+# objects.githubusercontent.com
+# gist.githubusercontent.com
+# github.io
+# gitlab.com
+# about.gitlab.com
+# # --- Python package ecosystem [pypi] ---
 # .pypi.org
 # .files.pythonhosted.org
 # .astral.sh
-
-# --- Node.js / npm [npm] ---
+# # --- Node.js / npm [npm] ---
 # .registry.npmjs.org
 # .npmjs.com
 # .nodejs.org
 # deb.nodesource.com
-
 # --- OS packages — only if apt-get inside the container [apt] ---
-# .ubuntu.com
-# .debian.org
-# archive.ubuntu.com
-# security.ubuntu.com
+# Pinned hosts (per CLAUDE.md discipline). The Ubuntu archive infrastructure
+# is well-known and fixed: apt-get only hits the two hosts below. Add Debian
+# equivalents (deb.debian.org, security.debian.org) only if the base image
+# ever switches off Ubuntu — currently FROM ubuntu:24.04, so they're not
+# needed.
+archive.ubuntu.com
+security.ubuntu.com
+
+# --- Playwright browser download [playwright-install] ---
+# Needed ONLY for `playwright install chromium` (one-time, ~250 MB). Newer
+# versions pull from cdn.playwright.dev; older pinned versions still pull
+# from playwright.azureedge.net. Recomment immediately after install — the
+# Chromium binary is on disk after that and no further CDN traffic is
+# needed for crawls themselves.
+# cdn.playwright.dev
+# playwright.azureedge.net
+# playwright-akamaized.net
 
 
 # =============================================================================
@@ -100,24 +120,20 @@ update.code.visualstudio.com
 # is HTML), EuropePMC, preprint servers (arxiv, biorxiv, medrxiv, chemrxiv),
 # DOI resolver (302s to publishers — see [oa-publishers] block for destinations).
 # Uncomment www.zotero.org only if using ZoteroClient for library sync.
-# api.crossref.org
-# api.openalex.org
-# api.unpaywall.org
-# api.base-search.net
-
-# eutils.ncbi.nlm.nih.gov
-# www.ebi.ac.uk
-
-# arxiv.org
-# export.arxiv.org
-# api.biorxiv.org
-# www.biorxiv.org
-# www.medrxiv.org
-# chemrxiv.org
-
-# doi.org
-
-# www.zotero.org
+api.crossref.org
+api.openalex.org
+api.unpaywall.org
+api.base-search.net
+eutils.ncbi.nlm.nih.gov
+www.ebi.ac.uk
+arxiv.org
+export.arxiv.org
+api.biorxiv.org
+www.biorxiv.org
+www.medrxiv.org
+chemrxiv.org
+doi.org
+www.zotero.org
 
 # --- Open-access publisher destinations for doi.org redirects [oa-publishers] ---
 # doi.org returns 302 to a publisher. These cover OA publishers most likely to
@@ -126,12 +142,20 @@ update.code.visualstudio.com
 # paperbridge) to find an OA copy on PMC / arXiv / a repository already in
 # this allowlist. pubmed.ncbi.nlm.nih.gov is PubMed HTML (abstracts always
 # free); www.ncbi.nlm.nih.gov hosts PMC full-text.
-# www.frontiersin.org
-# www.mdpi.com
-# www.sciencedirect.com
-# ieeexplore.ieee.org
-# pubmed.ncbi.nlm.nih.gov
-# www.ncbi.nlm.nih.gov
+www.frontiersin.org
+www.mdpi.com
+www.sciencedirect.com
+ieeexplore.ieee.org
+pubmed.ncbi.nlm.nih.gov
+www.ncbi.nlm.nih.gov
+
+# --- GitHub raw content [github-raw] ---
+# Persistent (autonomous-safe) pinned host. Vendor SDK READMEs and example
+# code (Polar BLE SDK, Empatica E4, Shimmer firmware, OpenBCI) live on
+# raw.githubusercontent.com and are legitimately needed during long-lived
+# research crawls. Kept out of the planning [git] block so the persistent
+# autonomous reach to GitHub raw doesn't depend on planning being open.
+raw.githubusercontent.com
 
 # --- Wearables / biosensor vendor docs [wearables] ---
 # Pinned to specific subdomains, never parent wildcards (per CLAUDE.md
@@ -150,62 +174,51 @@ update.code.visualstudio.com
 #
 # Note: support.google.com is huge surface — covers all Google products
 # including Fitbit help. support.microsoft.com is similarly broad.
-# developer.samsung.com
-# www.samsung.com
-
-# developer.apple.com
-# www.apple.com
-# support.apple.com
-
-# developer.android.com
-# support.google.com
-
-# developer.garmin.com
-# www.garmin.com
-# support.garmin.com
-
-# dev.fitbit.com
-# www.fitbit.com
-
-# www.polar.com
-# support.polar.com
-
-# manuals.empatica.com
-# www.empatica.com
-# support.empatica.com
-
-# ouraring.com
-# support.ouraring.com
-
-# www.emotiv.com
-
-# choosemuse.com
-
-# www.biopac.com
-# www.shimmersensing.com
-# www.mindwaretech.com
-
-# www.fossil.com
-# www.sony.com
-# www.sonymobile.com
-# www.microsoft.com
-# support.microsoft.com
-# www.philips.com
-# www.discoverdti.com
-# www.moodmetric.com
-# dreem.com
-# www.vitalconnect.com
-# www.movisens.com
-# galea.co
-# openbci.com
-# www.fibion.com
-# www.zephyranywhere.com
-# www.medtronic.com
-# www.vu-ams.nl
-# www.physioflow.com
-# www.cnsystems.com
-# www.toscm.com
-# www.avivomedical.com
+developer.samsung.com
+www.samsung.com
+developer.apple.com
+www.apple.com
+support.apple.com
+developer.android.com
+support.google.com
+developer.garmin.com
+www.garmin.com
+support.garmin.com
+dev.fitbit.com
+www.fitbit.com
+www.polar.com
+support.polar.com
+manuals.empatica.com
+www.empatica.com
+support.empatica.com
+ouraring.com
+support.ouraring.com
+www.emotiv.com
+choosemuse.com
+www.biopac.com
+www.shimmersensing.com
+www.mindwaretech.com
+www.fossil.com
+www.sony.com
+www.sonymobile.com
+www.microsoft.com
+support.microsoft.com
+www.philips.com
+www.discoverdti.com
+www.moodmetric.com
+dreem.com
+www.vitalconnect.com
+www.movisens.com
+galea.co
+openbci.com
+www.fibion.com
+www.zephyranywhere.com
+www.medtronic.com
+www.vu-ams.nl
+www.physioflow.com
+www.cnsystems.com
+www.toscm.com
+www.avivomedical.com
 
 # --- Web archive — defunct vendor docs and broken links [archive] ---
 # Critical for: Microsoft Band 2, Dreem, Sony SmartBand 2, Philips DTI-2,

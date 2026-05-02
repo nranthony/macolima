@@ -15,7 +15,7 @@ A *profile* is a named sandbox instance — e.g. `work`, `personal`, `sideprojec
 - Has its own agent container (`claude-agent-<profile>`) and proxy (`egress-proxy-<profile>`).
 - Runs on its own isolated Docker networks (no cross-profile traffic).
 - Has its own Claude auth, session history, MCP config, git identity, and gh/glab tokens.
-- Mounts one subfolder of `/Volumes/DataDrive/repo/<profile>/` as `/workspace`.
+- Mounts one subfolder of `/Volumes/DataDrive/repo/<profile>/` as `/workspace`. By convention, drop locally-built wheels for that profile into `/Volumes/DataDrive/repo/<profile>/dist/` — they appear at `/workspace/dist/` inside the container for `uv pip install`. See `CLAUDE.md` → "Per-profile `dist/` for local wheels".
 - Can run concurrently with other profiles, or be brought up/down independently.
 
 All profiles share the same `macolima:latest` image. Rebuild once, all profiles benefit.
@@ -60,7 +60,6 @@ macolima/
         ├── work/
         │   ├── claude-home/                # → /home/agent/.claude
         │   ├── claude.json                 # → /home/agent/.claude.json (chmod 644)
-        │   ├── cache/                      # → /home/agent/.cache
         │   └── config/                     # → /home/agent/.config
         │       ├── gh/                     #     GitHub CLI tokens
         │       ├── glab-cli/               #     GitLab CLI tokens
@@ -68,6 +67,8 @@ macolima/
         ├── personal/ ...
         └── sideproject/ ...
 ```
+
+Two paths under `/home/agent/` are **named Docker volumes**, not host dirs — `.cache` (`macolima-<p>_cache`) and `.vscode-server` (`macolima-<p>_vscode-server`). Both live in the Colima VM's ext4 to avoid virtiofs `chmod()`/`utime()` errors during wheel and tar extraction. Loss on `--recreate` is cheap (caches are content-addressable). See `CLAUDE.md` → "`.vscode-server` and `.cache` must be named volumes".
 
 ## First-time setup
 
@@ -172,15 +173,17 @@ COMPOSE_PROFILES=db-mongo             scripts/profile.sh <p> up
 COMPOSE_PROFILES=db-all               scripts/profile.sh <p> up
 ```
 
-On first `up`, `profiles/<p>/db.env.example` is seeded. Copy to `db.env`, set real passwords, re-up:
+On first `up`, `profiles/<p>/db.env.example` is seeded. Copy to `db.env`, replace every `__SET_ME__`, re-up:
 
 ```bash
 cp /Volumes/DataDrive/.claude-colima/profiles/<p>/db.env.example \
    /Volumes/DataDrive/.claude-colima/profiles/<p>/db.env
 chmod 600 /Volumes/DataDrive/.claude-colima/profiles/<p>/db.env
-# edit passwords, then:
+# edit passwords (suggested: `openssl rand -hex 24` for URL-safe values), then:
 COMPOSE_PROFILES=db-all scripts/profile.sh <p> up
 ```
+
+**Heads-up:** `POSTGRES_*` and `MONGO_INITDB_ROOT_*` are only consumed on the postgres/mongo container's *first* boot. Editing `db.env` after that does **not** change creds inside the DB — see CLAUDE.md → "First-init lock-in" for the fix (ALTER USER, or wipe the volume).
 
 Inside the agent the DBs are reachable as `postgres:5432` and `mongo:27017`; `psql` and `mongosh` are preinstalled, and the creds come in via env. For host GUI access (TablePlus, Compass), uncomment the `ports:` block on the relevant service — loopback-only, never `0.0.0.0`.
 

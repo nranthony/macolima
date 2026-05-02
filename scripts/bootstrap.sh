@@ -49,7 +49,26 @@ if [[ "$(uname -m)" == "arm64" ]] && ! /usr/bin/pgrep -q oahd; then
   softwareupdate --install-rosetta --agree-to-license
 fi
 
-# --- zshrc snippet ----------------------------------------------------------
+# --- zshrc: homebrew shellenv ----------------------------------------------
+# Without /opt/homebrew/bin on PATH, `docker`, `colima`, `gh`, etc. fail with
+# `command not found` in fresh shells — even though brew installed them. The
+# brew installer prints a "Next steps" snippet that adds this; some users miss
+# it. Idempotent: only append if no existing line references /opt/homebrew/bin.
+BREW_MARKER="# >>> homebrew shellenv >>>"
+if ! grep -qE 'brew shellenv|/opt/homebrew/bin' "$HOME/.zshrc" 2>/dev/null; then
+  info "Appending Homebrew shellenv to ~/.zshrc (puts docker/colima on PATH)..."
+  {
+    echo ""
+    echo "$BREW_MARKER"
+    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"'
+    echo "# <<< homebrew shellenv <<<"
+  } >> "$HOME/.zshrc"
+  ok "Added Homebrew shellenv. Run: source ~/.zshrc"
+else
+  ok "Homebrew is already on \$PATH in ~/.zshrc."
+fi
+
+# --- zshrc: macolima env ----------------------------------------------------
 SNIPPET_MARKER="# >>> macolima env >>>"
 if ! grep -q "$SNIPPET_MARKER" "$HOME/.zshrc" 2>/dev/null; then
   info "Appending Colima env vars to ~/.zshrc ..."

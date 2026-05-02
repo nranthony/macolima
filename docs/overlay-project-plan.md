@@ -119,6 +119,7 @@ Rebuild order:
 
 ## Alternatives considered (and why overlay wins)
 
+- **Drop a wheel into `/Volumes/DataDrive/repo/<profile>/dist/` and `uv pip install` it from `/workspace/dist/`** (the current convention — see `CLAUDE.md` → "Per-profile `dist/` for local wheels"). Lightest option: no Dockerfile, no proxy widening, no rebuild. The right answer for a sibling Python library that isn't on PyPI (e.g. paperbridge). The overlay only wins over this when the additions are large (Playwright/Chromium, CUDA wheels), need OS-level packages, or want to be baked in for reproducibility rather than reinstalled into each fresh venv.
 - **Always-runtime install via post-up.sh**: works but every `up` re-runs
   the install (or needs sentinel-file logic), and the install must go
   through the planning-mode proxy block being open. Fine for one or two

@@ -81,7 +81,10 @@ fi
 # --- ensure persistent state dirs -------------------------------------------
 ensure_state() {
   local p="$PROFILES_ROOT/$PROFILE"
-  mkdir -p "$p/claude-home" "$p/cache" "$p/config"
+  # `cache/` is intentionally not pre-created on host — `/home/agent/.cache` is
+  # backed by a named Docker volume (`macolima-<p>_cache`), not a bind mount,
+  # to avoid virtiofs chmod issues during wheel extraction (lxml etc.).
+  mkdir -p "$p/claude-home" "$p/config"
   # Single-file bind mounts need the target to exist on host before first compose up.
   # Seed with '{}' — Claude rejects a 0-byte file as invalid JSON (Unexpected EOF).
   if [[ ! -s "$p/claude.json" ]]; then
@@ -91,18 +94,49 @@ ensure_state() {
   mkdir -p "$p/config/git"
   # Seed a db.env.example so users know which keys to set if they opt into
   # the Postgres/Mongo sibling containers. We never write db.env itself —
-  # user copies the example and fills in secrets.
-  if [[ ! -f "$p/db.env.example" ]]; then
-    cat > "$p/db.env.example" <<'EOF'
-# Copy to db.env and fill in. Only needed if you run the postgres/mongo
-# sibling containers (COMPOSE_PROFILES=db-postgres or db-mongo).
+  # user copies the example and fills in secrets. The example is a *template*
+  # (not user data), so always overwrite — that way doc improvements to the
+  # template propagate to existing profiles on the next `up`.
+  cat > "$p/db.env.example" <<'EOF'
+# Copy this file to `db.env` (same directory) and replace every __SET_ME__.
+# Only needed if you opt into the postgres / mongo sibling containers via
+# COMPOSE_PROFILES=db-postgres or db-mongo when running `scripts/profile.sh up`.
+#
+# IMPORTANT — first-init lock-in:
+#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB are only read on the *first*
+#   boot of the postgres container, when initdb runs against an empty data
+#   volume. Editing them later does NOT change the role inside the DB.
+#   To change credentials afterwards either:
+#     (a) connect as the existing role and `ALTER USER agent WITH PASSWORD '...';`
+#     (b) wipe the volume and re-init:
+#           docker stop postgres-<profile>
+#           docker volume rm macolima-<profile>_postgres-data
+#           COMPOSE_PROFILES=db-postgres scripts/profile.sh <profile> up
+
+# --- Postgres ----------------------------------------------------------------
 POSTGRES_USER=agent
-POSTGRES_PASSWORD=change-me
+POSTGRES_PASSWORD=__SET_ME__
 POSTGRES_DB=dev
+
+# Optional: project-specific DSN read inside the agent container by code that
+# expects this env var (e.g. `WEARDATA_PG_DSN` for wearable_data_testing,
+# `DATABASE_URL` for many frameworks). Pick the name your project uses.
+#
+# The DSN's password component must match POSTGRES_PASSWORD above. If your
+# password contains URL-reserved chars, percent-encode them in the DSN:
+#     /  ->  %2F     @  ->  %40     :  ->  %3A     #  ->  %23     ?  ->  %3F
+# Safer: generate a password with no special chars:
+#     openssl rand -hex 24        # 48 hex chars, all URL-safe
+#
+# Hostname inside the sandbox is `postgres` (the compose service name on
+# sandbox-internal), NOT localhost.
+#
+# DATABASE_URL=postgresql://agent:__SET_ME__@postgres:5432/dev
+
+# --- Mongo (optional) --------------------------------------------------------
 MONGO_INITDB_ROOT_USERNAME=agent
-MONGO_INITDB_ROOT_PASSWORD=change-me
+MONGO_INITDB_ROOT_PASSWORD=__SET_ME__
 EOF
-  fi
   # Seed settings.json if absent.
   if [[ ! -f "$p/claude-home/settings.json" ]] && [[ -f "$SCRIPT_DIR/config/claude-settings.json" ]]; then
     cp "$SCRIPT_DIR/config/claude-settings.json" "$p/claude-home/settings.json"
@@ -248,8 +282,15 @@ case "$CMD" in
 
     if [[ "$deep" == "1" ]]; then
       # MCP/CLI debug logs — only useful when actively debugging connection issues.
-      find "$p/cache/claude-cli-nodejs" -type f -name '*.jsonl' -delete 2>/dev/null || true
-      ok "dropped MCP debug logs under cache/claude-cli-nodejs"
+      # Live in the `cache` named volume (not host-visible). Reach in via the
+      # running container if it's up; otherwise this is a no-op.
+      if docker ps --format '{{.Names}}' | grep -qx "$AGENT"; then
+        docker exec "$AGENT" \
+          find /home/agent/.cache/claude-cli-nodejs -type f -name '*.jsonl' -delete 2>/dev/null || true
+        ok "dropped MCP debug logs under .cache/claude-cli-nodejs (in container)"
+      else
+        info "skipping MCP debug log cleanup ('$AGENT' not running; logs live in named volume)"
+      fi
       # Our own reset-settings backups.
       find "$p/claude-home" -maxdepth 1 -name 'settings.json.bak.*' -delete 2>/dev/null || true
       ok "dropped settings.json.bak.* backups"
@@ -286,8 +327,8 @@ case "$CMD" in
     # Use case: testing the stack from a clean state without re-doing OAuth.
     # Preserves: claude-home/.credentials.json, claude.json, config/gh/,
     #            config/glab-cli/, config/git/.
-    # Wipes:     containers, vscode-server named volume, everything else under
-    #            profiles/<p>/ (cache, settings, skills, sessions, projects,
+    # Wipes:     containers, vscode-server + cache named volumes, everything
+    #            else under profiles/<p>/ (settings, skills, sessions, projects,
     #            paste-cache, shell-snapshots, audits, ...).
     # Does NOT touch: shared image (use `build` to rebuild), DB volumes
     #            (postgres-data, mongo-data) unless --all-volumes is passed.
@@ -313,7 +354,7 @@ case "$CMD" in
     echo "    $p/config/glab-cli/"
     echo "    $p/config/git/"
     echo "  WIPE:"
-    echo "    docker compose down --remove-orphans  ($([[ $all_vols == 1 ]] && echo '+ ALL named volumes' || echo '+ vscode-server volume only; DB volumes preserved'))"
+    echo "    docker compose down --remove-orphans  ($([[ $all_vols == 1 ]] && echo '+ ALL named volumes' || echo '+ vscode-server + cache volumes; DB volumes preserved'))"
     echo "    rm -rf $p/*  (everything except the PRESERVE list above)"
     echo "  AFTER:"
     echo "    re-seed claude settings.json + skills from config/ (via ensure_state)"
@@ -336,10 +377,12 @@ case "$CMD" in
       docker compose down -v --remove-orphans || warn "compose down had errors; continuing"
     else
       docker compose down --remove-orphans || warn "compose down had errors; continuing"
-      # Drop just the vscode-server volume; leave DB volumes alone.
-      docker volume rm "${COMPOSE_PROJECT_NAME}_vscode-server" 2>/dev/null \
-        && ok "removed volume ${COMPOSE_PROJECT_NAME}_vscode-server" \
-        || info "no vscode-server volume to remove (or already gone)"
+      # Drop the throwaway named volumes (vscode-server, cache); leave DB volumes alone.
+      for v in vscode-server cache; do
+        docker volume rm "${COMPOSE_PROJECT_NAME}_${v}" 2>/dev/null \
+          && ok "removed volume ${COMPOSE_PROJECT_NAME}_${v}" \
+          || info "no ${v} volume to remove (or already gone)"
+      done
     fi
 
     # 2. Stage auth on the same filesystem so the move is a rename, not a copy.
@@ -357,7 +400,7 @@ case "$CMD" in
     ok "removed $p"
 
     # 4. Restore auth into a fresh profile dir.
-    mkdir -p "$p/claude-home" "$p/config" "$p/cache"
+    mkdir -p "$p/claude-home" "$p/config"
     [[ -f "$stage/claude.json" ]]                && mv "$stage/claude.json"                "$p/claude.json"
     [[ -f "$stage/claude-home/.credentials.json" ]] && mv "$stage/claude-home/.credentials.json" "$p/claude-home/.credentials.json"
     [[ -d "$stage/config/gh" ]]                  && mv "$stage/config/gh"                  "$p/config/gh"

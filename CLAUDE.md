@@ -30,13 +30,46 @@ Everything outside these paths is **wiped on container recreate**:
 | `/workspace` | `/Volumes/DataDrive/repo/<profile>` | Must exist before `up`; `profile.sh` validates. |
 | `/home/agent/.claude/` | `/V/.../profiles/<profile>/claude-home/` | Tokens, sessions, MCP, projects |
 | `/home/agent/.claude.json` | `/V/.../profiles/<profile>/claude.json` | **Single file, chmod 644, must contain `{}` (not empty).** Missing → login prompt every recreate; empty → JSON parse error. |
-| `/home/agent/.cache/` | `/V/.../profiles/<profile>/cache/` | npm/uv/pip caches |
+| `/home/agent/.cache/` | named volume `cache` (per profile) | npm/uv/pip caches. **Must be named volume** — same virtiofs reason as `.vscode-server`. |
 | `/home/agent/.config/` | `/V/.../profiles/<profile>/config/` | Holds `gh/`, `glab-cli/`, and `git/config` (git global config, via `GIT_CONFIG_GLOBAL`) |
 | `/home/agent/.vscode-server/` | named volume `vscode-server` (per project) | **Must be named volume.** |
 
 Volatile (tmpfs): `/tmp`, `/run`, `/home/agent/.npm-global`, `/home/agent/.local`.
 
-The named volume becomes `macolima-<profile>_vscode-server` — separate per profile, as intended.
+Named volumes become `macolima-<profile>_<name>` (e.g. `macolima-therapod_vscode-server`, `macolima-therapod_cache`) — separate per profile, as intended.
+
+### Per-profile `dist/` for local wheels
+
+Convention: `/Volumes/DataDrive/repo/<profile>/dist/` holds local `.whl` files (and other build artifacts) that should be installed into the profile's in-container venv but aren't on PyPI. Visible inside the container at `/workspace/dist/` because `/workspace` is the bind mount of the profile dir. Use this for sibling-repo libraries (e.g. paperbridge built from `nranthony/paperbridge`) instead of widening the proxy to a private index or grafting bind mounts onto cross-repo source.
+
+Workflow:
+
+```bash
+# host: build the wheel from its source repo
+cd /Volumes/DataDrive/repo/nranthony/<lib> && uv build
+cp dist/<lib>-*.whl /Volumes/DataDrive/repo/<profile>/dist/
+
+# container: install into the project venv
+cd /workspace/<project> && source .venv-linux/bin/activate
+uv pip install /workspace/dist/<lib>-*.whl
+```
+
+The directory is per-profile (no sharing) and lives on the external drive — survives container recreate AND VM rebuild. `dist/` matches the standard Python `.gitignore` entry, so wheels won't get committed by accident if a workspace is itself a git repo. This is the lightest of the three project-customization options; the heavier overlay Dockerfile pattern is in `docs/overlay-project-plan.md`.
+
+**Cross-environment `pyproject.toml` (the canonical pattern).** `uv pip install <wheel>` works once but a subsequent `uv sync` or `uv pip install -e ".[..."]` will rip it back out unless `pyproject.toml` declares the source. The pitfall: a host-absolute `path = "/Volumes/DataDrive/repo/nranthony/<lib>"` in `[tool.uv.sources]` blows up inside the container with `Distribution not found at: file:///Volumes/...` — only `/Volumes/DataDrive/repo/<profile>` is mounted (as `/workspace`), so cross-profile source paths aren't reachable. Fix is a platform-conditional source so host devs get the editable checkout and the container picks up the wheel from `/workspace/dist/`:
+
+```toml
+[tool.uv.sources]
+<lib> = [
+    { path = "/Volumes/DataDrive/repo/nranthony/<lib>",
+      editable = true,
+      marker = "platform_system == 'Darwin'" },
+    { path = "/workspace/dist/<lib>-0.1.0-py3-none-any.whl",
+      marker = "platform_system == 'Linux'" },
+]
+```
+
+uv evaluates the marker per environment, so the same `pyproject.toml` resolves correctly on macOS (Darwin → editable host path) and inside the agent container (Linux → wheel in mounted dist/). Bump the wheel filename in lockstep with the upstream `version` field — uv won't fall back if the literal filename doesn't match.
 
 ## Running web UIs from the container (Streamlit, Dash, notebooks, dashboards)
 
@@ -64,7 +97,11 @@ COMPOSE_PROFILES=db-postgres,db-mongo scripts/profile.sh <p> up  # both
 COMPOSE_PROFILES=db-all              scripts/profile.sh <p> up   # both (alias)
 ```
 
-**Credentials:** copy `profiles/<p>/db.env.example` to `profiles/<p>/db.env` and fill in. The template is auto-seeded on first `up`. `db.env` is outside the repo and must not be committed.
+**Credentials:** copy `profiles/<p>/db.env.example` to `profiles/<p>/db.env` and replace every `__SET_ME__`. The template is auto-seeded on first `up`. `db.env` is outside the repo and must not be committed.
+
+**First-init lock-in:** `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` are only consumed by Postgres's `initdb` on the *first* boot of the postgres container, when the named volume is empty. Editing `db.env` afterwards does not change the role inside the running DB — you'll still authenticate against whatever was set at first init. To change creds later: either `ALTER USER agent WITH PASSWORD '...';` from inside psql, or wipe and re-init (`docker volume rm macolima-<p>_postgres-data` then re-up). Same applies to `MONGO_INITDB_ROOT_*`.
+
+**Project-specific DSNs (`WEARDATA_PG_DSN`, `DATABASE_URL`, etc.):** define them in `db.env` alongside the `POSTGRES_*` vars — the agent service `env_file:`'s `db.env` so any var lands in the agent's env. The DSN's password component must match `POSTGRES_PASSWORD`. URL-encode reserved chars: `/` → `%2F`, `@` → `%40`, `:` → `%3A`. Or sidestep encoding entirely by generating a hex password: `openssl rand -hex 24`. Hostname inside the sandbox is `postgres`, never `localhost`.
 
 **Versions:** images are pinned by major (`postgres:18`, `mongo:8`) to match the host Homebrew versions (`postgresql@18`, `mongodb-community`). Bump both together if you upgrade the host.
 
@@ -90,10 +127,24 @@ The compose file uses `${PROFILE:?PROFILE env var required — use scripts/profi
 ### Rootfs is NOT read-only
 `read_only: true` was tried and removed on the agent container. It breaks VS Code Dev Containers' `/etc/environment` patching with no security gain (non-root + `cap_drop: ALL` already blocks system-dir writes). Stays on `egress-proxy` because Squid doesn't need rootfs writes.
 
-### `.vscode-server` must be a named volume
-Virtiofs on macOS mis-handles `utime()` during tar extraction of the VS Code server tarball (`tar: Cannot utime: Operation not permitted`). Fix: named Docker volume (`vscode-server:/home/agent/.vscode-server`) — lives in the VM's ext4, bypasses virtiofs.
+### `.vscode-server` and `.cache` must be named volumes (virtiofs chmod/utime)
+Virtiofs on macOS mis-handles `utime()` and `chmod()` during archive/wheel extraction. Two concrete failure modes hit:
 
-Any dir that becomes a named-volume mount point must be **pre-created in the Dockerfile** with `chown agent:agent`, or the volume initializes root-owned and the agent can't write.
+- **`tar: Cannot utime: Operation not permitted`** when the VS Code Dev Containers extension extracts the server tarball into `~/.vscode-server/`.
+- **`failed to set permissions for file ... .so: Operation not permitted`** when uv/pip extracts wheels that ship compiled extensions (`lxml`, `pyarrow`, `psycopg[binary]`, `numpy`, etc.) into `~/.cache/uv/`. uv writes the `.so` then `chmod`s the exec bit; virtiofs returns EPERM because the UID-remapping path doesn't carry permission writes correctly across the macOS→Linux boundary.
+
+Same root cause, same fix: named Docker volumes that live in the VM's ext4 and bypass virtiofs entirely.
+
+| Path | Volume | Why named-volume |
+|---|---|---|
+| `/home/agent/.vscode-server/` | `vscode-server` | tar extraction `utime()` |
+| `/home/agent/.cache/` | `cache` | wheel extraction `chmod()` on `.so` files |
+
+Trade-off: the cache is no longer host-visible at `profiles/<p>/cache/`. That's fine — uv/npm/pip caches are content-addressable and rebuild fast; nothing in them is worth backing up. The `cache` volume becomes `macolima-<profile>_cache` and survives `--recreate` like the others.
+
+Any dir that becomes a named-volume mount point must be **pre-created in the Dockerfile** with `chown agent:agent`, or the volume initializes root-owned and the agent can't write. (`/home/agent/.cache` and `/home/agent/.vscode-server` are both pre-created in the Dockerfile for this reason.)
+
+If you ever add another package extracted by uv/pip/npm that explodes on permission errors during `--recreate`, **don't add it as another bind mount** — make it a named volume too.
 
 ### `.claude.json` single-file bind mount needs chmod 644 AND valid JSON
 Single-file bind mounts on Colima virtiofs don't remap UIDs the same way directory mounts do. A 600 file on the host appears as `root:root 600` inside the container → agent can't read. 644 → appears as `agent:agent 644`.

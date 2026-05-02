@@ -57,8 +57,11 @@ services:
       - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/claude-home:/home/agent/.claude:rw
       # Per-profile .claude.json (oauthAccount, first-run state). chmod 644 on host.
       - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/claude.json:/home/agent/.claude.json:rw
-      # Per-profile cache (npm, uv, pip).
-      - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/cache:/home/agent/.cache:rw
+      # Per-profile cache (npm, uv, pip). Named volume in the VM's ext4 — a
+      # virtiofs bind mount here breaks wheel extraction (uv chmod's .so files
+      # post-extract; virtiofs returns EPERM). Same root cause as .vscode-server.
+      # Cache is content-addressable, so loss on recreate is cheap.
+      - cache:/home/agent/.cache:rw
       # Per-profile gh/glab tokens and git config (via GIT_CONFIG_GLOBAL below).
       # We mount .config/ (a directory) rather than .gitconfig (a file) — atomic
       # rename() during `git config --global` set fails across a single-file
@@ -213,3 +216,4 @@ volumes:
   vscode-server:
   postgres-data:
   mongo-data:
+  cache:

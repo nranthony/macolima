@@ -45,6 +45,39 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# ---------- Playwright / Chromium runtime libraries --------------------------
+# Headless Chromium (used by Crawl4AI for JS-heavy vendor SDK portals) needs
+# ~20 shared libraries that the base ubuntu:24.04 image doesn't ship with —
+# X/Wayland/audio/font/cups/dbus surface that Chromium dynamically loads even
+# in --no-sandbox headless mode. Without these the binary won't start, even
+# after `playwright install chromium` succeeds in fetching the build to disk.
+#
+# Why baked in (not `playwright install-deps` at runtime):
+#   - The agent runs as UID 1000 with cap_drop: ALL + no_new_privs=1; sudo
+#     is neutralized, and `apt-get` can't write to /var/lib/dpkg anyway.
+#   - Per CLAUDE.md planning/autonomous discipline, OS-package installs are
+#     a build-time concern — not a runtime activity for any agent.
+#   - The list is stable across Playwright versions, so this is one-time.
+#
+# Adds ~150 MB to the image. Justifiable: any future research profile doing
+# JS-heavy crawling reuses the same libs. If a slim profile turns up that
+# explicitly doesn't want browser deps, promote to a per-profile overlay
+# Dockerfile (see docs/overlay-project-plan.md).
+#
+# The `t64` suffix on several packages (libcups2t64, libatk1.0-0t64, ...)
+# is Ubuntu 24.04's 64-bit-time rebuild of those libraries — required, not
+# optional, on this base image.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      libglib2.0-0t64 libnspr4 libnss3 \
+      libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 \
+      libdbus-1-3 libcups2t64 \
+      libxcb1 libxkbcommon0 libx11-6 libxcomposite1 libxdamage1 \
+      libxext6 libxfixes3 libxrandr2 \
+      libgbm1 libcairo2 libpango-1.0-0 libasound2t64 \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
 # ---------- Node.js + Claude Code -------------------------------------------
 # Upgrade bundled npm first — NodeSource ships an older npm whose own
 # vendored deps (cross-spawn, glob, minimatch, tar) accumulate CVEs between
@@ -151,10 +184,12 @@ ENV HOME=/home/agent \
     NPM_CONFIG_PREFIX="/home/agent/.npm-global" \
     SHELL=/usr/bin/zsh
 
-# Expected runtime bind mounts (see docker-compose.yml):
-#   /workspace              <- /Volumes/DataDrive/repo
-#   /home/agent/.claude     <- /Volumes/DataDrive/.claude-colima/claude-home
-#   /home/agent/.cache      <- /Volumes/DataDrive/.claude-colima/workspace-cache
+# Expected runtime mounts (see docker-compose.yml):
+#   /workspace                <- bind: /Volumes/DataDrive/repo/<profile>
+#   /home/agent/.claude       <- bind: profiles/<profile>/claude-home
+#   /home/agent/.config       <- bind: profiles/<profile>/config
+#   /home/agent/.cache        <- named volume `cache`        (virtiofs-incompatible: wheel chmod)
+#   /home/agent/.vscode-server <- named volume `vscode-server` (virtiofs-incompatible: tar utime)
 
 ENTRYPOINT ["tini", "--"]
 CMD ["bash"]
