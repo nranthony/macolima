@@ -241,6 +241,13 @@ Reload Squid after toggling the allowlist:
 PROFILE=<p> COMPOSE_PROJECT_NAME=macolima-<p> docker compose restart egress-proxy
 ```
 
+For one-shot planning-mode installs, `scripts/with-egress.sh` automates the toggle/restart/exec/restore/restart loop. The allowlist is backed up and restored verbatim on exit (success, failure, Ctrl-C — `trap` ensures close even on a half-run install):
+```bash
+scripts/with-egress.sh <p> -- '<cmd to run inside the agent container>'
+scripts/with-egress.sh <p> --with pypi,npm -- '<cmd>'
+```
+Section tags match `[<tag>]` in `proxy/allowed_domains.txt` (typical: `pypi`, `npm`, `git`). Default opens `pypi` only.
+
 ### Colima VM delete wipes mount + resource config — always use `scripts/colima-up.sh`
 `colima delete` does what it says — it wipes the VM and Colima's persisted config for it. A subsequent bare `colima start` creates a fresh VM with **2 CPU / 2 GB RAM / 60 GB disk / no host mounts**, because none of the flags you passed originally are remembered across a delete. That immediately breaks this stack in two ways:
 
