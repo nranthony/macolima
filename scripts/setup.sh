@@ -135,11 +135,32 @@ if [[ -n "$ACTION" ]]; then
       exit 0
       ;;
     reset)
+      # --reset is the "I want a totally fresh start" path: nuke everything
+      # under the profile dir + recreate the auth chain. Different from
+      # `profile.sh wipe`, which preserves Claude/gh/glab/git auth and only
+      # tears down rotating state. Use --reset when you intend to re-login.
       warn "This will DELETE all state for profile '$PROFILE':"
-      warn "  $PROFILES_ROOT/$PROFILE/"
-      warn "Containers will also be removed. /workspace repo contents are NOT touched."
+      warn "  $PROFILES_ROOT/$PROFILE/  (claude tokens, gh/glab tokens, settings, sessions)"
+      warn "Containers will also be removed."
+      warn "Named volumes that WILL be dropped: ${COMPOSE_PROJECT_NAME}_vscode-server, ${COMPOSE_PROJECT_NAME}_cache"
+      warn "DB volumes (${COMPOSE_PROJECT_NAME}_postgres-data / _mongo-data) are PRESERVED unless you also pass --all-volumes."
+      warn "/workspace repo contents are NOT touched."
       if ! confirm "Continue?"; then fail "Aborted."; fi
-      docker compose down -v 2>/dev/null || true
+      # Take down containers; drop only the throwaway named volumes by name
+      # (vscode-server + cache). DB volumes are explicit-opt-in via
+      # --all-volumes — same default as `profile.sh wipe`. If --all-volumes
+      # is passed, fall through to `down -v` which nukes every named volume
+      # attached to the project.
+      if (( ASSUME_YES )) && [[ " $* " == *" --all-volumes "* ]]; then
+        # (parser doesn't currently capture --all-volumes; keep this guard
+        # available for future expansion and to make intent visible)
+        docker compose down -v 2>/dev/null || true
+      else
+        docker compose down 2>/dev/null || true
+        for v in vscode-server cache; do
+          docker volume rm "${COMPOSE_PROJECT_NAME}_${v}" 2>/dev/null || true
+        done
+      fi
       rm -rf "$PROFILES_ROOT/$PROFILE"
       ok "Profile state wiped."
       # Fall through to full setup if name/email given, otherwise exit.
@@ -155,7 +176,15 @@ if [[ -n "$ACTION" ]]; then
       docker compose ps
       echo
       info "Claude auth:"
-      docker exec "$AGENT" sh -c 'jq -r ".claudeAiOauth.expiresAt, .claudeAiOauth.subscriptionType" /home/agent/.claude/.credentials.json 2>/dev/null || echo "(not authed)"'
+      # Run jq with `-e` (exit-nonzero-on-null) and discard its stderr — on a
+      # corrupt/missing file we want a clean "(not authed)" signal, not a jq
+      # parse-error message that quotes the file path. The comma operator
+      # outputs both fields on separate lines if both are present.
+      docker exec "$AGENT" sh -c '
+        set +e
+        out=$(jq -er ".claudeAiOauth.expiresAt, .claudeAiOauth.subscriptionType" /home/agent/.claude/.credentials.json 2>/dev/null)
+        if [ -n "$out" ]; then printf "%s\n" "$out"; else echo "(not authed)"; fi
+      '
       echo
       info "GitHub auth:"
       docker exec "$AGENT" gh auth status 2>&1 || true
@@ -165,6 +194,29 @@ if [[ -n "$ACTION" ]]; then
       echo
       info "Git identity:"
       docker exec "$AGENT" git config --global --list 2>&1 || true
+      echo
+      info "Egress sentinel:"
+      # Surface any uncleaned scripts/with-egress.sh sentinel — tells the
+      # operator the proxy is currently widened beyond autonomous-mode policy.
+      sentinel="$PROFILES_ROOT/.egress-widened-$PROFILE"
+      if [[ -e "$sentinel" ]]; then
+        warn "egress is currently widened — $(cat "$sentinel" 2>/dev/null || echo 'unknown')"
+        warn "  delete the sentinel + restart egress-proxy to restore autonomous policy:"
+        warn "    rm '$sentinel' && PROFILE=$PROFILE COMPOSE_PROJECT_NAME=macolima-$PROFILE docker compose restart egress-proxy"
+      else
+        ok "egress allowlist is at autonomous-mode baseline"
+      fi
+      echo
+      info "db.env perms:"
+      dbenv="$PROFILES_ROOT/$PROFILE/db.env"
+      if [[ -f "$dbenv" ]]; then
+        mode=$(stat -f '%Lp' "$dbenv" 2>/dev/null || stat -c '%a' "$dbenv" 2>/dev/null)
+        if [[ "$mode" == "600" ]]; then ok "db.env is 600"
+        else warn "db.env is $mode (should be 600 — contains DB superuser password)"
+        fi
+      else
+        ok "db.env not present (DBs not configured for this profile)"
+      fi
       exit 0
       ;;
   esac

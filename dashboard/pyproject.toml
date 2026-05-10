@@ -1,0 +1,19 @@
+[project]
+name = "macolima-dashboard"
+version = "0.1.0"
+description = "Control dashboard for the macolima hardened sandbox"
+dependencies = [
+    "streamlit>=1.33.0",
+    "loguru>=0.7.2",
+    "docker>=7.0.0",
+    "PyYAML>=6.0.1",
+    "filelock>=3.13.4",
+]
+readme = "README.md"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.uv]
+managed = true

@@ -15,6 +15,9 @@
 #   logs            tail container logs
 #   status          docker compose ps for this profile
 #   build           force-rebuild the image (shared across all profiles)
+#   recreate        force-recreate this profile's containers (no image rebuild — picks up
+#                   compose / seccomp / proxy / mount changes). Equivalent to
+#                   `setup.sh <p> --recreate` (which is the flag-style alias).
 #   rebuild         build + recreate this profile's containers
 #   reset-settings  overwrite this profile's claude settings.json from config/claude-settings.json (backs up the old one)
 #   reset-skills    overwrite this profile's claude skills from config/skills/ (backs up old skill dirs)
@@ -39,7 +42,12 @@ warn()  { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
 fail()  { printf '\033[0;31m[FAIL]\033[0m  %s\n' "$*"; exit 1; }
 
 usage() {
-  sed -n '2,/^# =====/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # Mirror setup.sh's awk-based extractor: skip the shebang + title rule
+  # (NR<3), print every comment line until the first non-comment line, with
+  # the leading "# " stripped. The previous sed range stopped at the FIRST
+  # `# =====` after line 2 — which is line 4 (the closing rule of the title
+  # block), so users only ever saw the title and never the command list.
+  awk 'NR<3{next} /^[^#]/{exit} {sub(/^# ?/,""); print}' "${BASH_SOURCE[0]}"
   exit 1
 }
 
@@ -173,6 +181,16 @@ EOF
     ' "$p/config/git/config" > "$p/config/git/config.scrubbed" \
       && mv "$p/config/git/config.scrubbed" "$p/config/git/config"
   fi
+
+  # db.env contains the DB superuser password (and any project-specific DSNs
+  # that embed it). README documents `chmod 600` after the user fills in the
+  # template, but neither setup.sh nor the user reliably did it (audit L1
+  # found 644 in the wild). Enforce idempotently here: every `up` re-asserts
+  # 600. Doesn't touch db.env.example (still seeded as 644 — it's a template,
+  # not a secret).
+  if [[ -f "$p/db.env" ]]; then
+    chmod 600 "$p/db.env" 2>/dev/null || warn "could not chmod 600 $p/db.env"
+  fi
 }
 
 # --- ensure repo subfolder exists -------------------------------------------
@@ -239,6 +257,17 @@ case "$CMD" in
   build)
     info "Building macolima:latest (shared image across all profiles)"
     exec docker compose build claude-agent "$@"
+    ;;
+
+  recreate)
+    # Recreate containers without rebuilding the image — picks up compose,
+    # seccomp, proxy, mount, env, and dns/extra_hosts changes. For Dockerfile
+    # changes use `rebuild` instead. Equivalent to setup.sh's --recreate flag.
+    ensure_repo_dir
+    ensure_state
+    info "Force-recreating profile '$PROFILE' (no image rebuild)"
+    docker compose up -d --force-recreate "$@"
+    ok "Recreated. Attach with:  scripts/profile.sh $PROFILE attach"
     ;;
 
   rebuild)
@@ -447,6 +476,18 @@ case "$CMD" in
     ;;
 
   *)
+    # Tell the user what went wrong before dumping the help. Includes a hint
+    # for the most common slip: setup.sh uses --flag style, profile.sh uses
+    # subcommand style; mixing them up produced the silent `usage`-then-exit
+    # that this branch used to cause.
+    printf '\033[0;31m[FAIL]\033[0m  Unknown profile.sh command: %q\n' "$CMD" >&2
+    if [[ "$CMD" == --* ]]; then
+      printf '       Hint: profile.sh uses subcommands (no leading "--").\n' >&2
+      printf '       Did you mean:  scripts/setup.sh %s %s\n' "$PROFILE" "$CMD" >&2
+      printf '       Or the profile.sh equivalent:  scripts/profile.sh %s %s\n' \
+             "$PROFILE" "${CMD#--}" >&2
+    fi
+    echo >&2
     usage
     ;;
 esac

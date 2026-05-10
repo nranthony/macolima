@@ -50,8 +50,12 @@ cp "$MACOLIMA_DIR/scripts/profile.sh"              "$dest/scripts/profile.sh"
 cp "$MACOLIMA_DIR/config/claude-settings.json"    "$dest/config/claude-settings.json"
 cp "$MACOLIMA_DIR/claude_internal_audit.md"        "$dest/claude_internal_audit.md"
 
+# Structured audit package (audit.sh + aggregate.py + probes/*) — driven by
+# the new audit prompt; keep the directory tree intact.
+cp -R "$MACOLIMA_DIR/scripts/audit"                "$dest/scripts/audit"
+
 chmod -R a-w "$dest"
-chmod u+w "$dest" "$dest/proxy" "$dest/scripts" "$dest/config"
+chmod u+w "$dest" "$dest/proxy" "$dest/scripts" "$dest/scripts/audit" "$dest/scripts/audit/probes" "$dest/config"
 
 echo "staged audit package at:"
 echo "  host:      $dest"

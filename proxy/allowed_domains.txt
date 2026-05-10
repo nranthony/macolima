@@ -78,18 +78,18 @@ update.code.visualstudio.com
 # .files.pythonhosted.org
 # .astral.sh
 # # --- Node.js / npm [npm] ---
-# .registry.npmjs.org
-# .npmjs.com
-# .nodejs.org
-# deb.nodesource.com
+.registry.npmjs.org
+.npmjs.com
+.nodejs.org
+deb.nodesource.com
 # --- OS packages — only if apt-get inside the container [apt] ---
 # Pinned hosts (per CLAUDE.md discipline). The Ubuntu archive infrastructure
 # is well-known and fixed: apt-get only hits the two hosts below. Add Debian
 # equivalents (deb.debian.org, security.debian.org) only if the base image
 # ever switches off Ubuntu — currently FROM ubuntu:24.04, so they're not
 # needed.
-archive.ubuntu.com
-security.ubuntu.com
+# archive.ubuntu.com
+# security.ubuntu.com
 
 # --- Playwright browser download [playwright-install] ---
 # Needed ONLY for `playwright install chromium` (one-time, ~250 MB). Newer
@@ -155,7 +155,7 @@ www.ncbi.nlm.nih.gov
 # raw.githubusercontent.com and are legitimately needed during long-lived
 # research crawls. Kept out of the planning [git] block so the persistent
 # autonomous reach to GitHub raw doesn't depend on planning being open.
-raw.githubusercontent.com
+# raw.githubusercontent.com
 
 # --- Wearables / biosensor vendor docs [wearables] ---
 # Pinned to specific subdomains, never parent wildcards (per CLAUDE.md
@@ -174,51 +174,51 @@ raw.githubusercontent.com
 #
 # Note: support.google.com is huge surface — covers all Google products
 # including Fitbit help. support.microsoft.com is similarly broad.
-developer.samsung.com
-www.samsung.com
-developer.apple.com
-www.apple.com
-support.apple.com
-developer.android.com
-support.google.com
-developer.garmin.com
-www.garmin.com
-support.garmin.com
-dev.fitbit.com
-www.fitbit.com
-www.polar.com
-support.polar.com
-manuals.empatica.com
-www.empatica.com
-support.empatica.com
-ouraring.com
-support.ouraring.com
-www.emotiv.com
-choosemuse.com
-www.biopac.com
-www.shimmersensing.com
-www.mindwaretech.com
-www.fossil.com
-www.sony.com
-www.sonymobile.com
-www.microsoft.com
-support.microsoft.com
-www.philips.com
-www.discoverdti.com
-www.moodmetric.com
-dreem.com
-www.vitalconnect.com
-www.movisens.com
-galea.co
-openbci.com
-www.fibion.com
-www.zephyranywhere.com
-www.medtronic.com
-www.vu-ams.nl
-www.physioflow.com
-www.cnsystems.com
-www.toscm.com
-www.avivomedical.com
+# developer.samsung.com
+# www.samsung.com
+# developer.apple.com
+# www.apple.com
+# support.apple.com
+# developer.android.com
+# support.google.com
+# developer.garmin.com
+# www.garmin.com
+# support.garmin.com
+# dev.fitbit.com
+# www.fitbit.com
+# www.polar.com
+# support.polar.com
+# manuals.empatica.com
+# www.empatica.com
+# support.empatica.com
+# ouraring.com
+# support.ouraring.com
+# www.emotiv.com
+# choosemuse.com
+# www.biopac.com
+# www.shimmersensing.com
+# www.mindwaretech.com
+# www.fossil.com
+# www.sony.com
+# www.sonymobile.com
+# www.microsoft.com
+# support.microsoft.com
+# www.philips.com
+# www.discoverdti.com
+# www.moodmetric.com
+# dreem.com
+# www.vitalconnect.com
+# www.movisens.com
+# galea.co
+# openbci.com
+# www.fibion.com
+# www.zephyranywhere.com
+# www.medtronic.com
+# www.vu-ams.nl
+# www.physioflow.com
+# www.cnsystems.com
+# www.toscm.com
+# www.avivomedical.com
 
 # --- Web archive — defunct vendor docs and broken links [archive] ---
 # Critical for: Microsoft Band 2, Dreem, Sony SmartBand 2, Philips DTI-2,

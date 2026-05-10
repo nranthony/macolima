@@ -23,6 +23,13 @@ export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 # signal too. Safe to remove if you ever want SSH back inside the container.
 unset SSH_AUTH_SOCK
 
+# Companion to the unset above: VS Code's Dev Containers attach flow also
+# leaves a `/tmp/vscode-ssh-auth-<id>.sock` file behind on every attach,
+# which the verify-sandbox tripwire flags even though the env is empty and
+# openssh-client is absent. Wipe it on shell start so the tripwire is honest.
+# Best-effort; ignore failure (no socket present, permission, etc.).
+rm -f /tmp/vscode-ssh-auth-*.sock 2>/dev/null || true
+
 # Pretty ls via lsd (requires MesloLGS NF on host terminal for icons)
 alias ls="lsd -lah --group-dirs first"
 

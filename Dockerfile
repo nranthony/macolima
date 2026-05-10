@@ -114,13 +114,29 @@ RUN install -d -m 0755 /etc/apt/keyrings \
 # CVEs are accepted via .trivyignore pending an upstream rebuild. Re-check
 # https://gitlab.com/gitlab-org/cli/-/releases when bumping, and confirm
 # the Go version in the release notes before expecting those CVEs to clear.
+#
+# Integrity: GitLab publishes `checksums.txt` alongside each release. We
+# fetch it, grep the line for our exact tarball, and pipe to sha256sum -c.
+# This closes audit L3 — without this check, a one-time compromise of
+# gitlab.com's release CDN between two builds would land a malicious glab
+# binary in the image with no detection. When bumping GLAB_VERSION:
+#   1. Update the ARG below.
+#   2. Re-run the build — checksum is fetched fresh per build, no manual
+#      pin needed (the integrity assertion is "the binary matches what
+#      checksums.txt says it should be," and checksums.txt is fetched over
+#      TLS from the same release).
 ARG GLAB_VERSION=1.92.1
 RUN ARCH="$(dpkg --print-architecture)" \
  && case "$ARCH" in amd64) GARCH=x86_64 ;; arm64) GARCH=arm64 ;; *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; esac \
- && curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${GARCH}.tar.gz" \
-      | tar -xz -C /tmp bin/glab \
+ && TARBALL="glab_${GLAB_VERSION}_linux_${GARCH}.tar.gz" \
+ && BASE="https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads" \
+ && curl -fsSL "$BASE/$TARBALL" -o "/tmp/$TARBALL" \
+ && curl -fsSL "$BASE/checksums.txt" -o /tmp/glab_checksums.txt \
+ && grep -E "  $TARBALL\$" /tmp/glab_checksums.txt > /tmp/glab_checksum.line \
+ && (cd /tmp && sha256sum -c glab_checksum.line) \
+ && tar -xzf "/tmp/$TARBALL" -C /tmp bin/glab \
  && mv /tmp/bin/glab /usr/local/bin/glab \
- && rm -rf /tmp/bin \
+ && rm -rf /tmp/bin "/tmp/$TARBALL" /tmp/glab_checksums.txt /tmp/glab_checksum.line \
  && chmod 0755 /usr/local/bin/glab \
  && glab --version
 
