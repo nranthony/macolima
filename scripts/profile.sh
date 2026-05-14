@@ -92,7 +92,9 @@ ensure_state() {
   # `cache/` is intentionally not pre-created on host — `/home/agent/.cache` is
   # backed by a named Docker volume (`macolima-<p>_cache`), not a bind mount,
   # to avoid virtiofs chmod issues during wheel extraction (lxml etc.).
-  mkdir -p "$p/claude-home" "$p/config"
+  # `gemini-home/` mirrors `claude-home/` for the Gemini CLI's per-profile state
+  # (oauth_creds.json on first `gemini` run, settings.json, MCP config).
+  mkdir -p "$p/claude-home" "$p/config" "$p/gemini-home"
   # Single-file bind mounts need the target to exist on host before first compose up.
   # Seed with '{}' — Claude rejects a 0-byte file as invalid JSON (Unexpected EOF).
   if [[ ! -s "$p/claude.json" ]]; then
@@ -450,12 +452,13 @@ case "$CMD" in
 
     # 2. Stage auth on the same filesystem so the move is a rename, not a copy.
     stage="$PROFILES_ROOT/.wipe-stage-$PROFILE-$(date +%s)"
-    mkdir -p "$stage/claude-home" "$stage/config"
+    mkdir -p "$stage/claude-home" "$stage/config" "$stage/gemini-home"
     [[ -f "$p/claude.json" ]]                && mv "$p/claude.json"                "$stage/claude.json"
     [[ -f "$p/claude-home/.credentials.json" ]] && mv "$p/claude-home/.credentials.json" "$stage/claude-home/.credentials.json"
     [[ -d "$p/config/gh" ]]                  && mv "$p/config/gh"                  "$stage/config/gh"
     [[ -d "$p/config/glab-cli" ]]            && mv "$p/config/glab-cli"            "$stage/config/glab-cli"
     [[ -d "$p/config/git" ]]                 && mv "$p/config/git"                 "$stage/config/git"
+    [[ -f "$p/gemini-home/oauth_creds.json" ]] && mv "$p/gemini-home/oauth_creds.json" "$stage/gemini-home/oauth_creds.json"
     ok "staged auth artefacts → $stage"
 
     # 3. Nuke the profile dir.
@@ -463,13 +466,14 @@ case "$CMD" in
     ok "removed $p"
 
     # 4. Restore auth into a fresh profile dir.
-    mkdir -p "$p/claude-home" "$p/config"
+    mkdir -p "$p/claude-home" "$p/config" "$p/gemini-home"
     [[ -f "$stage/claude.json" ]]                && mv "$stage/claude.json"                "$p/claude.json"
     [[ -f "$stage/claude-home/.credentials.json" ]] && mv "$stage/claude-home/.credentials.json" "$p/claude-home/.credentials.json"
     [[ -d "$stage/config/gh" ]]                  && mv "$stage/config/gh"                  "$p/config/gh"
     [[ -d "$stage/config/glab-cli" ]]            && mv "$stage/config/glab-cli"            "$p/config/glab-cli"
     [[ -d "$stage/config/git" ]]                 && mv "$stage/config/git"                 "$p/config/git"
-    rmdir "$stage/claude-home" "$stage/config" "$stage" 2>/dev/null || warn "stage dir not empty: $stage (inspect manually)"
+    [[ -f "$stage/gemini-home/oauth_creds.json" ]] && mv "$stage/gemini-home/oauth_creds.json" "$p/gemini-home/oauth_creds.json"
+    rmdir "$stage/claude-home" "$stage/config" "$stage/gemini-home" "$stage" 2>/dev/null || warn "stage dir not empty: $stage (inspect manually)"
 
     # 5. Restore the sensitive perms documented in CLAUDE.md.
     #    .credentials.json must be 600 (inside a directory bind-mount, UID remap works).

@@ -27,8 +27,11 @@ unset SSH_AUTH_SOCK
 # leaves a `/tmp/vscode-ssh-auth-<id>.sock` file behind on every attach,
 # which the verify-sandbox tripwire flags even though the env is empty and
 # openssh-client is absent. Wipe it on shell start so the tripwire is honest.
-# Best-effort; ignore failure (no socket present, permission, etc.).
-rm -f /tmp/vscode-ssh-auth-*.sock 2>/dev/null || true
+# `(N)` is zsh's null-glob qualifier — expands to empty (silently) when no
+# match, instead of zsh's default "no matches found" error which `2>/dev/null`
+# wouldn't catch (it comes from zsh itself, before `rm` runs, and triggers
+# p10k's instant-prompt console-output warning on every attach).
+rm -f /tmp/vscode-ssh-auth-*.sock(N) 2>/dev/null || true
 
 # Pretty ls via lsd (requires MesloLGS NF on host terminal for icons)
 alias ls="lsd -lah --group-dirs first"

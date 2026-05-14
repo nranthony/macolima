@@ -67,6 +67,10 @@ services:
       # rename() during `git config --global` set fails across a single-file
       # bind mount with EBUSY. Directory mounts don't have that issue.
       - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/config:/home/agent/.config:rw
+      # Per-profile Gemini CLI state (oauth_creds.json, settings.json, MCP).
+      # Directory mount, so virtiofs UID remapping works as expected — no
+      # chmod 644 dance like .claude.json needs.
+      - /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/gemini-home:/home/agent/.gemini:rw
       # Named volume for VS Code Server — avoids virtiofs utime issues.
       - vscode-server:/home/agent/.vscode-server:rw
 

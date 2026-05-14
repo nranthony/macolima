@@ -79,18 +79,22 @@ macolima/
 │   ├── work/                               # repos for the "work" profile
 │   ├── personal/                           # repos for "personal"
 │   └── sideproject/                        # ...
-└── .claude-colima/
-    └── profiles/
-        ├── work/
+└── .claude-colima/                        # historic name — actually the macolima
+    └── profiles/                          # state root for ALL per-profile state,
+        ├── work/                          # not just Claude's. Renaming would touch
         │   ├── claude-home/                # → /home/agent/.claude
         │   ├── claude.json                 # → /home/agent/.claude.json (chmod 644)
-        │   └── config/                     # → /home/agent/.config
-        │       ├── gh/                     #     GitHub CLI tokens
-        │       ├── glab-cli/               #     GitLab CLI tokens
-        │       └── git/config              #     git global config (via GIT_CONFIG_GLOBAL)
+        │   ├── config/                     # → /home/agent/.config
+        │   │   ├── gh/                     #     GitHub CLI tokens
+        │   │   ├── glab-cli/               #     GitLab CLI tokens
+        │   │   └── git/config              #     git global config (via GIT_CONFIG_GLOBAL)
+        │   ├── gemini-home/                # → /home/agent/.gemini  (Gemini CLI state)
+        │   └── db.env                      #     postgres/mongo creds (chmod 600)
         ├── personal/ ...
         └── sideproject/ ...
 ```
+
+> **`.claude-colima/` is a historic misnomer.** Every script (`profile.sh`, `setup.sh`), audit probe, and dashboard hardcodes this path; the rename to something like `.macolima/` would be a sweeping change for cosmetic gain. Treat it as "macolima profile state root."
 
 Two paths under `/home/agent/` are **named Docker volumes**, not host dirs — `.cache` (`macolima-<p>_cache`) and `.vscode-server` (`macolima-<p>_vscode-server`). Both live in the Colima VM's ext4 to avoid virtiofs `chmod()`/`utime()` errors during wheel and tar extraction. Loss on `--recreate` is cheap (caches are content-addressable). See `CLAUDE.md` → "`.vscode-server` and `.cache` must be named volumes".
 
@@ -328,6 +332,7 @@ Each profile is a separate sandbox. Within one profile:
 | No direct internet | `docker-compose.yml` | Docker network isolation (`internal: true`) |
 | No DNS forwarding | `docker-compose.yml` | `dns: [127.0.0.1]` sinkhole + `extra_hosts` for siblings |
 | Egress HTTP allowlist | `proxy/allowed_domains.txt` | Squid sidecar (domain + port + CONNECT-only-on-443) |
+| Destructive-command deny | `config/hooks/deny-destructive.sh` | Claude Code `PreToolUse` hook — content-aware regex on the full envelope; catches shapes the matcher prefix can't see (`find -delete`, `dd of=`, `git clean`, hook/settings tamper). Hook is root-owned in the image; agent has no tool path that bypasses kernel write-protect. |
 | Auth token isolation | per-profile bind mount | filesystem |
 | `db.env` perms enforced | `profile.sh ensure_state` | `chmod 600` re-asserted on every `up` |
 
@@ -364,7 +369,7 @@ scripts/profile.sh <profile> attach
 /audit-sandbox
 ```
 
-The skill follows `claude_internal_audit.md` — runs the `verify-sandbox.sh` tripwire first (all PASS expected; the current suite is 22 checks), then deeper invariant checks (caps, seccomp, mounts, proxy egress, VS Code leakage, etc.), and writes two artifacts to `~/.claude/audits/` inside the container (host path: `/Volumes/DataDrive/.claude-colima/profiles/<profile>/claude-home/audits/`):
+The skill follows `claude_internal_audit.md` — runs the `verify-sandbox.sh` tripwire first (all PASS expected; the suite covers ~25 checks across egress, DNS, seccomp, SUID inventory, VS Code leakage, the `PreToolUse` hook, and more), then deeper invariant checks (caps, seccomp, mounts, proxy egress, VS Code leakage, etc.), and writes two artifacts to `~/.claude/audits/` inside the container (host path: `/Volumes/DataDrive/.claude-colima/profiles/<profile>/claude-home/audits/`):
 
 - `<YYYY-MM-DD>-<profile>-report.md` — markdown report, invariants tagged OK/DRIFT/WEAK/UNKNOWN
 - `<YYYY-MM-DD>-<profile>-commands.sh` — replayable command log

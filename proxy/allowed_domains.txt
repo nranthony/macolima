@@ -50,6 +50,56 @@ marketplace.visualstudio.com
 .vscode-unpkg.net
 update.code.visualstudio.com
 
+# --- Gemini CLI [gemini] ---
+# Runtime + OAuth ("Login with Google") for the official `gemini` CLI
+# (npm @google/gemini-cli). Pinned subdomains only — `.googleapis.com` is a
+# parent hosting hundreds of services and would be a wide exfil channel. Add
+# specific hosts here as Gemini needs them; a 403 in the access log tells you
+# which. Sourced from upstream issues #4552, #24306, #25167 and the
+# google-gemini/gemini-cli source (oauth2.ts, server.ts).
+#
+# OAuth callback gotcha (same root cause as gh auth login): the default flow
+# is a loopback redirect to http://127.0.0.1:<random>/oauth2callback, which
+# the host browser cannot reach inside this sandbox (sandbox-internal is
+# internal: true, no published ports). The CLI falls back to the out-of-band
+# code flow at codeassist.google.com/authcode — the browser shows an auth
+# code, you paste it in the terminal. Same UX as `claude login`. That's why
+# codeassist.google.com is on this list — without it, first-run login can't
+# complete inside the sandbox.
+#
+# Auth/identity:
+#   - accounts.google.com         — OAuth authorization (sign-in pages)
+#   - oauth2.googleapis.com       — token exchange + refresh
+#   - www.googleapis.com          — userinfo lookup post-login
+#   - codeassist.google.com       — OOB auth-code fallback (LOAD-BEARING)
+#   - developers.google.com       — post-login success/failure landing pages
+# API (chat/completions):
+#   - cloudcode-pa.googleapis.com — Code Assist endpoint for OAuth users
+#                                    (free + consumer Pro). Workspace tier
+#                                    needs cloudaicompanion + cloudresource-
+#                                    manager + people.googleapis.com instead.
+# NOT included on purpose:
+#   - generativelanguage.googleapis.com — only for GEMINI_API_KEY auth, not
+#                                          OAuth. Add only if switching auth.
+#   - play.googleapis.com / firebaselogging-pa.googleapis.com — telemetry.
+#                                          Disable instead by adding
+#                                          `"usageStatisticsEnabled": false`
+#                                          to ~/.gemini/settings.json (see
+#                                          gemini-cli issue #1599).
+#   - github.com / objects.githubusercontent.com — Gemini auto-downloads
+#                                          ripgrep on first run if absent;
+#                                          we pre-install ripgrep in the
+#                                          Dockerfile so it's reused. If
+#                                          first run still hangs ~135s,
+#                                          one-shot the [git] block via
+#                                          with-egress.sh.
+accounts.google.com
+oauth2.googleapis.com
+www.googleapis.com
+codeassist.google.com
+developers.google.com
+cloudcode-pa.googleapis.com
+
 
 # =============================================================================
 # === PLANNING-MODE — short-lived installs (commented by default) ============

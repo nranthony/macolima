@@ -12,6 +12,15 @@ import subprocess
 
 LIVE = "/home/agent/.claude/settings.json"
 TEMPLATE = "/workspace/temp_audit_package/config/claude-settings.json"
+HOOK_PATH = "/usr/local/lib/claude-hooks/deny-destructive.sh"
+
+# Required PreToolUse hooks. Both matchers must point at the in-image
+# deny-destructive.sh; per-profile customisation is intentionally out of
+# scope (see docs/deny-destructive-hook-plan.md "Out of scope").
+REQUIRED_HOOKS = [
+    {"matcher": "Bash",                 "command_endswith": "deny-destructive.sh"},
+    {"matcher": "Edit|Write|MultiEdit", "command_endswith": "deny-destructive.sh"},
+]
 
 # These three keys are documented user-customization fields seeded after
 # first `up` and intentionally not template-mirrored. Strip before diffing.
@@ -212,6 +221,54 @@ def run():
         summary=project_summary,
     ))
 
+    # PreToolUse hooks: matcher wiring + on-disk file invariants.
+    out.extend(_check_hooks(live))
+
+    return out
+
+
+def _check_hooks(live):
+    """deny-destructive PreToolUse hook checks (audit L8).
+
+    Two surfaces:
+      1. settings.json wires both matchers to the in-image hook.
+      2. The hook file is in-image, root-owned, executable, and the agent
+         (UID 1000 — this probe runs as agent inside the container) has no
+         write access. The kernel write-protect is the boundary; the
+         matched Edit-tamper rule is defence in depth on top.
+    """
+    assert os.geteuid() != 0, "audit probe must run as the agent UID, not root"
+    out = []
+    hooks_cfg = (live or {}).get("hooks", {}).get("PreToolUse", []) or []
+    for req in REQUIRED_HOOKS:
+        present = any(
+            entry.get("matcher") == req["matcher"]
+            and any(h.get("command", "").endswith(req["command_endswith"])
+                    for h in entry.get("hooks", []))
+            for entry in hooks_cfg
+        )
+        out.append(_check(
+            f"hook_present_{req['matcher'].replace('|','_')}",
+            present,
+            required=req,
+        ))
+
+    try:
+        st = os.stat(HOOK_PATH)
+        exists = True
+        root_owned = (st.st_uid == 0)
+        executable = bool(st.st_mode & 0o111)
+        agent_writable = os.access(HOOK_PATH, os.W_OK)
+    except FileNotFoundError:
+        exists = root_owned = executable = False
+        agent_writable = None
+    out.append(_check(
+        "hook_file_immutable",
+        exists and root_owned and executable and not agent_writable,
+        path=HOOK_PATH, exists=exists, root_owned=root_owned,
+        executable=executable, agent_writable=agent_writable,
+        rationale="hook must be in-image, root:root, 0755, not writable by agent",
+    ))
     return out
 
 

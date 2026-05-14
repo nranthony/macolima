@@ -86,7 +86,7 @@ RUN apt-get update \
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g npm@latest \
- && npm install -g @anthropic-ai/claude-code mongosh@latest \
+ && npm install -g @anthropic-ai/claude-code mongosh@latest @google/gemini-cli@latest \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -146,13 +146,24 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # virtiofs bind mounts).
 RUN userdel -r ubuntu 2>/dev/null || true \
  && useradd --create-home --shell /bin/bash --uid 1000 agent \
- && mkdir -p /workspace /home/agent/.claude /home/agent/.cache /home/agent/.npm /home/agent/.vscode-server /home/agent/.config \
+ && mkdir -p /workspace /home/agent/.claude /home/agent/.cache /home/agent/.npm /home/agent/.vscode-server /home/agent/.config /home/agent/.gemini \
  && chown -R agent:agent /workspace /home/agent
 
 # ---------- zsh + oh-my-zsh + powerlevel10k + plugins -----------------------
 # Installed as the agent user so ownership is correct. Dotfiles are baked in.
 COPY --chown=agent:agent config/.zshrc      /home/agent/.zshrc
 COPY --chown=agent:agent config/.p10k.zsh   /home/agent/.p10k.zsh
+
+# ---------- PreToolUse hook (deny-destructive) ------------------------------
+# Inspects every Bash/Edit/Write/MultiEdit tool envelope; blocks destructive
+# primitives reachable through allow-listed prefixes (find -delete, dd of=,
+# git clean, etc.) and any write targeting the hook script or live
+# settings.json. Root-owned, world-readable, world-executable. Agent (UID
+# 1000) has no tool path that bypasses the kernel's write-protect on this
+# file (the matched Edit-tamper rule is defence in depth). Updates require
+# image rebuild — intentional friction. See docs/deny-destructive-hook-plan.md.
+COPY --chown=root:root config/hooks/deny-destructive.sh /usr/local/lib/claude-hooks/deny-destructive.sh
+RUN chmod 0755 /usr/local/lib/claude-hooks/deny-destructive.sh
 
 USER agent
 RUN set -eux; \

@@ -119,6 +119,27 @@ else
   fail "Squid allowed CONNECT to port 80 (HTTP $code) — add 'http_access deny CONNECT !SSL_ports' to squid.conf"
 fi
 
+# Deny-destructive hook tripwire (audit L8): config/hooks/deny-destructive.sh
+# must be installed root-owned at the path referenced in settings.json's hooks
+# block, executable, not writable by the agent, and must actually block the
+# canonical bypass (find -delete) — script presence alone is insufficient,
+# the behaviour is what closes the matcher gap.
+HOOK=/usr/local/lib/claude-hooks/deny-destructive.sh
+if [[ ! -x "$HOOK" ]]; then
+  fail "deny-destructive hook missing or not executable at $HOOK"
+elif [[ -w "$HOOK" ]]; then
+  fail "deny-destructive hook is writable by agent (should be root:root 0755): $(stat -c '%U:%G %a' "$HOOK")"
+else
+  hook_out=$(printf '{"tool_name":"Bash","tool_input":{"command":"find /tmp -delete"}}' | "$HOOK" 2>/dev/null)
+  # Tolerate both compact and pretty-printed JSON so the probe doesn't
+  # silently fail if the hook's jq output formatting changes.
+  if echo "$hook_out" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"deny"'; then
+    pass "deny-destructive hook blocks find -delete"
+  else
+    fail "deny-destructive hook present but not blocking find -delete (out: $hook_out)"
+  fi
+fi
+
 # SUID/SGID inventory (audit M3): the container has a stock-Ubuntu SUID set
 # baked in by the base image. Anything outside that set is drift — typically
 # a wheel/.deb that snuck a SUID binary into the rootfs. The kernel boundary
