@@ -126,9 +126,18 @@ POSTGRES_USER=agent
 POSTGRES_PASSWORD=__SET_ME__
 POSTGRES_DB=dev
 
-# Optional: project-specific DSN read inside the agent container by code that
-# expects this env var (e.g. `WEARDATA_PG_DSN` for wearable_data_testing,
-# `DATABASE_URL` for many frameworks). Pick the name your project uses.
+# Optional: project-specific DSN(s) read inside the agent container by code
+# that expects this env var (e.g. `WEARDATA_PG_DSN`, `PIPELINE_PG_DSN`,
+# `DATABASE_URL`). Pick the name(s) your project(s) use.
+#
+# Multiple projects in one profile: one Postgres *server* hosts many
+# *databases*. POSTGRES_DB above bootstraps the first one; create extras
+# later with `CREATE DATABASE <name> OWNER agent;` and add a DSN per project,
+# differing only in the database name at the end of the URL. Example:
+#
+#   WEARDATA_PG_DSN=postgresql://agent:__SET_ME__@postgres:5432/wearables_ref
+#   PIPELINE_PG_DSN=postgresql://agent:__SET_ME__@postgres:5432/pipeline
+#   DATABASE_URL=postgresql+asyncpg://agent:__SET_ME__@postgres:5432/pipeline
 #
 # The DSN's password component must match POSTGRES_PASSWORD above. If your
 # password contains URL-reserved chars, percent-encode them in the DSN:
@@ -138,6 +147,11 @@ POSTGRES_DB=dev
 #
 # Hostname inside the sandbox is `postgres` (the compose service name on
 # sandbox-internal), NOT localhost.
+#
+# Reminder: env_file is read only at container *create* — after editing
+# this file, force-recreate the agent so new DSNs propagate:
+#   COMPOSE_PROFILES=db-postgres PROFILE=<p> \
+#     docker compose -p macolima-<p> up -d --force-recreate claude-agent
 #
 # DATABASE_URL=postgresql://agent:__SET_ME__@postgres:5432/dev
 
@@ -180,6 +194,26 @@ EOF
       { print }
     ' "$p/config/git/config" > "$p/config/git/config.scrubbed" \
       && mv "$p/config/git/config.scrubbed" "$p/config/git/config"
+  fi
+
+  # Seed commit identity into config/git/config if absent. The agent's deny
+  # list blocks `git config` (the matcher can't distinguish benign user.* from
+  # dangerous credential.* subcommands), so without this seeding the agent has
+  # to fall back to per-commit GIT_AUTHOR_*/GIT_COMMITTER_* env vars on every
+  # commit. Read identity from GIT_USER_NAME / GIT_USER_EMAIL in the calling
+  # shell — set those in your shell rc (~/.zshrc.local etc) and they apply to
+  # every profile. Silent no-op if either var is unset or a [user] section
+  # already exists; never overwrites an existing identity.
+  if [[ -n "${GIT_USER_NAME:-}" ]] && [[ -n "${GIT_USER_EMAIL:-}" ]]; then
+    if [[ ! -f "$p/config/git/config" ]] || \
+       ! grep -qE '^\[user\]' "$p/config/git/config"; then
+      {
+        printf '[user]\n\tname = %s\n\temail = %s\n' \
+          "$GIT_USER_NAME" "$GIT_USER_EMAIL"
+        [[ -f "$p/config/git/config" ]] && cat "$p/config/git/config"
+      } > "$p/config/git/config.new" \
+        && mv "$p/config/git/config.new" "$p/config/git/config"
+    fi
   fi
 
   # db.env contains the DB superuser password (and any project-specific DSNs

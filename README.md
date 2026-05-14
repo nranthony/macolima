@@ -228,6 +228,10 @@ COMPOSE_PROFILES=db-all scripts/profile.sh <p> up
 
 **Heads-up:** `POSTGRES_*` and `MONGO_INITDB_ROOT_*` are only consumed on the postgres/mongo container's *first* boot. Editing `db.env` after that does **not** change creds inside the DB — see CLAUDE.md → "First-init lock-in" for the fix (ALTER USER, or wipe the volume).
 
+**Project DSN vars** (e.g. `WEARDATA_PG_DSN`, `DATABASE_URL`) go in `db.env` alongside `POSTGRES_*` — agent code reads them as env. Adding/editing one after first `up` requires a force-recreate of the agent (compose reads `env_file` at create time only): `COMPOSE_PROFILES=db-postgres PROFILE=<p> docker compose -p macolima-<p> up -d --force-recreate claude-agent`, then re-attach VS Code.
+
+**Multiple projects in one profile:** one Postgres server hosts many databases. `POSTGRES_DB` bootstraps the first; create extras with `CREATE DATABASE <name> OWNER agent;` (run via `psql` against the existing DB) and add one DSN per project — same host/user/password, just different database name at the end. See `db.env.example` for a worked two-project example.
+
 Inside the agent the DBs are reachable as `postgres:5432` and `mongo:27017`; `psql` and `mongosh` are preinstalled, and the creds come in via env. For host GUI access (TablePlus, Compass), uncomment the `ports:` block on the relevant service — loopback-only, never `0.0.0.0`.
 
 Backups: `pg_dump` / `mongodump` into `/workspace`, which is the one bind mount on the external drive and survives a VM rebuild. Current caveat: the agent holds DB **admin** creds — see `CLAUDE.md` for the planned least-privilege split. The DB containers themselves run with `cap_drop: ALL` and only the four caps their entrypoints actually need (`CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID`); `CAP_NET_RAW` and the rest of Docker's default cap set are dropped, so a worst-case in-DB compromise has fewer kernel surfaces to push on.
