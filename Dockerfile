@@ -83,7 +83,7 @@ RUN apt-get update \
 # vendored deps (cross-spawn, glob, minimatch, tar) accumulate CVEs between
 # NodeSource publishes. Pulling latest npm before installing global packages
 # means mongosh/claude-code get extracted by the newer tar, too.
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g npm@latest \
  && npm install -g @anthropic-ai/claude-code mongosh@latest @google/gemini-cli@latest \

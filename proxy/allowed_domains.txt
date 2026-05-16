@@ -128,9 +128,8 @@ cloudcode-pa.googleapis.com
 # .files.pythonhosted.org
 # .astral.sh
 # # --- Node.js / npm [npm] ---
-.registry.npmjs.org
-.npmjs.com
-.nodejs.org
+registry.npmjs.org
+nodejs.org
 deb.nodesource.com
 # --- OS packages — only if apt-get inside the container [apt] ---
 # Pinned hosts (per CLAUDE.md discipline). The Ubuntu archive infrastructure

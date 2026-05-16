@@ -1,0 +1,900 @@
+{
+  "info": {
+    "stamp": "2026-05-15T00:09:52Z",
+    "profile": "therapod",
+    "container": "claude-agent-therapod",
+    "uname": "Linux claude-agent-therapod 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 aarch64 aarch64 GNU/Linux"
+  },
+  "summary": {
+    "OK": 63,
+    "INFO": 4,
+    "N/A": 1,
+    "DRIFT": 2
+  },
+  "results": [
+    {
+      "section": "identity",
+      "name": "uid",
+      "verdict": "OK",
+      "details": {
+        "expected": 1000,
+        "observed": 1000
+      }
+    },
+    {
+      "section": "identity",
+      "name": "gid",
+      "verdict": "OK",
+      "details": {
+        "expected": 1000,
+        "observed": 1000
+      }
+    },
+    {
+      "section": "identity",
+      "name": "capabilities",
+      "verdict": "OK",
+      "details": {
+        "expected": "0000000000000000",
+        "observed": "0000000000000000"
+      }
+    },
+    {
+      "section": "identity",
+      "name": "no_new_privs",
+      "verdict": "OK",
+      "details": {
+        "expected": "1",
+        "observed": "1"
+      }
+    },
+    {
+      "section": "identity",
+      "name": "seccomp_mode",
+      "verdict": "OK",
+      "details": {
+        "expected": "2",
+        "observed": "2"
+      }
+    },
+    {
+      "section": "identity",
+      "name": "sudo_absent",
+      "verdict": "OK",
+      "details": {
+        "expected": "(absent)",
+        "observed": "(absent)"
+      }
+    },
+    {
+      "section": "identity",
+      "name": "suid_inventory",
+      "verdict": "OK",
+      "details": {
+        "expected": [
+          "chage",
+          "chfn",
+          "chsh",
+          "expiry",
+          "gpasswd",
+          "mount",
+          "newgrp",
+          "pam_extrausers_chkpwd",
+          "passwd",
+          "su",
+          "umount",
+          "unix_chkpwd"
+        ],
+        "observed": [
+          "chage",
+          "chfn",
+          "chsh",
+          "expiry",
+          "gpasswd",
+          "mount",
+          "newgrp",
+          "pam_extrausers_chkpwd",
+          "passwd",
+          "su",
+          "umount",
+          "unix_chkpwd"
+        ],
+        "unexpected": [],
+        "missing": []
+      }
+    },
+    {
+      "section": "mac",
+      "name": "apparmor_profile",
+      "verdict": "OK",
+      "details": {
+        "observed": "docker-default (enforce)",
+        "selinux_present": false
+      }
+    },
+    {
+      "section": "seccomp_static",
+      "name": "default_action",
+      "verdict": "OK",
+      "details": {
+        "expected": "SCMP_ACT_ERRNO",
+        "observed": "SCMP_ACT_ERRNO"
+      }
+    },
+    {
+      "section": "seccomp_static",
+      "name": "required_allow",
+      "verdict": "OK",
+      "details": {
+        "missing_or_wrong": [],
+        "checked_count": 20
+      }
+    },
+    {
+      "section": "seccomp_static",
+      "name": "required_errno",
+      "verdict": "OK",
+      "details": {
+        "drift": [],
+        "rationale": "clone3 \u2192 ENOSYS=38 is load-bearing for glibc fallback"
+      }
+    },
+    {
+      "section": "seccomp_static",
+      "name": "rule_blocks",
+      "verdict": "INFO",
+      "details": {
+        "block_count": 4,
+        "total_allowed_syscalls": 238,
+        "default_action": "SCMP_ACT_ERRNO"
+      }
+    },
+    {
+      "section": "seccomp_runtime",
+      "name": "unshare_newuser_blocked",
+      "verdict": "OK",
+      "details": {
+        "expected": "rv=-1 errno=1 (EPERM)",
+        "observed": "rv=-1 errno=1 (EPERM)"
+      }
+    },
+    {
+      "section": "seccomp_runtime",
+      "name": "clone3_enosys",
+      "verdict": "OK",
+      "details": {
+        "expected": "rv=-1 errno=38 (ENOSYS)",
+        "observed": "rv=-1 errno=38 (ENOSYS)",
+        "rationale": "EPERM here would silently break threading via glibc fallback"
+      }
+    },
+    {
+      "section": "seccomp_runtime",
+      "name": "mkfifo",
+      "verdict": "OK",
+      "details": {
+        "fifo": "/tmp/.audit_fifo_probe"
+      }
+    },
+    {
+      "section": "seccomp_runtime",
+      "name": "getpgid",
+      "verdict": "OK",
+      "details": {
+        "observed": "pgid=5912"
+      }
+    },
+    {
+      "section": "seccomp_runtime",
+      "name": "getxattr",
+      "verdict": "OK",
+      "details": {
+        "expected": "ENODATA (61) or similar \u2014 NOT EPERM/ENOSYS",
+        "observed": "rv=-1 errno=61 (ENODATA)"
+      }
+    },
+    {
+      "section": "seccomp_runtime",
+      "name": "pidfd_open",
+      "verdict": "OK",
+      "details": {
+        "observed": "rv=3 errno=0 (?)"
+      }
+    },
+    {
+      "section": "seccomp_runtime",
+      "name": "close_range",
+      "verdict": "OK",
+      "details": {
+        "observed": "rv=0 errno=0 (?)"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "claude_json",
+      "verdict": "OK",
+      "details": {
+        "expected": "mode=644 uid=1000 gid=1000 valid-json",
+        "mode": 420,
+        "uid": 1000,
+        "gid": 1000,
+        "size": 30806
+      }
+    },
+    {
+      "section": "fs",
+      "name": "credentials_json",
+      "verdict": "OK",
+      "details": {
+        "expected": "mode=600",
+        "mode": 384,
+        "uid": 1000,
+        "gid": 1000,
+        "size": 470
+      }
+    },
+    {
+      "section": "fs",
+      "name": "no_gitconfig_bindmount",
+      "verdict": "OK",
+      "details": {
+        "expected": "absent",
+        "observed": "absent"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "git_config_global_env",
+      "verdict": "OK",
+      "details": {
+        "expected": "/home/agent/.config/git/config",
+        "observed": "/home/agent/.config/git/config"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "named_volume_.vscode-server",
+      "verdict": "OK",
+      "details": {
+        "expected": "ext4 (named volume)",
+        "source": "/dev/vdb1[/docker/volumes/macolima-therapod_vscode-server/_data]",
+        "fstype": "ext4",
+        "options": "rw,relatime"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "named_volume_.cache",
+      "verdict": "OK",
+      "details": {
+        "expected": "ext4 (named volume)",
+        "source": "/dev/vdb1[/docker/volumes/macolima-therapod_cache/_data]",
+        "fstype": "ext4",
+        "options": "rw,relatime"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "tmpfs_owner_.local",
+      "verdict": "OK",
+      "details": {
+        "expected": "uid=1000,gid=1000",
+        "source": "tmpfs",
+        "fstype": "tmpfs",
+        "options": "rw,nosuid,nodev,noexec,relatime,size=262144k,mode=755,uid=1000,gid=1000,inode64"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "tmpfs_owner_.npm-global",
+      "verdict": "OK",
+      "details": {
+        "expected": "uid=1000,gid=1000",
+        "source": "tmpfs",
+        "fstype": "tmpfs",
+        "options": "rw,nosuid,nodev,noexec,relatime,size=524288k,mode=755,uid=1000,gid=1000,inode64"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "tmp_tmpfs",
+      "verdict": "OK",
+      "details": {
+        "source": "tmpfs",
+        "fstype": "tmpfs",
+        "options": "rw,nosuid,nodev,noexec,relatime,size=1048576k,inode64"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "proc_kcore_masked",
+      "verdict": "OK",
+      "details": {
+        "expected": "character device (masked)",
+        "mode_octal": "0o20666"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "sys_firmware_masked",
+      "verdict": "OK",
+      "details": {
+        "expected": "empty",
+        "observed_count": 0
+      }
+    },
+    {
+      "section": "fs",
+      "name": "dev_inventory",
+      "verdict": "OK",
+      "details": {
+        "expected": [
+          "console",
+          "core",
+          "fd",
+          "full",
+          "mqueue",
+          "null",
+          "ptmx",
+          "pts",
+          "random",
+          "shm",
+          "stderr",
+          "stdin",
+          "stdout",
+          "tty",
+          "urandom",
+          "zero"
+        ],
+        "observed": [
+          "core",
+          "fd",
+          "full",
+          "mqueue",
+          "null",
+          "ptmx",
+          "pts",
+          "random",
+          "shm",
+          "stderr",
+          "stdin",
+          "stdout",
+          "tty",
+          "urandom",
+          "zero"
+        ],
+        "unexpected": []
+      }
+    },
+    {
+      "section": "fs",
+      "name": "cgroups_v2_readonly",
+      "verdict": "OK",
+      "details": {
+        "expected": "cgroup2 ro",
+        "source": "cgroup",
+        "fstype": "cgroup2",
+        "options": "ro,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "pids_max",
+      "verdict": "OK",
+      "details": {
+        "observed": "512"
+      }
+    },
+    {
+      "section": "fs",
+      "name": "pid_namespace",
+      "verdict": "OK",
+      "details": {
+        "total_pids": 36,
+        "pid1_present": true
+      }
+    },
+    {
+      "section": "fs",
+      "name": "no_orphan_uid0",
+      "verdict": "OK",
+      "details": {
+        "orphan_count": 0,
+        "orphans": []
+      }
+    },
+    {
+      "section": "network",
+      "name": "egress_proxy_reachable",
+      "verdict": "OK",
+      "details": {
+        "host": "egress-proxy",
+        "port": 3128
+      }
+    },
+    {
+      "section": "network",
+      "name": "connect_allowed_443",
+      "verdict": "OK",
+      "details": {
+        "response": "HTTP/1.1 200 Connection established"
+      }
+    },
+    {
+      "section": "network",
+      "name": "connect_disallowed_blocked",
+      "verdict": "OK",
+      "details": {
+        "response": "HTTP/1.1 403 Forbidden"
+      }
+    },
+    {
+      "section": "network",
+      "name": "M1_non_safe_port_blocked",
+      "verdict": "OK",
+      "details": {
+        "response": "HTTP/1.1 403 Forbidden",
+        "rationale": "audit M1: http_access deny !Safe_ports"
+      }
+    },
+    {
+      "section": "network",
+      "name": "H1_connect_80_blocked",
+      "verdict": "OK",
+      "details": {
+        "response": "HTTP/1.1 403 Forbidden",
+        "rationale": "audit H1: http_access deny CONNECT !SSL_ports"
+      }
+    },
+    {
+      "section": "network",
+      "name": "direct_egress_1_1_1_1_443_blocked",
+      "verdict": "OK",
+      "details": {
+        "host": "1.1.1.1",
+        "port": 443,
+        "observed": "OSError: [Errno 101] Network is unreachable"
+      }
+    },
+    {
+      "section": "network",
+      "name": "direct_egress_8_8_8_8_53_blocked",
+      "verdict": "OK",
+      "details": {
+        "host": "8.8.8.8",
+        "port": 53,
+        "observed": "OSError: [Errno 101] Network is unreachable"
+      }
+    },
+    {
+      "section": "network",
+      "name": "external_dns_blocked",
+      "verdict": "OK",
+      "details": {}
+    },
+    {
+      "section": "network",
+      "name": "internal_dns_egress-proxy",
+      "verdict": "OK",
+      "details": {
+        "ip": "172.30.0.10"
+      }
+    },
+    {
+      "section": "network",
+      "name": "internal_dns_postgres",
+      "verdict": "OK",
+      "details": {
+        "ip": "172.30.0.20"
+      }
+    },
+    {
+      "section": "network",
+      "name": "internal_dns_mongo",
+      "verdict": "OK",
+      "details": {
+        "ip": "172.30.0.30"
+      }
+    },
+    {
+      "section": "network",
+      "name": "db_postgres_reachable",
+      "verdict": "OK",
+      "details": {
+        "host": "postgres",
+        "port": 5432,
+        "status": "open"
+      }
+    },
+    {
+      "section": "network",
+      "name": "db_mongo_reachable",
+      "verdict": "N/A",
+      "details": {
+        "host": "mongo",
+        "port": 27017,
+        "observed": "TimeoutError",
+        "note": "DB sibling not running this session"
+      }
+    },
+    {
+      "section": "proxy",
+      "name": "required_core_present",
+      "verdict": "OK",
+      "details": {
+        "missing": [],
+        "checked": 9
+      }
+    },
+    {
+      "section": "proxy",
+      "name": "no_vendor_wildcards",
+      "verdict": "OK",
+      "details": {
+        "found": [],
+        "rationale": "audit M3 removed these; reappearance = regression"
+      }
+    },
+    {
+      "section": "proxy",
+      "name": "no_other_wildcards",
+      "verdict": "DRIFT",
+      "details": {
+        "found": [
+          ".registry.npmjs.org",
+          ".npmjs.com",
+          ".nodejs.org"
+        ],
+        "allowed_exceptions": [
+          ".vscode-unpkg.net"
+        ]
+      }
+    },
+    {
+      "section": "proxy",
+      "name": "no_ip_or_host_docker_internal",
+      "verdict": "OK",
+      "details": {
+        "found": []
+      }
+    },
+    {
+      "section": "proxy",
+      "name": "planning_mode_commented",
+      "verdict": "DRIFT",
+      "details": {
+        "uncommented": [
+          {
+            "line": "accounts.google.com",
+            "tag": "[git]"
+          },
+          {
+            "line": "oauth2.googleapis.com",
+            "tag": "[git]"
+          },
+          {
+            "line": "www.googleapis.com",
+            "tag": "[git]"
+          },
+          {
+            "line": "codeassist.google.com",
+            "tag": "[git]"
+          },
+          {
+            "line": "developers.google.com",
+            "tag": "[git]"
+          },
+          {
+            "line": "cloudcode-pa.googleapis.com",
+            "tag": "[git]"
+          },
+          {
+            "line": ".registry.npmjs.org",
+            "tag": "[npm]"
+          },
+          {
+            "line": ".npmjs.com",
+            "tag": "[npm]"
+          },
+          {
+            "line": ".nodejs.org",
+            "tag": "[npm]"
+          },
+          {
+            "line": "deb.nodesource.com",
+            "tag": "[npm]"
+          }
+        ],
+        "count": 10,
+        "rationale": "autonomous mode: planning-mode blocks should all be commented; surviving uncommented entry = with-egress.sh sentinel may be live (host-side check)"
+      }
+    },
+    {
+      "section": "proxy",
+      "name": "per_profile_additions",
+      "verdict": "INFO",
+      "details": {
+        "count": 30,
+        "domains": [
+          "accounts.google.com",
+          "oauth2.googleapis.com",
+          "www.googleapis.com",
+          "codeassist.google.com",
+          "developers.google.com",
+          "cloudcode-pa.googleapis.com",
+          ".registry.npmjs.org",
+          ".npmjs.com",
+          ".nodejs.org",
+          "deb.nodesource.com",
+          "api.crossref.org",
+          "api.openalex.org",
+          "api.unpaywall.org",
+          "api.base-search.net",
+          "eutils.ncbi.nlm.nih.gov",
+          "www.ebi.ac.uk",
+          "arxiv.org",
+          "export.arxiv.org",
+          "api.biorxiv.org",
+          "www.biorxiv.org",
+          "www.medrxiv.org",
+          "chemrxiv.org",
+          "doi.org",
+          "www.zotero.org",
+          "www.frontiersin.org",
+          "www.mdpi.com",
+          "www.sciencedirect.com",
+          "ieeexplore.ieee.org",
+          "pubmed.ncbi.nlm.nih.gov",
+          "www.ncbi.nlm.nih.gov"
+        ]
+      }
+    },
+    {
+      "section": "proxy",
+      "name": "squid_acl_order",
+      "verdict": "OK",
+      "details": {
+        "positions": [
+          {
+            "marker": "acl Safe_ports port",
+            "line": 21
+          },
+          {
+            "marker": "http_access deny !Safe_ports",
+            "line": 22
+          },
+          {
+            "marker": "acl SSL_ports",
+            "line": 24
+          },
+          {
+            "marker": "acl CONNECT method",
+            "line": 25
+          },
+          {
+            "marker": "http_access deny CONNECT !SSL_ports",
+            "line": 33
+          },
+          {
+            "marker": "http_access allow CONNECT SSL_ports",
+            "line": 35
+          },
+          {
+            "marker": "http_access allow allowed_domains",
+            "line": 36
+          },
+          {
+            "marker": "http_access deny all",
+            "line": 37
+          }
+        ],
+        "rationale": "H1: deny CONNECT !SSL_ports MUST come before allow allowed_domains \u2014 otherwise CONNECT host:80 tunnels raw TCP on cleartext port 80"
+      }
+    },
+    {
+      "section": "proxy",
+      "name": "squid_access_log",
+      "verdict": "OK",
+      "details": {
+        "rationale": "audit L1: forensic trail of every proxied request"
+      }
+    },
+    {
+      "section": "settings",
+      "name": "sandbox_enabled_false",
+      "verdict": "OK",
+      "details": {
+        "observed": false,
+        "rationale": "Claude Code bwrap is disabled by design; container is the boundary"
+      }
+    },
+    {
+      "section": "settings",
+      "name": "no_bare_webfetch_user",
+      "verdict": "OK",
+      "details": {
+        "found": [],
+        "rationale": "WebFetch runs server-side on Anthropic infra; bare entry is a covert exfil channel since destination logs full URL"
+      }
+    },
+    {
+      "section": "settings",
+      "name": "required_deny_categories",
+      "verdict": "OK",
+      "details": {
+        "drift": {},
+        "checked_count": 67
+      }
+    },
+    {
+      "section": "settings",
+      "name": "template_diff",
+      "verdict": "OK",
+      "details": {
+        "identical_after_strip": true,
+        "stripped_keys": [
+          "effortLevel",
+          "model",
+          "theme"
+        ]
+      }
+    },
+    {
+      "section": "settings",
+      "name": "per_project_webfetch_scoped",
+      "verdict": "OK",
+      "details": {
+        "drift": [],
+        "summary": [
+          {
+            "file": "/workspace/pipeline/.claude/settings.local.json",
+            "scoped_count": 0,
+            "scoped_domains": []
+          },
+          {
+            "file": "/workspace/core/.claude/settings.local.json",
+            "scoped_count": 1,
+            "scoped_domains": [
+              "hexoskin.com"
+            ]
+          },
+          {
+            "file": "/workspace/financials/.claude/settings.local.json",
+            "scoped_count": 0,
+            "scoped_domains": []
+          },
+          {
+            "file": "/workspace/wearable_data_testing/.claude/settings.local.json",
+            "scoped_count": 0,
+            "scoped_domains": []
+          },
+          {
+            "file": "/workspace/citation_tools/.claude/settings.local.json",
+            "scoped_count": 14,
+            "scoped_domains": [
+              "clinicaltrials.gov",
+              "doi.org",
+              "onlinelibrary.wiley.com",
+              "doi.apa.org",
+              "scholar.google.com",
+              "repository.arizona.edu",
+              "api.semanticscholar.org",
+              "www.semanticscholar.org",
+              "www.researchgate.net",
+              "www.academia.edu",
+              "www.ebi.ac.uk",
+              "eutils.ncbi.nlm.nih.gov",
+              "api.crossref.org",
+              "api.openalex.org"
+            ]
+          },
+          {
+            "file": "/workspace/.claude/settings.local.json",
+            "scoped_count": 0,
+            "scoped_domains": []
+          },
+          {
+            "file": "/workspace/reference_agentic/.claude/settings.local.json",
+            "scoped_count": 0,
+            "scoped_domains": []
+          }
+        ]
+      }
+    },
+    {
+      "section": "settings",
+      "name": "hook_present_Bash",
+      "verdict": "OK",
+      "details": {
+        "required": {
+          "matcher": "Bash",
+          "command_endswith": "deny-destructive.sh"
+        }
+      }
+    },
+    {
+      "section": "settings",
+      "name": "hook_present_Edit_Write_MultiEdit",
+      "verdict": "OK",
+      "details": {
+        "required": {
+          "matcher": "Edit|Write|MultiEdit",
+          "command_endswith": "deny-destructive.sh"
+        }
+      }
+    },
+    {
+      "section": "settings",
+      "name": "hook_file_immutable",
+      "verdict": "OK",
+      "details": {
+        "path": "/usr/local/lib/claude-hooks/deny-destructive.sh",
+        "exists": true,
+        "root_owned": true,
+        "executable": true,
+        "agent_writable": false,
+        "rationale": "hook must be in-image, root:root, 0755, not writable by agent"
+      }
+    },
+    {
+      "section": "env",
+      "name": "ssh_auth_sock_unset",
+      "verdict": "OK",
+      "details": {
+        "observed": "(unset)"
+      }
+    },
+    {
+      "section": "env",
+      "name": "no_vscode_ssh_socket",
+      "verdict": "OK",
+      "details": {
+        "found_count": 0,
+        "files": [],
+        "env_unset": true,
+        "ssh_purged": true,
+        "rationale": "socket file is cosmetic when SSH_AUTH_SOCK is unset AND openssh-client is purged; DRIFT only if either layer fails"
+      }
+    },
+    {
+      "section": "env",
+      "name": "no_host_gitconfig",
+      "verdict": "OK",
+      "details": {
+        "observed": "absent"
+      }
+    },
+    {
+      "section": "env",
+      "name": "no_host_reaching_credential_helper",
+      "verdict": "OK",
+      "details": {
+        "found": [],
+        "rationale": "benign gh/glab helpers OK; flag only vscode-server | vscode-remote-containers | osxkeychain | git-credential-manager"
+      }
+    },
+    {
+      "section": "env",
+      "name": "env_credential_named_keys",
+      "verdict": "INFO",
+      "details": {
+        "keys": [
+          "MONGO_INITDB_ROOT_PASSWORD",
+          "POSTGRES_PASSWORD"
+        ],
+        "rationale": "named keys may be project DSNs / DB env / API keys; values redacted in this layer"
+      }
+    },
+    {
+      "section": "env",
+      "name": "vscode_git_askpass_present",
+      "verdict": "INFO",
+      "details": {
+        "GIT_ASKPASS": true,
+        "VSCODE_GIT_ASKPASS_NODE": true,
+        "VSCODE_GIT_ASKPASS_MAIN": true,
+        "VSCODE_GIT_IPC_HANDLE": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# UNSAFE: LAN exposure of dev server
+# ---------------------------------------------------------------------------
+# Opt-in override for the `therapod` profile. Applied only when
+# `scripts/profile.sh therapod up --expose-dev` (or `recreate --expose-dev`
+# / `rebuild --expose-dev`) is run on the host.
+#
+# Publishes the Vite dev server port (5173) from the agent container to the
+# host's LAN. Without this override `sandbox-internal` is `internal: true`,
+# so the dev server is unreachable from outside the container — which is the
+# safe default. Apply this override only while iterating on the app_zero PWA
+# with an iPad on the same Wi-Fi (http://<mac-lan-ip>:5173).
+#
+# Take it back down by re-running `up` WITHOUT --expose-dev (Docker will
+# recreate `claude-agent` and the port mapping is dropped).
+services:
+  claude-agent:
+    ports:
+      - "5173:5173"

@@ -20,11 +20,12 @@ fail()  { printf '\033[0;31m[FAIL]\033[0m  %s\n' "$*"; }
 ok "Drive mounted: $DRIVE"
 
 # --- directory layout -------------------------------------------------------
+# Per-profile state (claude-home, config/, db.env, etc.) is created on demand
+# by profile.sh's ensure_state() under .claude-colima/profiles/<name>/. Only
+# the parents need to exist up front.
 info "Creating directory layout on $DRIVE ..."
 mkdir -p "$DRIVE/.colima"
-mkdir -p "$DRIVE/.claude-colima/claude-home"
-mkdir -p "$DRIVE/.claude-colima/workspace-cache"
-mkdir -p "$DRIVE/.claude-colima/vscode-server"
+mkdir -p "$DRIVE/.claude-colima/profiles"
 mkdir -p "$DRIVE/repo"
 ok "Directories ready."
 
@@ -83,21 +84,13 @@ else
   ok "~/.zshrc already configured."
 fi
 
-# --- seed claude settings ---------------------------------------------------
-CLAUDE_SETTINGS="$DRIVE/.claude-colima/claude-home/settings.json"
-if [[ ! -f "$CLAUDE_SETTINGS" ]]; then
-  info "Seeding Claude settings.json ..."
-  cp "$SCRIPT_DIR/config/claude-settings.json" "$CLAUDE_SETTINGS"
-  ok "Installed: $CLAUDE_SETTINGS"
-else
-  ok "Claude settings.json already present."
-fi
-
 echo ""
 ok "Bootstrap complete."
 echo ""
 echo "Next:"
 echo "  1. source ~/.zshrc"
-echo "  2. scripts/colima-up.sh        # first-time Colima start (with flags)"
-echo "  3. scripts/auth.sh             # claude login (once)"
-echo "  4. scripts/start.sh            # daily startup"
+echo "  2. scripts/colima-up.sh                                       # first-time Colima start (with flags)"
+echo "  3. PROFILE=_build docker compose build claude-agent           # build the shared image"
+echo "  4. mkdir -p $DRIVE/repo/<profile>                             # workspace must exist before setup"
+echo "  5. scripts/setup.sh <profile> --name \"...\" --email \"...\"     # onboard (up + auth + git identity)"
+echo "  6. scripts/profile.sh <profile> attach                        # zsh inside the container"

@@ -104,8 +104,10 @@ The Quickstart above is the condensed version. Long form with the rationale per 
 
 ```bash
 # 1. Host setup — brew installs colima/docker, creates the dir layout on
-#    /Volumes/DataDrive/, appends two blocks to ~/.zshrc (Homebrew shellenv
-#    + COLIMA_HOME / LIMA_HOME / `macolima` alias). Idempotent.
+#    /Volumes/DataDrive/ (just `.colima/`, `.claude-colima/profiles/`, and
+#    `repo/` — per-profile state is seeded on demand by profile.sh), and
+#    appends two blocks to ~/.zshrc (Homebrew shellenv + COLIMA_HOME /
+#    LIMA_HOME). Idempotent.
 scripts/bootstrap.sh
 source ~/.zshrc
 
@@ -174,7 +176,7 @@ scripts/profile.sh work attach
 
 `--reset` vs `profile.sh wipe`: both clear rotating state, but they differ on auth:
 - **`setup.sh --reset`** deletes Claude/gh/glab tokens with the profile dir, intended for "I want to re-login from scratch" workflows.
-- **`profile.sh wipe`** preserves Claude/gh/glab/git auth, intended for "I want everything else fresh but don't want to redo OAuth" workflows. `wipe --all-volumes` if you also want DB data dropped.
+- **`profile.sh wipe`** preserves Claude / Gemini / gh / glab / git auth and `db.env`, intended for "I want everything else fresh but don't want to redo OAuth or DB passwords" workflows. `wipe --all-volumes` if you also want DB data dropped (creds in `db.env` still preserved — `rm` it yourself for fresh creds).
 
 Idempotent: `setup.sh` detects if Claude, gh, or glab are already authenticated and skips those prompts. Safe to re-run.
 
@@ -192,7 +194,7 @@ Idempotent: `setup.sh` detects if Claude, gh, or glab are already authenticated 
 | `scripts/profile.sh <p> status` / `logs` | `docker compose ps` / logs |
 | `scripts/profile.sh <p> recreate` | force-recreate containers without rebuilding the image (picks up compose / seccomp / squid / mount changes). Same effect as `setup.sh <p> --recreate`. |
 | `scripts/profile.sh <p> rebuild` | build image + recreate `<p>` (use after Dockerfile changes) |
-| `scripts/profile.sh <p> wipe` | blank-slate the profile, **preserve** Claude/gh/glab/git auth (use `--all-volumes` to also drop DB data) |
+| `scripts/profile.sh <p> wipe` | blank-slate the profile, **preserve** Claude / Gemini / gh / glab / git auth + `db.env` (use `--all-volumes` to also drop DB data) |
 | `scripts/profile.sh <p> exec <cmd>` | run arbitrary command in the container |
 | `scripts/profile.sh build` | rebuild the shared image only |
 
@@ -420,7 +422,7 @@ scripts/profile.sh <profile> wipe --all-volumes  # also drop postgres-data / mon
 ```
 
 Drops: containers + `vscode-server` / `cache` named volumes, `profiles/<p>/` (settings, sessions, audits, MCP config, paste-cache).
-Keeps: `.credentials.json` (Claude), `claude.json`, `config/gh/`, `config/glab-cli/`, `config/git/`, DB volumes (unless `--all-volumes`).
+Keeps: `.credentials.json` (Claude), `claude.json`, `config/gh/`, `config/glab-cli/`, `config/git/`, `gemini-home/oauth_creds.json`, `db.env`, DB volumes (unless `--all-volumes`).
 
 ### Tier 2 — Single profile, **also re-do auth**
 

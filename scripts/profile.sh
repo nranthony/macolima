@@ -28,6 +28,14 @@
 #                   Flags: --dry-run (show only), --yes (skip prompt), --all-volumes (also drop DB volumes)
 #   list            list all existing profiles (by drive dir)
 #   exec <cmd...>   run an arbitrary command inside the agent container
+#
+# Optional flags (accepted by up / recreate / rebuild):
+#   --expose-dev    layer docker-compose.<profile>.yml on top of the base
+#                   compose file. Used to opt into LAN port publishing for an
+#                   iPad / browser to reach a dev server inside the container.
+#                   The override file must already exist at the repo root.
+#                   UNSAFE: drops the `internal: true` network isolation for
+#                   the duration. Re-run `up` without this flag to undo.
 # =============================================================================
 set -euo pipefail
 
@@ -245,13 +253,39 @@ cd "$SCRIPT_DIR"
 
 AGENT="claude-agent-$PROFILE"
 
+# --- optional flag parser ---------------------------------------------------
+# Strip --expose-dev from "$@" and populate COMPOSE_FILE_ARGS accordingly.
+# COMPOSE_FILE_ARGS always starts with `-f docker-compose.yml` so callers can
+# pass it unconditionally without empty-array headaches under `set -u`.
+COMPOSE_FILE_ARGS=(-f docker-compose.yml)
+parse_flags() {
+  local expose=0 remaining=()
+  for a in "$@"; do
+    case "$a" in
+      --expose-dev) expose=1 ;;
+      *) remaining+=("$a") ;;
+    esac
+  done
+  ARGS=("${remaining[@]+"${remaining[@]}"}")
+  if [[ "$expose" == "1" ]]; then
+    local override="$SCRIPT_DIR/docker-compose.$PROFILE.yml"
+    [[ -f "$override" ]] || fail "--expose-dev: override not found: $override
+       Create the override at the macolima repo root (a YAML file adding a
+       'ports:' block under claude-agent), then rerun. See
+       docker-compose.therapod.yml for the canonical shape."
+    COMPOSE_FILE_ARGS+=(-f "docker-compose.$PROFILE.yml")
+    warn "UNSAFE: --expose-dev — layering $override (publishes ports to LAN)"
+  fi
+}
+
 # --- dispatch ---------------------------------------------------------------
 case "$CMD" in
   up)
+    parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
     ensure_repo_dir
     ensure_state
     info "Bringing up profile '$PROFILE' (project: $COMPOSE_PROJECT_NAME)"
-    docker compose up -d "$@"
+    docker compose "${COMPOSE_FILE_ARGS[@]}" up -d "$@"
     ok "Stack up. Attach with:  scripts/profile.sh $PROFILE attach"
     ;;
 
@@ -299,19 +333,21 @@ case "$CMD" in
     # Recreate containers without rebuilding the image — picks up compose,
     # seccomp, proxy, mount, env, and dns/extra_hosts changes. For Dockerfile
     # changes use `rebuild` instead. Equivalent to setup.sh's --recreate flag.
+    parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
     ensure_repo_dir
     ensure_state
     info "Force-recreating profile '$PROFILE' (no image rebuild)"
-    docker compose up -d --force-recreate "$@"
+    docker compose "${COMPOSE_FILE_ARGS[@]}" up -d --force-recreate "$@"
     ok "Recreated. Attach with:  scripts/profile.sh $PROFILE attach"
     ;;
 
   rebuild)
+    parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
     ensure_repo_dir
     ensure_state
     info "Rebuilding image + recreating profile '$PROFILE'"
-    docker compose build claude-agent
-    docker compose up -d --force-recreate
+    docker compose "${COMPOSE_FILE_ARGS[@]}" build claude-agent
+    docker compose "${COMPOSE_FILE_ARGS[@]}" up -d --force-recreate
     ;;
 
   exec)
@@ -391,12 +427,18 @@ case "$CMD" in
     # Blank-slate this profile while preserving auth tokens + git identity.
     # Use case: testing the stack from a clean state without re-doing OAuth.
     # Preserves: claude-home/.credentials.json, claude.json, config/gh/,
-    #            config/glab-cli/, config/git/.
-    # Wipes:     containers, vscode-server + cache named volumes, everything
-    #            else under profiles/<p>/ (settings, skills, sessions, projects,
-    #            paste-cache, shell-snapshots, audits, ...).
-    # Does NOT touch: shared image (use `build` to rebuild), DB volumes
+    #            config/glab-cli/, config/git/, gemini-home/oauth_creds.json,
+    #            db.env (DB superuser credentials — preserved even with
+    #            --all-volumes; rm it yourself if you want fresh creds).
+    # Wipes:     containers (agent AND db siblings, even if not in the caller's
+    #            COMPOSE_PROFILES — see `--profile db-all` on the `down` below),
+    #            vscode-server + cache named volumes, everything else under
+    #            profiles/<p>/ (settings, skills, sessions, projects, paste-cache,
+    #            shell-snapshots, audits, ...).
+    # Does NOT touch: shared image (use `build` to rebuild), DB *data* volumes
     #            (postgres-data, mongo-data) unless --all-volumes is passed.
+    #            NOTE: DB *containers* are always stopped+removed; they're
+    #            recreated from the surviving data volumes on next `up`.
     dry=0; assume_yes=0; all_vols=0
     for a in "$@"; do
       case "$a" in
@@ -410,6 +452,18 @@ case "$CMD" in
     p="$PROFILES_ROOT/$PROFILE"
     [[ -d "$p" ]] || fail "no state dir to wipe: $p"
 
+    # Reaper: bail out if a previous wipe was interrupted between the stage and
+    # restore steps — auth artefacts may be stranded in .wipe-stage-<p>-<ts>/.
+    # Don't auto-recover; the operator should look before we touch anything.
+    shopt -s nullglob
+    orphans=( "$PROFILES_ROOT"/.wipe-stage-"$PROFILE"-* )
+    shopt -u nullglob
+    if (( ${#orphans[@]} > 0 )); then
+      warn "found orphaned wipe stage dir(s) from a previous interrupted run:"
+      printf '  %s\n' "${orphans[@]}"
+      fail "inspect/restore manually (creds may be inside), then rerun"
+    fi
+
     # Itemise what will survive vs disappear, so the user sees it before confirming.
     info "wipe plan for profile '$PROFILE' (project: $COMPOSE_PROJECT_NAME)"
     echo "  PRESERVE:"
@@ -418,6 +472,8 @@ case "$CMD" in
     echo "    $p/config/gh/"
     echo "    $p/config/glab-cli/"
     echo "    $p/config/git/"
+    echo "    $p/gemini-home/oauth_creds.json"
+    echo "    $p/db.env  (if present)"
     echo "  WIPE:"
     echo "    docker compose down --remove-orphans  ($([[ $all_vols == 1 ]] && echo '+ ALL named volumes' || echo '+ vscode-server + cache volumes; DB volumes preserved'))"
     echo "    rm -rf $p/*  (everything except the PRESERVE list above)"
@@ -437,17 +493,36 @@ case "$CMD" in
     fi
 
     # 1. Tear down containers (+ networks). Only nuke named volumes if asked.
-    info "tearing down containers"
+    #    --profile db-all forces postgres/mongo into scope regardless of the
+    #    caller's COMPOSE_PROFILES; otherwise they'd be left running and the
+    #    sandbox-internal network would refuse to delete ("Resource is still
+    #    in use"), leaving a half-state where wipe re-seeds the profile dir
+    #    but old DB containers are stranded on a dead network.
+    info "tearing down containers (including db siblings via --profile db-all)"
     if [[ "$all_vols" == "1" ]]; then
-      docker compose down -v --remove-orphans || warn "compose down had errors; continuing"
+      docker compose --profile db-all down -v --remove-orphans \
+        || warn "compose down had errors; continuing"
     else
-      docker compose down --remove-orphans || warn "compose down had errors; continuing"
+      docker compose --profile db-all down --remove-orphans \
+        || warn "compose down had errors; continuing"
       # Drop the throwaway named volumes (vscode-server, cache); leave DB volumes alone.
       for v in vscode-server cache; do
         docker volume rm "${COMPOSE_PROJECT_NAME}_${v}" 2>/dev/null \
           && ok "removed volume ${COMPOSE_PROJECT_NAME}_${v}" \
           || info "no ${v} volume to remove (or already gone)"
       done
+    fi
+
+    # 1b. Verify nothing in the project is still up. If something is, the
+    #     network won't be removed, and a subsequent `up` will create a new
+    #     network leaving the stragglers stranded. Fail loud rather than
+    #     paper over it with the rest of the wipe.
+    leftover=$(docker ps -aq --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME")
+    if [[ -n "$leftover" ]]; then
+      warn "containers still present after down:"
+      docker ps -a --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" \
+        --format '  {{.Names}}  ({{.Status}})'
+      fail "refusing to continue; tear them down manually (docker rm -f <name>) and rerun"
     fi
 
     # 2. Stage auth on the same filesystem so the move is a rename, not a copy.
@@ -459,6 +534,7 @@ case "$CMD" in
     [[ -d "$p/config/glab-cli" ]]            && mv "$p/config/glab-cli"            "$stage/config/glab-cli"
     [[ -d "$p/config/git" ]]                 && mv "$p/config/git"                 "$stage/config/git"
     [[ -f "$p/gemini-home/oauth_creds.json" ]] && mv "$p/gemini-home/oauth_creds.json" "$stage/gemini-home/oauth_creds.json"
+    [[ -f "$p/db.env" ]]                       && mv "$p/db.env"                       "$stage/db.env"
     ok "staged auth artefacts → $stage"
 
     # 3. Nuke the profile dir.
@@ -473,13 +549,26 @@ case "$CMD" in
     [[ -d "$stage/config/glab-cli" ]]            && mv "$stage/config/glab-cli"            "$p/config/glab-cli"
     [[ -d "$stage/config/git" ]]                 && mv "$stage/config/git"                 "$p/config/git"
     [[ -f "$stage/gemini-home/oauth_creds.json" ]] && mv "$stage/gemini-home/oauth_creds.json" "$p/gemini-home/oauth_creds.json"
-    rmdir "$stage/claude-home" "$stage/config" "$stage/gemini-home" "$stage" 2>/dev/null || warn "stage dir not empty: $stage (inspect manually)"
+    [[ -f "$stage/db.env" ]]                       && mv "$stage/db.env"                       "$p/db.env"
+    # All preserved items have been moved back into $p; anything left in $stage
+    # is unexpected. Sanity-check, then nuke the stage dir wholesale (rmdir
+    # was fragile — failed silently if any future preserve target added a
+    # sub-sub-dir, leaving stage debris around).
+    residue=$(find "$stage" -mindepth 1 -not -type d 2>/dev/null)
+    if [[ -n "$residue" ]]; then
+      warn "unexpected files left in stage dir; not removing automatically:"
+      printf '  %s\n' $residue
+      warn "inspect: $stage"
+    else
+      rm -rf "$stage"
+    fi
 
     # 5. Restore the sensitive perms documented in CLAUDE.md.
     #    .credentials.json must be 600 (inside a directory bind-mount, UID remap works).
     #    claude.json must be 644 (single-file bind-mount needs world-readable so agent UID 1000 sees it).
     [[ -f "$p/claude-home/.credentials.json" ]] && chmod 600 "$p/claude-home/.credentials.json"
     [[ -f "$p/claude.json" ]]                   && chmod 644 "$p/claude.json"
+    [[ -f "$p/db.env" ]]                        && chmod 600 "$p/db.env"
     ok "restored auth artefacts into fresh $p"
 
     # 6. Re-seed templates (settings.json, skills, db.env.example) so a plain `up` works.
