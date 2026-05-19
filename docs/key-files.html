@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>macolima — key files (weighted by script use)</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a21;
+    --ink: #e6e6e6;
+    --muted: #9aa3af;
+    --rule: #2a2f3a;
+    --link: #7cc7ff;
+
+    --hot-bg:   #4a1414;  --hot-fg:   #ffb4b4;   /* 🟥 read every up */
+    --build-bg: #4a2a0c;  --build-fg: #ffc98a;   /* 🟧 baked into image */
+    --once-bg:  #4a4310;  --once-fg:  #f3e58a;   /* 🟨 bootstrap once */
+    --driver-bg:#1f1f24;  --driver-fg:#cbd2dc;   /* ⬛ the scripts themselves */
+  }
+  html, body { background: var(--bg); color: var(--ink); }
+  body {
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    max-width: 980px;
+    margin: 2rem auto;
+    padding: 0 1.25rem 4rem;
+  }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; border-bottom: 1px solid var(--rule); padding-bottom: .25rem; }
+  h3 { font-size: 1rem; margin: 1.4rem 0 .4rem; color: var(--muted); }
+  p, li { color: var(--ink); }
+  .lede { color: var(--muted); margin-top: 0; }
+  a { color: var(--link); }
+  code, pre, .mono {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  code.inline {
+    background: var(--panel);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+  .tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: .03em;
+    vertical-align: 1px;
+    margin-right: 4px;
+  }
+  .hot    { background: var(--hot-bg);    color: var(--hot-fg); }
+  .build  { background: var(--build-bg);  color: var(--build-fg); }
+  .once   { background: var(--once-bg);   color: var(--once-fg); }
+  .driver { background: var(--driver-bg); color: var(--driver-fg); border: 1px solid var(--rule); }
+
+  /* Tree rendering: fixed-width emoji gutter + monospace text. The tree text
+     is a single text node so ASCII box-drawing chars stay aligned. */
+  .tree {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: .6rem 0;
+    overflow-x: auto;
+    line-height: 1.55;
+  }
+  .tree .row {
+    display: flex;
+    align-items: baseline;
+    padding: 0 1rem;
+    white-space: pre;
+  }
+  .tree .row.hot    { background: rgba(255, 90, 90, 0.10); }
+  .tree .row.build  { background: rgba(255, 170, 60, 0.10); }
+  .tree .row.once   { background: rgba(240, 220, 90, 0.10); }
+  .tree .row.driver { background: rgba(170, 180, 200, 0.06); }
+  .tree .gutter {
+    flex: 0 0 1.8em;
+    text-align: left;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    user-select: none;
+  }
+  .tree .line {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    white-space: pre;
+    color: #d3d3d3;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: .75rem 0 1rem;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid var(--rule);
+    padding: .5rem .65rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--muted); font-weight: 600; }
+  tbody tr:nth-child(odd) td { background: rgba(255,255,255,0.015); }
+
+  .legend {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: .35rem 1rem;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: .8rem 1rem;
+    margin: 1rem 0 1.5rem;
+  }
+  .legend .label { white-space: nowrap; }
+  .legend .desc  { color: var(--muted); }
+
+  .callout {
+    border-left: 3px solid #7cc7ff;
+    background: rgba(124, 199, 255, 0.06);
+    padding: .65rem .9rem;
+    margin: 1rem 0;
+    border-radius: 0 4px 4px 0;
+    color: var(--ink);
+  }
+
+  footer { margin-top: 3rem; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>macolima — key files, weighted by what the scripts actually consume</h1>
+<p class="lede">
+  Traced through <code class="inline">bootstrap.sh</code>, <code class="inline">colima-up.sh</code>,
+  <code class="inline">setup.sh</code>, <code class="inline">profile.sh</code>
+  (especially <code class="inline">ensure_state()</code> at
+  <code class="inline">profile.sh:98-236</code>), and the <code class="inline">COPY</code> lines in
+  <code class="inline">Dockerfile</code>. Everything not listed below is generated, optional tooling,
+  docs, or dashboard UI — none of it is on the create-container path.
+</p>
+
+<div class="legend">
+  <div class="label"><span class="tag hot">🟥 HOT</span></div>
+  <div class="desc">Read or bind-mounted on every <code class="inline">up</code> — or copied into per-profile state by <code class="inline">ensure_state()</code>.</div>
+
+  <div class="label"><span class="tag build">🟧 BUILD</span></div>
+  <div class="desc">Baked into the image; only re-read on <code class="inline">build</code> / <code class="inline">rebuild</code>.</div>
+
+  <div class="label"><span class="tag once">🟨 ONCE</span></div>
+  <div class="desc">Read exactly once, during host bootstrap.</div>
+
+  <div class="label"><span class="tag driver">⬛ DRIVER</span></div>
+  <div class="desc">The scripts themselves — they consume the files above; you don't edit them to configure.</div>
+</div>
+
+<h2>INPUT — files the scripts actually consume</h2>
+
+<div class="tree">
+<div class="row"><span class="gutter">📁</span><span class="line">macolima/</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── docker-compose.yml                        ← read by every profile.sh invocation</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── seccomp.json                              ← mounted via security_opt at container create</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── proxy/squid.conf                          ← bind-mounted into egress-proxy</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── proxy/allowed_domains.txt                 ← live-reloadable via squid -k reconfigure</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── config/claude-settings.json               ← profile.sh:174 cp → claude-home/settings.json (if absent)</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── config/skills/&lt;name&gt;/                     ← profile.sh:186 cp -R → claude-home/skills/&lt;name&gt;</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│       └── audit-sandbox/SKILL.md</span></div>
+<div class="row build"><span class="gutter">🟧</span><span class="line">├── config/hooks/deny-destructive.sh          ← Dockerfile:165 → /usr/local/lib/claude-hooks/</span></div>
+<div class="row build"><span class="gutter">🟧</span><span class="line">├── config/.zshrc                             ← Dockerfile:154</span></div>
+<div class="row build"><span class="gutter">🟧</span><span class="line">├── config/.p10k.zsh                          ← Dockerfile:155</span></div>
+<div class="row once"><span class="gutter">🟨</span><span class="line">├── config/zshrc-snippet.sh                   ← bootstrap.sh:79 appended to host ~/.zshrc</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── docker-compose.&lt;profile&gt;.yml              (optional, auto-layered — profile.sh:263)</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── docker-compose.&lt;profile&gt;.expose-dev.yml   (opt-in via --expose-dev)</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row build"><span class="gutter">🟧</span><span class="line">├── Dockerfile                                ← only on `profile.sh build` / `rebuild`</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── devcontainer-template/devcontainer.json   ← copied into workspace by setup.sh on first onboard</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row driver"><span class="gutter">⬛</span><span class="line">└── scripts/                                  — DRIVER (consumes everything above)</span></div>
+<div class="row driver"><span class="gutter"> </span><span class="line">    ├── bootstrap.sh                          host-side once</span></div>
+<div class="row driver"><span class="gutter"> </span><span class="line">    ├── colima-up.sh                          VM lifecycle</span></div>
+<div class="row driver"><span class="gutter"> </span><span class="line">    ├── setup.sh                              flows wrapper</span></div>
+<div class="row driver"><span class="gutter"> </span><span class="line">    ├── profile.sh                            the real engine; ensure_state() is the seeding contract</span></div>
+<div class="row driver"><span class="gutter"> </span><span class="line">    └── verify-sandbox.sh                     post-up assertions</span></div>
+</div>
+
+<h3>What's hot vs. cold, concretely</h3>
+<p>
+  The per-<code class="inline">up</code> seeding contract in <code class="inline">profile.sh:ensure_state()</code>
+  reads only three input artifacts from the repo:
+</p>
+<ol>
+  <li><code class="inline">config/claude-settings.json</code> → copied to <code class="inline">claude-home/settings.json</code> if the per-profile copy doesn't exist (<code class="inline">profile.sh:174</code>).</li>
+  <li><code class="inline">config/skills/&lt;name&gt;/</code> → each dir copied to <code class="inline">claude-home/skills/&lt;name&gt;</code> if absent (<code class="inline">profile.sh:186</code>).</li>
+  <li><code class="inline">config/zshrc-snippet.sh</code> is <em>not</em> re-read at <code class="inline">up</code> — only by <code class="inline">bootstrap.sh</code>.</li>
+</ol>
+<div class="callout">
+  Everything else (compose file, seccomp, squid config, allowlist) the scripts don't read directly — they hand the
+  paths to <code class="inline">docker compose</code>, which mounts them live. Edits to those take effect on container
+  recreate (no script change needed), while edits to <code class="inline">config/claude-settings.json</code> only
+  affect <strong>new profiles</strong> — existing profiles keep their seeded copy. That asymmetry is the most
+  important thing to internalize.
+</div>
+
+<h2>OUTPUT — what those scripts write to the data drive</h2>
+<p>
+  Only the files <code class="inline">ensure_state()</code> and <code class="inline">wipe</code>/<code class="inline">reset</code>
+  actually touch. Everything else under <code class="inline">claude-home/</code> (sessions, projects, file-history,
+  paste-cache, backups, telemetry…) is Claude Code writing its own state at runtime — the macolima scripts never read it.
+</p>
+
+<div class="tree">
+<div class="row"><span class="gutter">📁</span><span class="line">.claude-colima/profiles/&lt;profile&gt;/</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── claude.json                               ← profile.sh:110 creates as `{}`, chmod 644</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── db.env.example                            ← profile.sh:118 copied from config/db.env.template</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">├── db.env                                    ← user-copied from .example; profile.sh:236 chmod 600</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">├── claude-home/</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">│   ├── settings.json                         ← profile.sh:174 seeded from config/claude-settings.json</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">│   ├── .credentials.json                     ← profile.sh:584 enforces chmod 600 (after wipe restore)</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">│   └── skills/&lt;name&gt;/                        ← profile.sh:186 seeded from config/skills/</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">├── config/</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">│   ├── git/config                            ← profile.sh:209+ seeds [user] from $GIT_USER_NAME/$GIT_USER_EMAIL</span></div>
+<div class="row hot"><span class="gutter">🟥</span><span class="line">│   └── gh/hosts.yml                          ← profile.sh scrubs osxkeychain/manager credential helpers</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">│</span></div>
+<div class="row"><span class="gutter"> </span><span class="line">└── gemini-home/                              — not touched by scripts; populated by gemini CLI on first login</span></div>
+</div>
+
+<h2>The actual editing surface — only 8 files matter</h2>
+<p>If your goal is to change container behavior, this is the whole surface:</p>
+
+<table>
+  <thead>
+    <tr><th>File</th><th>Effect of editing</th><th>When it takes effect</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="tag hot">🟥</span><code class="inline">docker-compose.yml</code></td>
+      <td>networks, mounts, caps, env</td>
+      <td>next <code class="inline">--recreate</code></td>
+    </tr>
+    <tr>
+      <td><span class="tag hot">🟥</span><code class="inline">seccomp.json</code></td>
+      <td>syscall filter</td>
+      <td>next <code class="inline">--recreate</code></td>
+    </tr>
+    <tr>
+      <td><span class="tag hot">🟥</span><code class="inline">proxy/allowed_domains.txt</code></td>
+      <td>egress policy</td>
+      <td>live (<code class="inline">squid -k reconfigure</code>)</td>
+    </tr>
+    <tr>
+      <td><span class="tag hot">🟥</span><code class="inline">proxy/squid.conf</code></td>
+      <td>proxy mechanics</td>
+      <td>proxy restart</td>
+    </tr>
+    <tr>
+      <td><span class="tag build">🟧</span><code class="inline">Dockerfile</code></td>
+      <td>image contents</td>
+      <td>next <code class="inline">build</code> / <code class="inline">rebuild</code></td>
+    </tr>
+    <tr>
+      <td><span class="tag build">🟧</span><code class="inline">config/.zshrc</code>, <code class="inline">config/.p10k.zsh</code>, <code class="inline">config/hooks/deny-destructive.sh</code></td>
+      <td>shell + hook</td>
+      <td>next <code class="inline">build</code> / <code class="inline">rebuild</code></td>
+    </tr>
+    <tr>
+      <td><span class="tag hot">🟥</span><code class="inline">config/claude-settings.json</code></td>
+      <td>Claude permissions/hooks</td>
+      <td><strong>new profiles only</strong> — existing profiles keep their seeded copy; edit <code class="inline">claude-home/settings.json</code> directly to retrofit</td>
+    </tr>
+    <tr>
+      <td><span class="tag hot">🟥</span><code class="inline">config/skills/&lt;name&gt;/</code></td>
+      <td>seeded skills</td>
+      <td>new profiles only (or <code class="inline">profile.sh &lt;p&gt; reset-skills</code> to force)</td>
+    </tr>
+  </tbody>
+</table>
+
+<footer>
+  Source: traced from <code class="inline">scripts/profile.sh</code> + <code class="inline">Dockerfile</code> on
+  the <code class="inline">main</code> branch. For invariants, see
+  <a href="../CLAUDE.md">../CLAUDE.md</a>. For the doc index, see <a href="./index.md">index.md</a>.
+</footer>
+
+</body>
+</html>

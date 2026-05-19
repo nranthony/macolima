@@ -2,6 +2,9 @@
 
 This directory contains the design plans, operational recipes, and architectural hardening notes for the macolima sandbox.
 
+## 🗺️ Visual Overview
+*   **[key-files.html](./key-files.html)**: Color-coded map of the input files (repo) and output state (data drive) that the orchestration scripts actually read/write, weighted by how `bootstrap.sh` / `setup.sh` / `profile.sh` consume them. Open in a browser.
+
 ## 🛠️ Operational Guides
 *   **[debug-recipes.md](./debug-recipes.md)**: Essential "cheat sheet" for operating, verifying, and troubleshooting sandbox profiles.
 *   **[porting-notes.md](./porting-notes.md)**: Guidance for reproducing the macolima hardening posture on WSL2 (Windows) and rootless Docker (Linux).
@@ -24,6 +27,7 @@ This directory contains the design plans, operational recipes, and architectural
 
 ## 🧬 Profile Seeds & Templates
 *   **[numerai-profile-seed.md](./numerai-profile-seed.md)**: Hardening and setup guidance for a Numerai tournament research profile.
+*   **[therapod-profile-seed.md](./therapod-profile-seed.md)**: Database setup (wearables_ref + pipeline), H10 backfill pipeline run, and db-reset protocol.
 
 ## ⏳ Future & Deferred Plans
 *   **[_future/overlay-project-plan.md](./_future/overlay-project-plan.md)**: Architectural design for per-profile image customization (overlays) to handle heavy dependencies.

@@ -221,7 +221,7 @@ COMPOSE_PROFILES=db-mongo             scripts/profile.sh <p> up
 COMPOSE_PROFILES=db-all               scripts/profile.sh <p> up
 ```
 
-On first `up`, `profiles/<p>/db.env.example` is seeded. Copy to `db.env`, replace every `__SET_ME__`, re-up:
+On first `up`, `profiles/<p>/db.env.example` is seeded from `config/db.env.template`. Copy to `db.env`, replace every `__SET_ME__`, re-up:
 
 ```bash
 cp /Volumes/DataDrive/.claude-colima/profiles/<p>/db.env.example \
@@ -232,11 +232,11 @@ COMPOSE_PROFILES=db-all scripts/profile.sh <p> up
 
 `scripts/profile.sh ... up` re-asserts `chmod 600` on `db.env` automatically — you don't need to chmod it yourself. `setup.sh --verify` will warn if perms drift.
 
-**Heads-up:** `POSTGRES_*` and `MONGO_INITDB_ROOT_*` are only consumed on the postgres/mongo container's *first* boot. Editing `db.env` after that does **not** change creds inside the DB — see CLAUDE.md → "First-init lock-in" for the fix (ALTER USER, or wipe the volume).
+**Heads-up:** `POSTGRES_USER` / `POSTGRES_PASSWORD` and `MONGO_INITDB_ROOT_*` are only consumed on the postgres/mongo container's *first* boot. Editing `db.env` after that does **not** change creds inside the DB — see CLAUDE.md → "First-init lock-in" for the fix (ALTER USER, or wipe the volume).
 
 **Project DSN vars** (e.g. `WEARDATA_PG_DSN`, `DATABASE_URL`) go in `db.env` alongside `POSTGRES_*` — agent code reads them as env. Adding/editing one after first `up` requires a force-recreate of the agent (compose reads `env_file` at create time only): `COMPOSE_PROFILES=db-postgres PROFILE=<p> docker compose -p macolima-<p> up -d --force-recreate claude-agent`, then re-attach VS Code.
 
-**Multiple projects in one profile:** one Postgres server hosts many databases. `POSTGRES_DB` bootstraps the first; create extras with `CREATE DATABASE <name> OWNER agent;` (run via `psql` against the existing DB) and add one DSN per project — same host/user/password, just different database name at the end. See `db.env.example` for a worked two-project example.
+**Multiple projects in one profile:** one Postgres server hosts many databases. The default `postgres` database is created automatically; create project databases explicitly with `CREATE DATABASE <name> OWNER agent;` (run via `psql -U agent -d postgres`) and add one DSN per project in `db.env` — same host/user/password, just different database name at the end. See `config/db.env.template` for examples.
 
 Inside the agent the DBs are reachable as `postgres:5432` and `mongo:27017`; `psql` and `mongosh` are preinstalled, and the creds come in via env. For host GUI access (TablePlus, Compass), uncomment the `ports:` block on the relevant service — loopback-only, never `0.0.0.0`.
 

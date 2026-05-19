@@ -1,0 +1,61 @@
+# Always-on overlay for the `therapod` profile.
+# ---------------------------------------------------------------------------
+# Layered by scripts/profile.sh whenever PROFILE=therapod, regardless of
+# flags. Holds therapod-specific siblings that should always be part of the
+# stack (currently: pipeline-api).
+#
+# LAN exposure of the Vite dev server (port 5173 → host LAN) lives in
+# docker-compose.therapod.expose-dev.yml — opt-in via
+# `scripts/profile.sh therapod up --expose-dev`.
+#
+# Requires the postgres sibling to be activated. The repo's `postgres`
+# service is gated by `COMPOSE_PROFILES=db-postgres` (or db-all), so the
+# bring-up incantation for therapod is:
+#
+#     COMPOSE_PROFILES=db-postgres scripts/profile.sh therapod up
+#
+# Without that env var, pipeline-api will start but its dependency on
+# postgres won't be satisfied at runtime.
+
+services:
+  claude-agent:
+    extra_hosts:
+      - "pipeline-api:172.30.0.40"
+
+  pipeline-api:
+    build:
+      context: /Volumes/DataDrive/repo/therapod/pipeline
+    container_name: pipeline-api-${PROFILE}
+    networks:
+      sandbox-internal:
+        ipv4_address: 172.30.0.40
+    volumes:
+      - /Volumes/DataDrive/repo/therapod/pipeline:/workspace/pipeline:ro
+    env_file:
+      - /Volumes/DataDrive/.claude-colima/profiles/therapod/db.env
+    environment:
+      # Prefer the bind-mounted source over the baked-in install, so uvicorn
+      # --reload picks up edits the agent makes via /workspace/pipeline.
+      - PYTHONPATH=/workspace/pipeline/src
+    command:
+      - uvicorn
+      - pipeline.api:create_app
+      - --factory
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/admin/health')"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    depends_on: [postgres]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

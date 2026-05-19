@@ -18,7 +18,7 @@ colima start \
   --mount-type virtiofs \
   --cpu 6 \
   --memory 10 \
-  --disk 80 \
+  --disk 128 \
   --mount "$DRIVE/repo:w" \
   --mount "$DRIVE/.claude-colima:w"
 

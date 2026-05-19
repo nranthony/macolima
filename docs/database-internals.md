@@ -4,7 +4,7 @@ User-facing usage lives in `README.md` §Databases. This page covers the editing
 
 ## First-init lock-in
 
-`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` (and `MONGO_INITDB_ROOT_*`) are only consumed by `initdb` on the **first** boot of the DB container, when the named volume is empty. Editing `db.env` afterwards does not change the role inside the running DB.
+`POSTGRES_USER` / `POSTGRES_PASSWORD` (and `MONGO_INITDB_ROOT_*`) are only consumed by `initdb` on the **first** boot of the DB container, when the named volume is empty. Editing `db.env` afterwards does not change the role inside the running DB. `POSTGRES_DB` is deliberately not set — the default `postgres` database is created automatically, and project databases should be created explicitly with `CREATE DATABASE <name> OWNER agent;`.
 
 To rotate later:
 - `ALTER USER ... WITH PASSWORD '...';`, or

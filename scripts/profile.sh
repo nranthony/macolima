@@ -21,6 +21,9 @@
 #   rebuild         build + recreate this profile's containers
 #   reset-settings  overwrite this profile's claude settings.json from config/claude-settings.json (backs up the old one)
 #   reset-skills    overwrite this profile's claude skills from config/skills/ (backs up old skill dirs)
+#   db-reset        wipe the postgres data volume and bring postgres back up with a fresh initdb.
+#                   Flags: --yes (skip confirmation). Does NOT touch mongo; does NOT recreate
+#                   the agent container (force-recreate it yourself if db.env DSNs changed).
 #   clean           prune rotating state (old .claude.json backups, paste-cache, shell-snapshots).
 #                   Pass --deep to also drop MCP debug logs + settings.json.bak.* backups.
 #   wipe            blank-slate this profile: down -v, nuke per-profile state, KEEP auth
@@ -115,60 +118,7 @@ ensure_state() {
   # user copies the example and fills in secrets. The example is a *template*
   # (not user data), so always overwrite — that way doc improvements to the
   # template propagate to existing profiles on the next `up`.
-  cat > "$p/db.env.example" <<'EOF'
-# Copy this file to `db.env` (same directory) and replace every __SET_ME__.
-# Only needed if you opt into the postgres / mongo sibling containers via
-# COMPOSE_PROFILES=db-postgres or db-mongo when running `scripts/profile.sh up`.
-#
-# IMPORTANT — first-init lock-in:
-#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB are only read on the *first*
-#   boot of the postgres container, when initdb runs against an empty data
-#   volume. Editing them later does NOT change the role inside the DB.
-#   To change credentials afterwards either:
-#     (a) connect as the existing role and `ALTER USER agent WITH PASSWORD '...';`
-#     (b) wipe the volume and re-init:
-#           docker stop postgres-<profile>
-#           docker volume rm macolima-<profile>_postgres-data
-#           COMPOSE_PROFILES=db-postgres scripts/profile.sh <profile> up
-
-# --- Postgres ----------------------------------------------------------------
-POSTGRES_USER=agent
-POSTGRES_PASSWORD=__SET_ME__
-POSTGRES_DB=dev
-
-# Optional: project-specific DSN(s) read inside the agent container by code
-# that expects this env var (e.g. `WEARDATA_PG_DSN`, `PIPELINE_PG_DSN`,
-# `DATABASE_URL`). Pick the name(s) your project(s) use.
-#
-# Multiple projects in one profile: one Postgres *server* hosts many
-# *databases*. POSTGRES_DB above bootstraps the first one; create extras
-# later with `CREATE DATABASE <name> OWNER agent;` and add a DSN per project,
-# differing only in the database name at the end of the URL. Example:
-#
-#   WEARDATA_PG_DSN=postgresql://agent:__SET_ME__@postgres:5432/wearables_ref
-#   PIPELINE_PG_DSN=postgresql://agent:__SET_ME__@postgres:5432/pipeline
-#   DATABASE_URL=postgresql+asyncpg://agent:__SET_ME__@postgres:5432/pipeline
-#
-# The DSN's password component must match POSTGRES_PASSWORD above. If your
-# password contains URL-reserved chars, percent-encode them in the DSN:
-#     /  ->  %2F     @  ->  %40     :  ->  %3A     #  ->  %23     ?  ->  %3F
-# Safer: generate a password with no special chars:
-#     openssl rand -hex 24        # 48 hex chars, all URL-safe
-#
-# Hostname inside the sandbox is `postgres` (the compose service name on
-# sandbox-internal), NOT localhost.
-#
-# Reminder: env_file is read only at container *create* — after editing
-# this file, force-recreate the agent so new DSNs propagate:
-#   COMPOSE_PROFILES=db-postgres PROFILE=<p> \
-#     docker compose -p macolima-<p> up -d --force-recreate claude-agent
-#
-# DATABASE_URL=postgresql://agent:__SET_ME__@postgres:5432/dev
-
-# --- Mongo (optional) --------------------------------------------------------
-MONGO_INITDB_ROOT_USERNAME=agent
-MONGO_INITDB_ROOT_PASSWORD=__SET_ME__
-EOF
+  cp "$SCRIPT_DIR/config/db.env.template" "$p/db.env.example"
   # Seed settings.json if absent.
   if [[ ! -f "$p/claude-home/settings.json" ]] && [[ -f "$SCRIPT_DIR/config/claude-settings.json" ]]; then
     cp "$SCRIPT_DIR/config/claude-settings.json" "$p/claude-home/settings.json"
@@ -257,7 +207,22 @@ AGENT="claude-agent-$PROFILE"
 # Strip --expose-dev from "$@" and populate COMPOSE_FILE_ARGS accordingly.
 # COMPOSE_FILE_ARGS always starts with `-f docker-compose.yml` so callers can
 # pass it unconditionally without empty-array headaches under `set -u`.
+#
+# Layering rules:
+#   docker-compose.yml                          — base, always
+#   docker-compose.<PROFILE>.yml                — always-on profile overlay
+#                                                 (siblings that belong with
+#                                                 this profile; auto-layered
+#                                                 if present, no flag needed)
+#   docker-compose.<PROFILE>.expose-dev.yml     — opt-in via --expose-dev
+#                                                 (LAN exposure / unsafe
+#                                                 port publishing)
 COMPOSE_FILE_ARGS=(-f docker-compose.yml)
+# Auto-layer the always-on profile overlay if it exists. Silent — no warning,
+# this is the expected shape for any profile that ships sibling services.
+if [[ -f "$SCRIPT_DIR/docker-compose.$PROFILE.yml" ]]; then
+  COMPOSE_FILE_ARGS+=(-f "docker-compose.$PROFILE.yml")
+fi
 parse_flags() {
   local expose=0 remaining=()
   for a in "$@"; do
@@ -268,12 +233,12 @@ parse_flags() {
   done
   ARGS=("${remaining[@]+"${remaining[@]}"}")
   if [[ "$expose" == "1" ]]; then
-    local override="$SCRIPT_DIR/docker-compose.$PROFILE.yml"
+    local override="$SCRIPT_DIR/docker-compose.$PROFILE.expose-dev.yml"
     [[ -f "$override" ]] || fail "--expose-dev: override not found: $override
        Create the override at the macolima repo root (a YAML file adding a
        'ports:' block under claude-agent), then rerun. See
-       docker-compose.therapod.yml for the canonical shape."
-    COMPOSE_FILE_ARGS+=(-f "docker-compose.$PROFILE.yml")
+       docker-compose.therapod.expose-dev.yml for the canonical shape."
+    COMPOSE_FILE_ARGS+=(-f "docker-compose.$PROFILE.expose-dev.yml")
     warn "UNSAFE: --expose-dev — layering $override (publishes ports to LAN)"
   fi
 }
@@ -326,7 +291,10 @@ case "$CMD" in
 
   build)
     info "Building macolima:latest (shared image across all profiles)"
-    exec docker compose build claude-agent "$@"
+    docker compose build claude-agent "$@"
+    info "Pruning dangling images and build cache to reclaim inodes"
+    docker image prune -f
+    docker builder prune -f --keep-storage=4g
     ;;
 
   recreate)
@@ -347,6 +315,9 @@ case "$CMD" in
     ensure_state
     info "Rebuilding image + recreating profile '$PROFILE'"
     docker compose "${COMPOSE_FILE_ARGS[@]}" build claude-agent
+    info "Pruning dangling images and build cache to reclaim inodes"
+    docker image prune -f
+    docker builder prune -f --keep-storage=4g
     docker compose "${COMPOSE_FILE_ARGS[@]}" up -d --force-recreate
     ;;
 
@@ -404,6 +375,77 @@ case "$CMD" in
     fi
 
     ok "clean done for '$PROFILE'"
+    ;;
+
+  db-reset)
+    # Wipe the postgres data volume and bring postgres back with a fresh initdb.
+    # The default `postgres` database is created automatically; project databases
+    # must be created explicitly afterwards (CREATE DATABASE ... OWNER agent).
+    PG_CONTAINER="postgres-$PROFILE"
+    PG_VOLUME="${COMPOSE_PROJECT_NAME}_postgres-data"
+
+    assume_yes=0
+    for a in "$@"; do
+      case "$a" in
+        --yes|-y) assume_yes=1 ;;
+        *) fail "db-reset: unknown flag '$a' (valid: --yes)" ;;
+      esac
+    done
+
+    warn "This will DESTROY all Postgres data for profile '$PROFILE':"
+    warn "  volume: $PG_VOLUME"
+    warn "  container: $PG_CONTAINER (will be stopped + removed + recreated)"
+    warn "After reset, only the default 'postgres' database will exist."
+    warn "You'll need to CREATE DATABASE for each project and re-seed/re-run pipelines."
+
+    if [[ "$assume_yes" != "1" ]]; then
+      printf '\nProceed? type the profile name (%s) to confirm: ' "$PROFILE"
+      read -r confirm
+      [[ "$confirm" == "$PROFILE" ]] || fail "confirmation mismatch; aborting"
+    fi
+
+    # 1. Stop and remove the postgres container.
+    if docker ps -a --format '{{.Names}}' | grep -qx "$PG_CONTAINER"; then
+      info "stopping $PG_CONTAINER"
+      docker stop "$PG_CONTAINER" 2>/dev/null || true
+      docker rm "$PG_CONTAINER" 2>/dev/null || true
+      ok "removed $PG_CONTAINER"
+    else
+      info "$PG_CONTAINER not found (already removed or never started)"
+    fi
+
+    # 2. Remove the data volume.
+    if docker volume ls -q | grep -qx "$PG_VOLUME"; then
+      docker volume rm "$PG_VOLUME"
+      ok "removed volume $PG_VOLUME"
+    else
+      info "volume $PG_VOLUME not found (already removed)"
+    fi
+
+    # 3. Bring postgres back up (fresh initdb reads POSTGRES_USER/PASSWORD from db.env).
+    info "bringing postgres back up (COMPOSE_PROFILES=db-postgres)"
+    COMPOSE_PROFILES=db-postgres docker compose "${COMPOSE_FILE_ARGS[@]}" up -d postgres
+    ok "postgres is up with a fresh data volume"
+
+    # 4. Wait briefly for initdb to finish, then verify.
+    info "waiting for postgres to accept connections..."
+    for i in $(seq 1 15); do
+      if docker exec "$PG_CONTAINER" pg_isready -U agent -d postgres >/dev/null 2>&1; then
+        ok "postgres is ready"
+        break
+      fi
+      [[ "$i" -eq 15 ]] && warn "postgres not ready after 15s — check: docker logs $PG_CONTAINER"
+      sleep 1
+    done
+
+    echo ""
+    info "Next steps — create your project databases:"
+    echo "  docker exec $PG_CONTAINER psql -U agent -d postgres \\"
+    echo "    -c 'CREATE DATABASE <name> OWNER agent;'"
+    echo ""
+    info "Then seed/migrate from inside the agent container and force-recreate"
+    info "the agent if you changed DSNs in db.env:"
+    echo "  COMPOSE_PROFILES=db-postgres scripts/profile.sh $PROFILE recreate"
     ;;
 
   reset-settings)
