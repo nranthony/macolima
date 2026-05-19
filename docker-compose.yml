@@ -111,7 +111,7 @@ services:
 
     working_dir: /workspace
     command: ["sleep", "infinity"]
-    restart: unless-stopped
+    restart: "no"
 
   # ---------------------------------------------------------------------------
   # Optional: Postgres sibling (opt-in via COMPOSE_PROFILES=db-postgres)
@@ -165,7 +165,7 @@ services:
       - SETUID
     mem_limit: 2g
     cpus: 2
-    restart: unless-stopped
+    restart: "no"
 
   # ---------------------------------------------------------------------------
   # Optional: MongoDB sibling (opt-in via COMPOSE_PROFILES=db-mongo)
@@ -210,7 +210,7 @@ services:
       - SETUID
     mem_limit: 2g
     cpus: 2
-    restart: unless-stopped
+    restart: "no"
 
   # ---------------------------------------------------------------------------
   # Egress proxy: per-profile, domain-allowlisted outbound traffic
@@ -254,7 +254,7 @@ services:
         # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
         ipv4_address: 172.30.0.10
       sandbox-external:
-    restart: unless-stopped
+    restart: "no"
 
 networks:
   sandbox-internal:
