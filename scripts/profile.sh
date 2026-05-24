@@ -222,6 +222,17 @@ COMPOSE_FILE_ARGS=(-f docker-compose.yml)
 # this is the expected shape for any profile that ships sibling services.
 if [[ -f "$SCRIPT_DIR/docker-compose.$PROFILE.yml" ]]; then
   COMPOSE_FILE_ARGS+=(-f "docker-compose.$PROFILE.yml")
+  # Auto-activate COMPOSE_PROFILES for profile-gated DB siblings when the
+  # overlay declares depends_on references to them.  Without this the user
+  # would have to remember `COMPOSE_PROFILES=db-postgres` every time.
+  if grep -qE 'depends_on:.*postgres|depends_on:\s*\[.*postgres' \
+       "$SCRIPT_DIR/docker-compose.$PROFILE.yml" 2>/dev/null; then
+    export COMPOSE_PROFILES="${COMPOSE_PROFILES:+${COMPOSE_PROFILES},}db-postgres"
+  fi
+  if grep -qE 'depends_on:.*mongo|depends_on:\s*\[.*mongo' \
+       "$SCRIPT_DIR/docker-compose.$PROFILE.yml" 2>/dev/null; then
+    export COMPOSE_PROFILES="${COMPOSE_PROFILES:+${COMPOSE_PROFILES},}db-mongo"
+  fi
 fi
 parse_flags() {
   local expose=0 remaining=()

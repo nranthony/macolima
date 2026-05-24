@@ -8,14 +8,9 @@
 # docker-compose.therapod.expose-dev.yml — opt-in via
 # `scripts/profile.sh therapod up --expose-dev`.
 #
-# Requires the postgres sibling to be activated. The repo's `postgres`
-# service is gated by `COMPOSE_PROFILES=db-postgres` (or db-all), so the
-# bring-up incantation for therapod is:
-#
-#     COMPOSE_PROFILES=db-postgres scripts/profile.sh therapod up
-#
-# Without that env var, pipeline-api will start but its dependency on
-# postgres won't be satisfied at runtime.
+# Requires the postgres sibling. profile.sh auto-activates
+# COMPOSE_PROFILES=db-postgres when it detects the depends_on reference
+# in this overlay, so `scripts/profile.sh therapod up` is sufficient.
 
 services:
   claude-agent:
