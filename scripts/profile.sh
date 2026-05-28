@@ -39,6 +39,14 @@
 #                   The override file must already exist at the repo root.
 #                   UNSAFE: drops the `internal: true` network isolation for
 #                   the duration. Re-run `up` without this flag to undo.
+#
+# Optional flags (accepted by build / rebuild only — rejected elsewhere):
+#   --no-cache      pass --no-cache to `docker compose build`. Forces every
+#                   Dockerfile layer to re-run; pulls latest claude-code / npm
+#                   packages / apt indexes instead of reusing cached layers.
+#   --pull          pass --pull to `docker compose build`. Re-checks the base
+#                   image registry for a newer digest (no-op for the pinned
+#                   ubuntu:24.04 digest but future-proof).
 # =============================================================================
 set -euo pipefail
 
@@ -218,6 +226,7 @@ AGENT="claude-agent-$PROFILE"
 #                                                 (LAN exposure / unsafe
 #                                                 port publishing)
 COMPOSE_FILE_ARGS=(-f docker-compose.yml)
+BUILD_FLAGS=()  # --no-cache / --pull, populated by parse_flags; consumed by build/rebuild
 # Auto-layer the always-on profile overlay if it exists. Silent — no warning,
 # this is the expected shape for any profile that ships sibling services.
 if [[ -f "$SCRIPT_DIR/docker-compose.$PROFILE.yml" ]]; then
@@ -239,6 +248,7 @@ parse_flags() {
   for a in "$@"; do
     case "$a" in
       --expose-dev) expose=1 ;;
+      --no-cache|--pull) BUILD_FLAGS+=("$a") ;;
       *) remaining+=("$a") ;;
     esac
   done
@@ -258,6 +268,8 @@ parse_flags() {
 case "$CMD" in
   up)
     parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
+    (( ${#BUILD_FLAGS[@]} == 0 )) || \
+      fail "up: ${BUILD_FLAGS[*]} only applies to build/rebuild (up does not rebuild the image)"
     ensure_repo_dir
     ensure_state
     info "Bringing up profile '$PROFILE' (project: $COMPOSE_PROJECT_NAME)"
@@ -301,8 +313,10 @@ case "$CMD" in
     ;;
 
   build)
-    info "Building macolima:latest (shared image across all profiles)"
-    docker compose build claude-agent "$@"
+    parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
+    [[ $# -eq 0 ]] || fail "build: unexpected arg(s) '$*' (valid flags: --no-cache --pull)"
+    info "Building macolima:latest${BUILD_FLAGS[*]:+ (${BUILD_FLAGS[*]})} (shared image across all profiles)"
+    docker compose build "${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"}" claude-agent
     info "Pruning dangling images and build cache to reclaim inodes"
     docker image prune -f
     docker builder prune -f --keep-storage=4g
@@ -313,6 +327,8 @@ case "$CMD" in
     # seccomp, proxy, mount, env, and dns/extra_hosts changes. For Dockerfile
     # changes use `rebuild` instead. Equivalent to setup.sh's --recreate flag.
     parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
+    (( ${#BUILD_FLAGS[@]} == 0 )) || \
+      fail "recreate: ${BUILD_FLAGS[*]} only applies to build/rebuild (recreate does not rebuild the image)"
     ensure_repo_dir
     ensure_state
     info "Force-recreating profile '$PROFILE' (no image rebuild)"
@@ -324,8 +340,8 @@ case "$CMD" in
     parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
     ensure_repo_dir
     ensure_state
-    info "Rebuilding image + recreating profile '$PROFILE'"
-    docker compose "${COMPOSE_FILE_ARGS[@]}" build claude-agent
+    info "Rebuilding image + recreating profile '$PROFILE'${BUILD_FLAGS[*]:+ (${BUILD_FLAGS[*]})}"
+    docker compose "${COMPOSE_FILE_ARGS[@]}" build "${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"}" claude-agent
     info "Pruning dangling images and build cache to reclaim inodes"
     docker image prune -f
     docker builder prune -f --keep-storage=4g

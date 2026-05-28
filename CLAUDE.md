@@ -77,7 +77,7 @@ Before committing:
 - [ ] New allow-listed Bash prefix? Audit its flag surface for destructive primitives (`-delete`, `-exec`, `-c`, `-e`, `of=`, etc.) — extend `config/hooks/deny-destructive.sh` ruleset, the test harness, and the `verify-sandbox.sh` probe if any exist. The hook is the only enforcement for flag-shape destructiveness; matcher-level denies cannot see it.
 - [ ] Compose change touching subnet / `ipv4_address` / `extra_hosts` / `dns:` / `internal:`? Plan a full `down` + `rebuild`, not just `--force-recreate` (see `docs/compose-network-ipam.md`).
 - [ ] Compose change? Run `PROFILE=_test docker compose config` to validate YAML interpolation.
-- [ ] Dockerfile / `.zshrc` / `.p10k.zsh` change? Need rebuild: `scripts/profile.sh build`, then `scripts/profile.sh <p> rebuild` per running profile.
+- [ ] Dockerfile / `.zshrc` / `.p10k.zsh` change? Need rebuild: `scripts/profile.sh build`, then `scripts/profile.sh <p> rebuild` per running profile. Add `--no-cache` (force every layer to re-run; refetch claude-code / npm / apt) or `--pull` (re-check the base digest) when a cached layer is masking the change — both accepted by `build`/`rebuild` only.
 
 Routine debug commands moved to `docs/debug-recipes.md`. Accepted CVEs/misconfigs in `.trivyignore.yaml` with dated `expired_at` fields.
 
