@@ -2,6 +2,31 @@
 
 Routine commands for operating a profile. Non-obvious gotchas live in `../CLAUDE.md`.
 
+## Common operations (goal → command)
+
+`<p>` is the profile name. Mirror of the README "Common operations" table — keep
+the two in sync if you edit either.
+
+| Goal | Command |
+|---|---|
+| **Start / bring back the stack** (starts whatever's down) | `scripts/profile.sh <p> up` |
+| Restart already-running containers (no recreate) | `scripts/setup.sh <p> --restart` |
+| Apply a compose / seccomp / squid / mount change | `scripts/profile.sh <p> recreate` |
+| Apply a **Dockerfile** change (rebuild image + recreate) | `scripts/profile.sh <p> rebuild` |
+| Stop + remove containers (state preserved) | `scripts/profile.sh <p> down` |
+| Shell into the agent container | `scripts/profile.sh <p> attach` |
+| See profile container state (running + stopped) | `scripts/profile.sh <p> status` |
+| List all profiles + up/down state | `scripts/profile.sh list` |
+| Verify auth / mounts / git identity | `scripts/setup.sh <p> --verify` |
+| Blank-slate a profile but **keep** auth | `scripts/profile.sh <p> wipe` |
+| Rebuild the shared image only | `scripts/profile.sh build` |
+
+> Stack partly down (e.g. only `postgres` survived a Colima restart)? Use `up`,
+> not `--restart` — `restart` only bounces containers that already exist, so it
+> won't recreate the missing agent/proxy.
+
+## Troubleshooting recipes
+
 ```bash
 # One-shot verify (auth status for claude/gh/glab + git identity + compose ps)
 scripts/setup.sh <p> --verify

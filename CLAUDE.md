@@ -49,6 +49,8 @@ Volatile (tmpfs): `/tmp`, `/run`, `/home/agent/.npm-global`, `/home/agent/.local
 
 Named volumes become `macolima-<profile>_<name>` — separate per profile.
 
+Of everything this map marks as wiped, only three things are **irrecoverable** (no script regenerates them): unpushed `/workspace` code, Claude session history (`claude-home/projects`, `sessions`, `todos`), and DB *rows* (schema is recreatable, data isn't). Everything else re-seeds from `config/`, re-downloads, or comes back on re-login. README → "What you can't get back" has the reset pre-flight checklist; point users there before any `wipe`/`--reset`/`colima delete`.
+
 For project-customization patterns (local wheels, overlay images), see `docs/local-wheels.md` and `docs/_future/overlay-project-plan.md`.
 
 ## Gotcha pointers — read before editing

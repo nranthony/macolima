@@ -455,6 +455,24 @@ scripts/profile.sh work rebuild  # build + recreate the running profile
 
 Three tiers, ordered by destructiveness. Pick the smallest one that does what you need.
 
+### What you can't get back
+
+Every tier below tells you what it *drops* — but most dropped state is regenerable (settings/skills re-seed from `config/`, caches re-download, auth comes back with a re-login). **Only three things are truly irrecoverable — no script can regenerate them:**
+
+1. **Unpushed / uncommitted code in `/workspace`** (`/Volumes/DataDrive/repo/<profile>/`). No reset path touches this — but Tier 3 *invites* you to wipe it by hand, and once it's gone with unpushed commits, it's gone. **This is the #1 risk.**
+2. **Claude session / conversation history** — `profiles/<p>/claude-home/` `projects/`, `sessions/`, `todos/`, `shell-snapshots/`. Dropped by `wipe` and `--reset`. There is no template to rebuild it.
+3. **Database rows** in `postgres-data` / `mongo-data`. The *schema* is recreatable (`alembic upgrade head` / your seed scripts); the *data* is not, unless it came from a seed. Dropped by `db-reset`, `wipe --all-volumes`, and Tier 3.
+
+Run this pre-flight per profile before any reset, and stop if anything looks unsaved:
+
+```bash
+git -C /Volumes/DataDrive/repo/<p> status --short                            # uncommitted changes?
+git -C /Volumes/DataDrive/repo/<p> log --branches --not --remotes --oneline  # commits not pushed?
+ls /Volumes/DataDrive/.claude-colima/profiles/<p>/claude-home/projects        # history you care about?
+```
+
+> **DB gotcha:** `db.env` holds the *generated* DB superuser password, baked into `postgres-data` at first initdb. Never regenerate `db.env` while keeping the old data volume — the new password won't authenticate against the old volume (see "First-init lock-in" below). Drop both together or keep both.
+
 ### Tier 1 — Single profile, **keep auth**
 
 For "I want to clear settings/sessions/MCP debug logs but not redo OAuth":
