@@ -13,7 +13,9 @@
 #   auth-github     run `gh auth login` inside the container
 #   auth-gitlab     run `glab auth login` inside the container
 #   logs            tail container logs
-#   status          docker compose ps for this profile
+#   status          all containers in this profile's compose project, any state
+#                   (running + stopped), by project label — robust to
+#                   compose-profile gating. Accepts extra `docker ps` flags.
 #   build           force-rebuild the image (shared across all profiles)
 #   recreate        force-recreate this profile's containers (no image rebuild — picks up
 #                   compose / seccomp / proxy / mount changes). Equivalent to
@@ -305,11 +307,25 @@ case "$CMD" in
     ;;
 
   logs)
-    exec docker compose logs -f "$@"
+    # Pass COMPOSE_FILE_ARGS so overlay services (docker-compose.<PROFILE>.yml)
+    # are tailed too, matching up/recreate/rebuild. (Profile-gated services
+    # still need their COMPOSE_PROFILE enabled to appear — for therapod that's
+    # auto-set from the overlay's depends_on trigger.)
+    exec docker compose "${COMPOSE_FILE_ARGS[@]}" logs -f "$@"
     ;;
 
   status|ps)
-    exec docker compose ps "$@"
+    # Every container in this profile's compose project, in any state. Filter by
+    # the compose project label — the same mechanism `list` and `wipe` use —
+    # rather than `docker compose ps`. Bare `ps` only lists services in the
+    # *loaded* compose files (no COMPOSE_FILE_ARGS) that are also in an *enabled*
+    # COMPOSE_PROFILE, so invoked standalone it silently hides a running
+    # profile-gated or overlay-only sibling (postgres/mongo/etc). The label
+    # filter can't: it shows the true project state, including stopped
+    # containers — exactly what you want when a stack is partly down. "$@"
+    # passes through extra `docker ps` flags (e.g. -q, --format).
+    info "Containers for project '$COMPOSE_PROJECT_NAME' (any state):"
+    exec docker ps -a --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" "$@"
     ;;
 
   build)

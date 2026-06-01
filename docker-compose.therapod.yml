@@ -1,56 +1,37 @@
 # Always-on overlay for the `therapod` profile.
 # ---------------------------------------------------------------------------
-# Layered by scripts/profile.sh whenever PROFILE=therapod, regardless of
-# flags. Holds therapod-specific siblings that should always be part of the
-# stack (currently: pipeline-api).
+# Layered by scripts/profile.sh whenever PROFILE=therapod, regardless of flags.
+#
+# SOLE JOB: declare that therapod needs the postgres sibling. profile.sh greps
+# this overlay for a `depends_on: [postgres]` reference and auto-activates
+# COMPOSE_PROFILES=db-postgres, so `scripts/profile.sh therapod up` brings the
+# DB online without the caller setting the env var. (Side effect: claude-agent
+# now waits for postgres to start — harmless, the agent needs the DB anyway.)
+#
+# The pipeline API is intentionally NOT defined here. It is owned by the
+# pipeline repo and stood up *inside* the sandbox with the repo's own tooling —
+# the identical flow a teammate not on macolima uses:
+#     just sandbox up      # createdb + alembic upgrade head  (schema)
+#     just sandbox serve   # uvicorn on localhost:8001, NO --reload
+# `serve` (single PID, clean SIGTERM, backgroundable) is the form an automated
+# agent wants — start it, poll /admin/ready, move on. `just sandbox api` is the
+# same server WITH --reload, for a human editing by hand (the reloader's
+# watcher+child tree is harder to kill/background cleanly).
+#
+# The API runs as a process in the agent container, reachable at localhost:8001
+# (and via an in-container Vite proxy) — deliberately NOT published to the macOS
+# host: sandbox-internal stays `internal: true`. So it needs no sibling
+# container, no static IP, and no extra_hosts here. macolima owns infrastructure
+# the agent can't provision itself (the postgres container, the network,
+# egress); the pipeline repo owns everything that runs inside it and stays the
+# single source of truth for how the API boots — which retires the port/flag
+# drift a duplicated `uvicorn` definition here used to cause (it had drifted to
+# :8000 vs the repo's :8001).
 #
 # LAN exposure of the Vite dev server (port 5173 → host LAN) lives in
 # docker-compose.therapod.expose-dev.yml — opt-in via
 # `scripts/profile.sh therapod up --expose-dev`.
-#
-# Requires the postgres sibling. profile.sh auto-activates
-# COMPOSE_PROFILES=db-postgres when it detects the depends_on reference
-# in this overlay, so `scripts/profile.sh therapod up` is sufficient.
 
 services:
   claude-agent:
-    extra_hosts:
-      - "pipeline-api:172.30.0.40"
-
-  pipeline-api:
-    build:
-      context: /Volumes/DataDrive/repo/therapod/pipeline
-    container_name: pipeline-api-${PROFILE}
-    networks:
-      sandbox-internal:
-        ipv4_address: 172.30.0.40
-    volumes:
-      - /Volumes/DataDrive/repo/therapod/pipeline:/workspace/pipeline:ro
-    env_file:
-      - /Volumes/DataDrive/.claude-colima/profiles/therapod/db.env
-    environment:
-      # Prefer the bind-mounted source over the baked-in install, so uvicorn
-      # --reload picks up edits the agent makes via /workspace/pipeline.
-      - PYTHONPATH=/workspace/pipeline/src
-    command:
-      - uvicorn
-      - pipeline.api:create_app
-      - --factory
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8000"
-      - --reload
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/admin/health')"
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 15s
     depends_on: [postgres]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]

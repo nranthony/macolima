@@ -46,7 +46,7 @@ commands under "Using profiles").
 | Apply a **Dockerfile** change (rebuild image + recreate) | `scripts/profile.sh <p> rebuild` |
 | Stop + remove containers (state preserved) | `scripts/profile.sh <p> down` |
 | Shell into the agent container | `scripts/profile.sh <p> attach` |
-| See what's running for a profile | `scripts/profile.sh <p> status` |
+| See profile container state (running + stopped) | `scripts/profile.sh <p> status` |
 | List all profiles + up/down state | `scripts/profile.sh list` |
 | Verify auth / mounts / git identity | `scripts/setup.sh <p> --verify` |
 | Blank-slate a profile but **keep** auth | `scripts/profile.sh <p> wipe` |
