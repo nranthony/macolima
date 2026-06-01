@@ -36,7 +36,10 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 info "Installing tooling via Homebrew..."
-brew install colima docker docker-compose docker-buildx
+# flock: not in the macOS base system (it's Linux util-linux). scripts/with-egress.sh
+# uses it to serialize per-profile egress widening — without it that script aborts
+# at lock-acquire with "flock: command not found".
+brew install colima docker docker-compose docker-buildx flock
 
 # --- Docker Desktop conflict check -----------------------------------------
 if [[ -d "/Applications/Docker.app" ]]; then

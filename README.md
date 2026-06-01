@@ -521,7 +521,7 @@ sed -i '' '/^# >>> macolima env >>>/,/^# <<< macolima env <<<$/d' ~/.zshrc
 #    have a reason.
 #
 # 5. (Optional) Uninstall the Homebrew packages bootstrap.sh installed:
-#       brew uninstall colima docker docker-compose docker-buildx
+#       brew uninstall colima docker docker-compose docker-buildx flock
 #       brew uninstall --cask font-meslo-lg-nerd-font
 ```
 
