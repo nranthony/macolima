@@ -32,6 +32,50 @@ scripts/profile.sh <profile> recreate
 
 Add `COMPOSE_PROFILES=db-postgres` (or `db-mongo` / `db-all`) to also recreate DB siblings. **If the compose change touches the `sandbox-internal` network's IPAM** (subnet, `ipv4_address`, `dns:`, `extra_hosts`), recreate is not enough — see the IPAM callout in "Updating" below for the `down`+`rebuild` recipe.
 
+## Common operations
+
+Goal-first cheat sheet for the day-to-day. `<p>` is the profile name. The
+detailed, per-script tables are further down (`setup.sh` flags and `profile.sh`
+commands under "Using profiles").
+
+| Goal | Command |
+|---|---|
+| **Start / bring back the stack** (starts whatever's down) | `scripts/profile.sh <p> up` |
+| Restart already-running containers (no recreate) | `scripts/setup.sh <p> --restart` |
+| Apply a compose / seccomp / squid / mount change | `scripts/profile.sh <p> recreate` |
+| Apply a **Dockerfile** change (rebuild image + recreate) | `scripts/profile.sh <p> rebuild` |
+| Stop + remove containers (state preserved) | `scripts/profile.sh <p> down` |
+| Shell into the agent container | `scripts/profile.sh <p> attach` |
+| See what's running for a profile | `scripts/profile.sh <p> status` |
+| List all profiles + up/down state | `scripts/profile.sh list` |
+| Verify auth / mounts / git identity | `scripts/setup.sh <p> --verify` |
+| Blank-slate a profile but **keep** auth | `scripts/profile.sh <p> wipe` |
+| Rebuild the shared image only | `scripts/profile.sh build` |
+
+> Stack partly down (e.g. only `postgres` survived a Colima restart)? Use `up`,
+> not `--restart` — `restart` only bounces containers that already exist, so it
+> won't recreate the missing agent/proxy.
+
+### Optional: `just` front door
+
+A root `justfile` provides a discoverable, terser alias for the same commands —
+it is a **thin pass-through to `scripts/profile.sh` / `scripts/setup.sh`**, not a
+reimplementation (the scripts stay canonical). Run `just` (or `just --list`) to
+see every recipe. The profile is the first arg, mirroring the scripts:
+
+```bash
+just up <p>              # = scripts/profile.sh <p> up
+just attach <p>          # = scripts/profile.sh <p> attach
+just recreate <p>        # = scripts/profile.sh <p> recreate
+just rebuild <p>         # = scripts/profile.sh <p> rebuild
+just verify <p>          # = scripts/setup.sh   <p> --verify
+just setup <p> --name "Your Name" --email you@x   # = scripts/setup.sh <p> ...
+just list                # = scripts/profile.sh list
+```
+
+Requires `just` on the host (`brew install just`). Skip it entirely if you
+prefer the scripts — the recipes add nothing the scripts don't already do.
+
 ## Concept: profiles
 
 A *profile* is a named sandbox instance — e.g. `work`, `personal`, `sideproject`. Each profile:
