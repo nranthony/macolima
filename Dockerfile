@@ -140,6 +140,31 @@ RUN ARCH="$(dpkg --print-architecture)" \
  && chmod 0755 /usr/local/bin/glab \
  && glab --version
 
+# ---------- just (command runner) — official static binary -------------------
+# `just` is a single static musl binary, so it has no glibc/runtime deps and
+# drops straight into /usr/local/bin. Not apt-installable on noble, and the
+# agent can't fetch it at runtime anyway (github.com is off the proxy
+# allowlist + no root for apt) — so it must be baked in here, where the build
+# has full network. Same integrity model as glab: GitHub publishes SHA256SUMS
+# per release; we fetch it, grep our exact tarball's line, and sha256sum -c
+# before trusting the binary. When bumping JUST_VERSION just update the ARG —
+# the checksum is fetched fresh per build over TLS, no manual pin needed.
+# Re-check https://github.com/casey/just/releases when bumping.
+ARG JUST_VERSION=1.51.0
+RUN ARCH="$(dpkg --print-architecture)" \
+ && case "$ARCH" in amd64) GARCH=x86_64 ;; arm64) GARCH=aarch64 ;; *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; esac \
+ && TARBALL="just-${JUST_VERSION}-${GARCH}-unknown-linux-musl.tar.gz" \
+ && BASE="https://github.com/casey/just/releases/download/${JUST_VERSION}" \
+ && curl -fsSL "$BASE/$TARBALL" -o "/tmp/$TARBALL" \
+ && curl -fsSL "$BASE/SHA256SUMS" -o /tmp/just_checksums.txt \
+ && grep -E "  $TARBALL\$" /tmp/just_checksums.txt > /tmp/just_checksum.line \
+ && (cd /tmp && sha256sum -c just_checksum.line) \
+ && tar -xzf "/tmp/$TARBALL" -C /tmp just \
+ && mv /tmp/just /usr/local/bin/just \
+ && rm -rf "/tmp/$TARBALL" /tmp/just_checksums.txt /tmp/just_checksum.line \
+ && chmod 0755 /usr/local/bin/just \
+ && just --version
+
 # ---------- non-root user ----------------------------------------------------
 # ubuntu:24.04 ships with a default `ubuntu` user at UID 1000 — remove it so
 # we can create `agent` at that UID (needed to match host file ownership via
