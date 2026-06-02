@@ -424,7 +424,7 @@ case "$CMD" in
     # Wipe the postgres data volume and bring postgres back with a fresh initdb.
     # The default `postgres` database is created automatically; project databases
     # must be created explicitly afterwards (CREATE DATABASE ... OWNER agent).
-    PG_CONTAINER="postgres-$PROFILE"
+    PG_CONTAINER="$PROFILE-postgres-sandbox"
     PG_VOLUME="${COMPOSE_PROJECT_NAME}_postgres-data"
 
     assume_yes=0

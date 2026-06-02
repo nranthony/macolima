@@ -135,7 +135,7 @@ Two migration paths:
 
 2. **Hand-run on the live DB (lossless)** — for profiles already holding data:
    ```
-   docker exec -i postgres-<p> psql -U <admin> <db> < dbinit/postgres/01-agent-rw.sql
+   docker exec -i <p>-postgres-sandbox psql -U <admin> <db> < dbinit/postgres/01-agent-rw.sql
    docker exec -i mongo-<p> mongosh -u <admin> -p < dbinit/mongo/01-agent-rw.live.js
    ```
 
