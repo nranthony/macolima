@@ -111,6 +111,49 @@ confirm() {
   [[ "$ans" =~ ^[Yy]$ ]]
 }
 
+# verify_git_token <label> <host-token-file> <token-value-regex> <probe-url> \
+#                  <in-container-live-cmd> <login-hint>
+# Credential-safe auth check for git forges. The bare `gh auth status` /
+# `glab auth status` make a LIVE API call to validate the token, so at the
+# autonomous egress baseline (api.github.com / gitlab.com blocked by Squid)
+# they always report "failed" even when the stored token is perfectly valid —
+# a false negative that scared operators. This instead:
+#   1. Confirms the token FILE is present and actually holds a token value —
+#      read on the HOST via the config bind mount. We `grep -q` only (never
+#      print the file) and report just presence + mtime, so no credential is
+#      ever echoed, logged, or held in a variable.
+#   2. Attempts live validation ONLY when egress to the forge is open (probed
+#      via the agent's proxied curl). Closed egress -> "not live-validated
+#      (egress closed)", NOT "failed". Open + rejected -> a real re-auth nudge.
+verify_git_token() {
+  local label="$1" tokfile="$2" valre="$3" probe="$4" livecmd="$5" hint="$6"
+  local mt code
+  if [[ ! -s "$tokfile" ]]; then
+    warn "$label: no token file — not authed (run: $hint)"
+    return 0
+  fi
+  mt=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$tokfile" 2>/dev/null || echo unknown)
+  if ! grep -Eq "$valre" "$tokfile" 2>/dev/null; then
+    warn "$label: token file present but holds no token value (modified $mt) — re-auth (run: $hint)"
+    return 0
+  fi
+  ok "$label: token present (modified $mt)"
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$AGENT"; then
+    info "  live validation skipped — agent container not running"
+    return 0
+  fi
+  # -w prints the HTTP code even on proxy refusal (000 via Squid's CONNECT
+  # deny); `|| true` keeps that 000 from tripping `set -e`.
+  code=$(docker exec "$AGENT" curl -sS -o /dev/null -w '%{http_code}' --max-time 6 "$probe" 2>/dev/null || true)
+  if [[ -z "$code" || "$code" == "000" ]]; then
+    info "  not live-validated — egress to ${probe#https://} is closed (autonomous baseline); token unverified against server"
+  elif docker exec "$AGENT" sh -c "$livecmd" >/dev/null 2>&1; then
+    ok "  live-validated against ${probe#https://}"
+  else
+    warn "  token REJECTED by ${probe#https://} — re-auth needed (run: $hint)"
+  fi
+}
+
 # --- lifecycle actions ------------------------------------------------------
 if [[ -n "$ACTION" ]]; then
   cd "$SCRIPT_DIR/.."
@@ -187,10 +230,16 @@ if [[ -n "$ACTION" ]]; then
       '
       echo
       info "GitHub auth:"
-      docker exec "$AGENT" gh auth status 2>&1 || true
+      verify_git_token "GitHub" \
+        "$PROFILES_ROOT/$PROFILE/config/gh/hosts.yml" \
+        '^[[:space:]]*oauth_token:[[:space:]]*[^[:space:]]' \
+        "https://api.github.com" "gh auth status" "gh auth login"
       echo
       info "GitLab auth:"
-      docker exec "$AGENT" glab auth status 2>&1 || true
+      verify_git_token "GitLab" \
+        "$PROFILES_ROOT/$PROFILE/config/glab-cli/config.yml" \
+        '^[[:space:]]*token:[[:space:]]*[^[:space:]]' \
+        "https://gitlab.com" "glab auth status" "glab auth login"
       echo
       info "Git identity:"
       docker exec "$AGENT" git config --global --list 2>&1 || true
