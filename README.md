@@ -40,6 +40,9 @@ commands under "Using profiles").
 
 | Goal | Command |
 |---|---|
+| **Start the Colima VM after a host reboot** (idempotent) | `scripts/start.sh` (or `just colima-up`) |
+| Start the VM **and** a profile in one go | `scripts/start.sh <p>` (or `just colima-up <p>`) |
+| Stop all profiles + the VM (reclaims RAM) | `scripts/stop.sh` (or `just colima-down`) |
 | **Start / bring back the stack** (starts whatever's down) | `scripts/profile.sh <p> up` |
 | Restart already-running containers (no recreate) | `scripts/setup.sh <p> --restart` |
 | Apply a compose / seccomp / squid / mount change | `scripts/profile.sh <p> recreate` |
@@ -73,6 +76,21 @@ just setup <p> --name "Your Name" --email you@x   # = scripts/setup.sh <p> ...
 just list                # = scripts/profile.sh list
 ```
 
+The `colima-*` recipes are the exception to the profile-first rule — they take
+no profile (Colima is shared across all profiles) and front the VM scripts:
+
+```bash
+just colima-up           # = scripts/start.sh   (start the VM after a host reboot; idempotent)
+just colima-up <p>       # = scripts/start.sh <p>  (also brings profile <p> up)
+just colima-down         # = scripts/stop.sh    (stop all profiles, then the VM)
+just colima-status       # = colima status
+```
+
+> `just colima-up` is for everyday restarts (the VM's `--cpu`/mount flags are
+> already persisted in `colima.yaml`). For **first-time** setup or after a
+> `colima delete`, use `scripts/colima-up.sh` instead — only it re-bakes those
+> flags. See "Updating" / troubleshooting below.
+
 Requires `just` on the host (`brew install just`). Skip it entirely if you
 prefer the scripts — the recipes add nothing the scripts don't already do.
 
@@ -105,7 +123,9 @@ macolima/
 │   └── allowed_domains.txt        # outbound allowlist (shared across profiles)
 ├── scripts/
 │   ├── bootstrap.sh               # one-time host setup
-│   ├── colima-up.sh               # first-time colima start
+│   ├── colima-up.sh               # first-time / post-delete colima start (bakes flags)
+│   ├── start.sh                   # everyday VM start after a reboot (+ optional profiles)
+│   ├── stop.sh                    # stop all profiles, then the VM
 │   ├── setup.sh                   # one-shot onboarding + lifecycle wrapper
 │   ├── profile.sh                 # granular multi-profile driver (underneath setup.sh)
 │   ├── run-ephemeral.sh           # one-off hardened run, --rm on exit

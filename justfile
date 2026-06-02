@@ -12,6 +12,11 @@
 #   just attach work        ->  scripts/profile.sh work attach
 #   just verify work        ->  scripts/setup.sh   work --verify
 #   just setup work --name "W" --email w@x
+#
+# Exceptions (no profile arg): `list`, and the `colima-*` VM-lifecycle recipes
+# below — Colima is shared across all profiles, so those front the VM scripts
+# (scripts/start.sh, scripts/stop.sh), not profile.sh/setup.sh. Still thin
+# pass-throughs; still no `docker compose`.
 # =============================================================================
 
 profile_sh := justfile_directory() / "scripts" / "profile.sh"
@@ -61,6 +66,20 @@ exec profile *args:
 # list all existing profiles (no profile arg)
 list:
     {{profile_sh}} list
+
+# ---- Colima VM lifecycle (shared across profiles — no profile arg) ----------
+
+# start Colima VM after a reboot (idempotent). Optionally also up a profile: `just colima-up therapod`
+colima-up *args:
+    {{justfile_directory()}}/scripts/start.sh {{args}}
+
+# stop all running profiles' containers, then the Colima VM (reclaims RAM).
+colima-down:
+    {{justfile_directory()}}/scripts/stop.sh
+
+# Colima VM status
+colima-status:
+    colima status
 
 # ---- auth (profile.sh) ------------------------------------------------------
 
