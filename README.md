@@ -464,6 +464,25 @@ scripts/profile.sh build
 scripts/profile.sh work rebuild  # build + recreate the running profile
 ```
 
+### Optional: control dashboard (Streamlit)
+
+The allowlist edit above has a GUI equivalent. A host-side ops console lives in
+`dashboard/` — a Streamlit app that runs on **macOS, not inside any sandbox** —
+that toggles blocks/domains in `proxy/allowed_domains.txt` and restarts
+`egress-proxy` for **every running profile** in one click (no manual
+`squid -k reconfigure`).
+
+```bash
+cd dashboard
+uv venv && uv pip install -e .
+uv run streamlit run src/app.py     # → http://127.0.0.1:8501
+```
+
+Today the allowlist editor is its only feature; lifecycle, logs, and verify stay
+on the CLI. See `dashboard/README.md`.
+
+<img src="images/streamlit_proxy_screenshot.png" alt="macolima control dashboard — proxy allowlist editor" width="760">
+
 > **Compose network changes need `down`+`up`, not just `recreate`.** If a change touches the `sandbox-internal` network's `ipam.config.subnet`, any service's `ipv4_address`, the agent's `dns:` / `extra_hosts`, or the network's `internal:` flag, `--force-recreate` won't update the existing network — it only recreates containers. The fix:
 > ```bash
 > COMPOSE_PROFILES=db-postgres scripts/profile.sh <p> down       # remove containers + networks (keeps named volumes / DB data)
