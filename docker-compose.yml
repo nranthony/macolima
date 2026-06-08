@@ -42,8 +42,8 @@ services:
     # lever on the same number (512). Keep only pids_limit — covers all
     # processes in the namespace regardless of user.
     pids_limit: 512
-    mem_limit: 8g
-    memswap_limit: 8g
+    mem_limit: 3g
+    memswap_limit: 3g
     cpus: 4
     ulimits:
       nofile:
@@ -163,7 +163,9 @@ services:
       - FOWNER
       - SETGID
       - SETUID
-    mem_limit: 2g
+    # Sandbox DB idles at ~25 MiB; 512m is generous headroom and leaves the
+    # VM budget for the agent container. Raise only if a workload needs it.
+    mem_limit: 512m
     cpus: 2
     restart: "no"
 
@@ -208,7 +210,10 @@ services:
       - FOWNER
       - SETGID
       - SETUID
-    mem_limit: 2g
+    # WiredTiger sizes its cache from detected RAM; cap at 512m so an opt-in
+    # mongo can't balloon the cache and starve the agent container. Bump if
+    # you run a real mongo workload.
+    mem_limit: 512m
     cpus: 2
     restart: "no"
 

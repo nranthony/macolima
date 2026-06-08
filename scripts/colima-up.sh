@@ -17,7 +17,7 @@ colima start \
   --vz-rosetta \
   --mount-type virtiofs \
   --cpu 6 \
-  --memory 10 \
+  --memory 6 \
   --disk 128 \
   --mount "$DRIVE/repo:w" \
   --mount "$DRIVE/.claude-colima:w"
