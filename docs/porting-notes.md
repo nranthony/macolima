@@ -10,10 +10,12 @@ that was otherwise duplicated by the audit reports and `CLAUDE.md`.
 The VS Code Dev Containers leakage findings (SSH agent forwarding, host
 `.gitconfig` copy, IPC credential helper, orphan UID-0 attach shell) and
 their fixes are **platform-independent** — VS Code's behaviour is the same on
-macOS, Linux, and Windows. The settings keys, the `devcontainer.json`
-`remoteEnv`/`updateRemoteUserUID` trick, and the in-container `unset
-SSH_AUTH_SOCK` all transfer verbatim. See CLAUDE.md → "VS Code Dev Containers
-leakage hardening" for the current canonical fixes.
+macOS, Linux, and Windows. The host-side settings keys (`dev.containers.*`),
+the host-side attached-container configuration file, and the in-container
+`unset SSH_AUTH_SOCK` all transfer verbatim. (A repo `devcontainer.json`
+`remoteEnv`/`updateRemoteUserUID` does NOT — those are inert on the Attach to
+Running Container flow both repos use; neither repo ships one.) See CLAUDE.md →
+"VS Code Dev Containers leakage hardening" for the current canonical fixes.
 
 What changes per host environment is below.
 

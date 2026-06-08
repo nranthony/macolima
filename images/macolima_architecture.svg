@@ -36,7 +36,7 @@
   <!-- VS Code box -->
   <rect x="720" y="112" width="680" height="70" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
   <text x="736" y="134" font-size="13" font-weight="700" fill="#111827">VS Code · Dev Containers</text>
-  <text x="736" y="152" font-size="12" fill="#4b5563">• Attach to running <tspan font-family="'SF Mono', Menlo, Consolas, monospace">claude-agent-&lt;p&gt;</tspan>, or use <tspan font-family="'SF Mono', Menlo, Consolas, monospace">devcontainer.json</tspan></text>
+  <text x="736" y="152" font-size="12" fill="#4b5563">• Attach to running <tspan font-family="'SF Mono', Menlo, Consolas, monospace">claude-agent-&lt;p&gt;</tspan> (attach-time config is host-side)</text>
   <text x="736" y="168" font-size="12" fill="#4b5563">• Port forwarding (Streamlit/Dash/Jupyter) via <tspan font-family="'SF Mono', Menlo, Consolas, monospace">docker exec</tspan> channel — no published ports</text>
 
   <!-- ===== External Drive (left column) ===== -->

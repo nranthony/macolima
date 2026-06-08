@@ -13,14 +13,16 @@ source $ZSH/oh-my-zsh.sh
 # uv shims
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
-# Defense-in-depth: clear SSH_AUTH_SOCK in every interactive shell. VS Code
-# Dev Containers auto-injects this on every attach (no extension setting
-# disables it; remote.SSH.enableAgentForwarding only governs Remote-SSH).
-# devcontainer.json's remoteEnv already empties it for VS Code-spawned
-# processes; this catches any other entry path (docker exec, attach without
-# a devcontainer.json, future tooling). openssh-client is purged from the
-# image so the socket is unusable anyway, but unset removes the tripwire
-# signal too. Safe to remove if you ever want SSH back inside the container.
+# Primary, flow-independent SSH defense: clear SSH_AUTH_SOCK in every
+# interactive shell. VS Code Dev Containers auto-injects this on every attach
+# (no extension setting disables it; remote.SSH.enableAgentForwarding only
+# governs Remote-SSH). This unset is the actual defense — it fires on every
+# entry path (VS Code attach, profile.sh attach, docker exec). A repo
+# devcontainer.json's remoteEnv would NOT help: Attach to Running Container
+# ignores the repo devcontainer.json entirely, and macolima ships no such
+# file. openssh-client is purged from the image so the socket is unusable
+# anyway, but unset removes the tripwire signal too. Safe to remove if you
+# ever want SSH back inside the container.
 unset SSH_AUTH_SOCK
 
 # Companion to the unset above: VS Code's Dev Containers attach flow also
