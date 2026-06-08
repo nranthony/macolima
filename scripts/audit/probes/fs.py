@@ -232,8 +232,9 @@ def run():
         })
 
     # §6 PID namespace — total visible PIDs and any UID-0 process besides PID 1.
-    # Orphan UID-0 procs typically come from VS Code attach `usermod` runs
-    # when devcontainer.json's "updateRemoteUserUID": false isn't set.
+    # Orphan UID-0 procs come from VS Code `usermod` runs during a *Reopen in
+    # Container* (create-time) flow; attach ignores devcontainer.json, and the
+    # agent runs as UID 1000 under compose regardless, so this is a backstop.
     try:
         result = subprocess.run(
             ["ps", "-eo", "pid,user", "--no-headers"],
