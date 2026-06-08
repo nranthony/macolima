@@ -92,7 +92,7 @@ update.code.visualstudio.com
 #                                          Dockerfile so it's reused. If
 #                                          first run still hangs ~135s,
 #                                          one-shot the [git] block via
-#                                          with-egress.sh.
+# with-egress.sh.
 accounts.google.com
 oauth2.googleapis.com
 www.googleapis.com
