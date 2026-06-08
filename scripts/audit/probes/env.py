@@ -36,8 +36,10 @@ def _check(name, ok, **details):
 def run():
     out = []
 
-    # SSH_AUTH_SOCK MUST be unset. devcontainer.json's `remoteEnv` blanks it
-    # for VS Code-spawned shells; .zshrc's `unset` catches docker-exec paths.
+    # SSH_AUTH_SOCK MUST be unset. The flow-independent defense is .zshrc's
+    # `unset`, which covers every shell (VS Code attach, profile.sh attach,
+    # docker exec). devcontainer.json's `remoteEnv` does NOT help on attach —
+    # Attach to Running Container ignores the repo devcontainer.json.
     val = os.environ.get("SSH_AUTH_SOCK", "")
     out.append(_check(
         "ssh_auth_sock_unset",

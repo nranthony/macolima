@@ -121,17 +121,15 @@ macolima/
 ├── proxy/
 │   ├── squid.conf
 │   └── allowed_domains.txt        # outbound allowlist (shared across profiles)
-├── scripts/
-│   ├── bootstrap.sh               # one-time host setup
-│   ├── colima-up.sh               # first-time / post-delete colima start (bakes flags)
-│   ├── start.sh                   # everyday VM start after a reboot (+ optional profiles)
-│   ├── stop.sh                    # stop all profiles, then the VM
-│   ├── setup.sh                   # one-shot onboarding + lifecycle wrapper
-│   ├── profile.sh                 # granular multi-profile driver (underneath setup.sh)
-│   ├── run-ephemeral.sh           # one-off hardened run, --rm on exit
-│   └── verify-sandbox.sh          # inside-container hardening check
-└── devcontainer-template/
-    └── devcontainer.json          # per-repo VS Code Dev Container config
+└── scripts/
+    ├── bootstrap.sh               # one-time host setup
+    ├── colima-up.sh               # first-time / post-delete colima start (bakes flags)
+    ├── start.sh                   # everyday VM start after a reboot (+ optional profiles)
+    ├── stop.sh                    # stop all profiles, then the VM
+    ├── setup.sh                   # one-shot onboarding + lifecycle wrapper
+    ├── profile.sh                 # granular multi-profile driver (underneath setup.sh)
+    ├── run-ephemeral.sh           # one-off hardened run, --rm on exit
+    └── verify-sandbox.sh          # inside-container hardening check
 ```
 
 ## Drive layout
@@ -356,7 +354,7 @@ Two paths — pick based on how you work.
 
 **A. Attach to a running profile:** `scripts/profile.sh work up`, then `Cmd-Shift-P → Dev Containers: Attach to Running Container → claude-agent-work`. This is the recommended path.
 
-**B. Per-repo attach config:** copy `devcontainer-template/devcontainer.json` into `<repo>/.devcontainer/`. The template is *attach-only* — it has no `image`/`runArgs`/`mounts`/`network` fields. It exists so VS Code picks up the right `remoteUser: agent`, `updateRemoteUserUID: false`, and `overrideCommand: false` settings on attach, and nothing more. Compose owns the container's hardening; a devcontainer.json that tried to re-declare `runArgs` would either fight compose or spin up a parallel container with weaker settings.
+**B. Pin attach-time settings host-side.** *Attach to Running Container* does **not** read a repo's `.devcontainer/devcontainer.json` — that file is only consumed by *Reopen in Container*, which macolima doesn't use ([VS Code docs](https://code.visualstudio.com/docs/devcontainers/attach-container)). To customise the attached container — extensions, terminal, interpreter, `remoteUser` — use the host-side **attached-container configuration file**: `Cmd-Shift-P → Dev Containers: Open Attached Container Configuration File…`, keyed by image or container name. It supports a subset of devcontainer.json keys (`workspaceFolder`, `extensions`, `settings`, `forwardPorts`, `remoteUser`). For extensions that should land on *any* attached container, set `dev.containers.defaultExtensions` in host user `settings.json`. The container's security posture comes entirely from compose + seccomp + the image (agent runs as UID 1000, `cap_drop: ALL`, internal network) — never from a devcontainer.json.
 
 ### Required host settings — Dev Containers leakage hardening
 
@@ -372,7 +370,7 @@ VS Code injects three host→container bridges by default that **bypass the sand
 - `gitCredentialHelperConfigLocation` injects an IPC-backed helper shim into `~/.config/git/config` that forwards git auth to the host credential manager — **separate setting from `copyGitConfig`**.
 - `enableAgentForwarding` injects `SSH_AUTH_SOCK=/tmp/vscode-ssh-auth-*.sock` so the agent can reach any host your SSH keys authenticate to.
 
-Plus a per-repo `.devcontainer/devcontainer.json` with `"updateRemoteUserUID": false` — without it, VS Code runs `usermod` as root during attach, which can leave a stray UID-0 shell orphaned in the container. A ready template is at `devcontainer-template/devcontainer.json`.
+The `usermod`-as-root UID realignment that can orphan a stray UID-0 shell is a *Reopen/create-time* behaviour, not an attach one — and macolima runs as `agent` (UID 1000) under compose regardless of VS Code flow, so the recommended Attach path never triggers it. `updateRemoteUserUID`/`overrideCommand` in a repo devcontainer.json are inert on attach; don't rely on them. The verify-sandbox tripwire (below) is the actual backstop for a stray UID-0 process.
 
 The inside-container tripwire (`scripts/verify-sandbox.sh`) checks all three leakage paths plus the UID-0 orphan; if anything comes back from a reattach, it will FAIL loudly. The SSH-socket check is gated on the *combination* of mitigations — an accumulating `/tmp/vscode-ssh-auth-*.sock` file is treated as cosmetic so long as `SSH_AUTH_SOCK` stays unset and `openssh-client` stays purged; FAIL only fires when one of those layers is also broken.
 
