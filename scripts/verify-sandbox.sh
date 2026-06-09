@@ -205,6 +205,22 @@ if [[ -f /home/agent/.config/git/config ]] && \
 else
   pass "no host-reaching credential.helper in .config/git/config"
 fi
+# Belt-and-suspenders: the grep above only reads the GIT_CONFIG_GLOBAL file.
+# `gitCredentialHelperConfigLocation` can target the *system* layer
+# (/etc/gitconfig) instead, and a stray helper can also land in a repo-local
+# /workspace/.git/config — neither of which the single-file grep sees. Ask git
+# itself to resolve credential.helper across all layers and report the origin,
+# so an injection at any layer surfaces. Same allowlist: gh/glab's own
+# in-container shims (!/usr/local/bin/{gh,glab}) are expected and pass; only
+# VS Code / host-keychain helpers fail. `|| true` because git exits non-zero
+# when no helper is configured at all (the clean case).
+helper_origins="$(git config --show-origin --get-all credential.helper 2>/dev/null || true)"
+if printf '%s' "$helper_origins" \
+     | grep -qE '(vscode-server|vscode-remote-containers|osxkeychain|git-credential-manager)'; then
+  fail "host-reaching credential.helper resolved by git across config layers (system/global/local) — check origin: $helper_origins"
+else
+  pass "no host-reaching credential.helper across git config layers (system/global/local)"
+fi
 # Any UID-0 process other than PID 1 is drift — VS Code's attach flow
 # occasionally leaves orphan `docker exec -u root` shells. Count them
 # without counting the probe itself (awk invoked by verify-sandbox runs
