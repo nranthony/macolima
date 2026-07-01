@@ -38,7 +38,7 @@ On every `up`, `profile.sh` scans `profiles/<p>/config/git/config` for helpers m
 
 VS Code re-injects the helper *on every attach*, *after* `ensure_state()` has already run — the scrub is a stale defense within an attach session; the host setting (`gitCredentialHelperConfigLocation: "none"`) is what actually prevents re-injection.
 
-**The scrub intentionally preserves `!/usr/local/bin/glab auth git-credential` and `!/usr/local/bin/gh auth git-credential`** — legitimate in-container helpers installed by `glab/gh auth setup-git`, using in-container tokens with no host reach. Do not broaden the scrub to "any helper" — that would break authenticated `git push`. `verify-sandbox.sh`'s tripwire uses the same host-reaching patterns, so benign glab/gh helpers PASS.
+**The scrub intentionally preserves `!/usr/local/bin/gh auth git-credential`** — a legitimate in-container helper installed by `gh auth setup-git`, using an in-container token with no host reach. Do not broaden the scrub to "any helper" — that would break authenticated `git push`. `verify-sandbox.sh`'s tripwire uses the same host-reaching patterns, so the benign gh helper PASSes.
 
 ## `VSCODE_GIT_ASKPASS_*` envs (informational)
 

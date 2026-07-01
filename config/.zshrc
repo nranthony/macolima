@@ -38,4 +38,13 @@ rm -f /tmp/vscode-ssh-auth-*.sock(N) 2>/dev/null || true
 # Pretty ls via lsd (requires MesloLGS NF on host terminal for icons)
 alias ls="lsd -lah --group-dirs first"
 
+# gitstatusd (p10k's git backend) sizes its thread pool to the CPUs it can see
+# — the Colima VM's --cpu 6 — while this container's cgroup quota is cpus: 4.
+# That's ~12 idle threads per interactive shell; a few VS Code windows stack
+# gitstatusd + Node extension hosts and can walk pids_limit toward exhaustion
+# (libzmq pthread_create → EAGAIN, dead Jupyter kernels). 4 is ample for a
+# prompt git status. Ported from windows-ai-sandbox; platform-independent.
+# See MACOLIMA_in-transit_resource-limits-recommendations.md.
+export GITSTATUS_NUM_THREADS=4
+
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh

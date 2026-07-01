@@ -13,10 +13,8 @@
 # FIRST-TIME SETUP FLAGS
 #   --name "Name"       git user.name for this profile         (required unless --no-git-config)
 #   --email "addr"      git user.email for this profile        (required unless --no-git-config)
-#   --github            run gh auth login                      (default)
-#   --gitlab            run glab auth login
-#   --both              run both gh and glab auth
-#   --no-git-auth       skip gh/glab auth (just up + claude + git config)
+#   --github            run gh auth login                      (default; GitHub-only setup)
+#   --no-git-auth       skip gh auth (just up + claude + git config)
 #   --no-git-config     skip git user.name/email set
 #   --no-claude-auth    skip `claude login`
 #
@@ -35,12 +33,6 @@
 #   # Brand-new profile: creates dirs, brings stack up, runs claude + gh auth,
 #   # sets git identity, verifies.
 #   scripts/setup.sh nranthony --name "neilanthony" --email "nelly@x.com"
-#
-#   # Same but authenticate GitLab instead of GitHub:
-#   scripts/setup.sh therapod --name "Work Name" --email "w@x" --gitlab
-#
-#   # Both platforms:
-#   scripts/setup.sh work --name "W" --email "w@x" --both
 #
 #   # Restart an existing profile (no auth/config changes):
 #   scripts/setup.sh work --restart
@@ -74,7 +66,7 @@ PROFILE="$1"; shift
 [[ "$PROFILE" =~ ^[a-zA-Z0-9_-]+$ ]] || fail "Profile name must match [a-zA-Z0-9_-]+"
 
 GIT_NAME=""; GIT_EMAIL=""
-GIT_HOSTS="github"           # github | gitlab | both | none
+GIT_HOSTS="github"           # github | none  (GitHub-only; glab removed)
 SKIP_GIT_CONFIG=0
 SKIP_CLAUDE_AUTH=0
 ACTION=""                     # "" | restart | recreate | remove | reset | verify
@@ -85,8 +77,6 @@ while [[ $# -gt 0 ]]; do
     --name)            GIT_NAME="$2"; shift 2 ;;
     --email)           GIT_EMAIL="$2"; shift 2 ;;
     --github)          GIT_HOSTS="github"; shift ;;
-    --gitlab)          GIT_HOSTS="gitlab"; shift ;;
-    --both)            GIT_HOSTS="both"; shift ;;
     --no-git-auth)     GIT_HOSTS="none"; shift ;;
     --no-git-config)   SKIP_GIT_CONFIG=1; shift ;;
     --no-claude-auth)  SKIP_CLAUDE_AUTH=1; shift ;;
@@ -113,10 +103,10 @@ confirm() {
 
 # verify_git_token <label> <host-token-file> <token-value-regex> <probe-url> \
 #                  <in-container-live-cmd> <login-hint>
-# Credential-safe auth check for git forges. The bare `gh auth status` /
-# `glab auth status` make a LIVE API call to validate the token, so at the
-# autonomous egress baseline (api.github.com / gitlab.com blocked by Squid)
-# they always report "failed" even when the stored token is perfectly valid —
+# Credential-safe auth check for git forges. The bare `gh auth status` makes a
+# LIVE API call to validate the token, so at the autonomous egress baseline
+# (api.github.com blocked by Squid) it always reports "failed" even when the
+# stored token is perfectly valid —
 # a false negative that scared operators. This instead:
 #   1. Confirms the token FILE is present and actually holds a token value —
 #      read on the HOST via the config bind mount. We `grep -q` only (never
@@ -180,10 +170,10 @@ if [[ -n "$ACTION" ]]; then
     reset)
       # --reset is the "I want a totally fresh start" path: nuke everything
       # under the profile dir + recreate the auth chain. Different from
-      # `profile.sh wipe`, which preserves Claude/gh/glab/git auth and only
+      # `profile.sh wipe`, which preserves Claude/gh/git auth and only
       # tears down rotating state. Use --reset when you intend to re-login.
       warn "This will DELETE all state for profile '$PROFILE':"
-      warn "  $PROFILES_ROOT/$PROFILE/  (claude tokens, gh/glab tokens, settings, sessions)"
+      warn "  $PROFILES_ROOT/$PROFILE/  (claude tokens, gh token, settings, sessions)"
       warn "Containers will also be removed."
       warn "Named volumes that WILL be dropped: ${COMPOSE_PROJECT_NAME}_vscode-server, ${COMPOSE_PROJECT_NAME}_cache"
       warn "DB volumes (${COMPOSE_PROJECT_NAME}_postgres-data / _mongo-data) are PRESERVED unless you also pass --all-volumes."
@@ -234,12 +224,6 @@ if [[ -n "$ACTION" ]]; then
         "$PROFILES_ROOT/$PROFILE/config/gh/hosts.yml" \
         '^[[:space:]]*oauth_token:[[:space:]]*[^[:space:]]' \
         "https://api.github.com" "gh auth status" "gh auth login"
-      echo
-      info "GitLab auth:"
-      verify_git_token "GitLab" \
-        "$PROFILES_ROOT/$PROFILE/config/glab-cli/config.yml" \
-        '^[[:space:]]*token:[[:space:]]*[^[:space:]]' \
-        "https://gitlab.com" "glab auth status" "glab auth login"
       echo
       info "Git identity:"
       docker exec "$AGENT" git config --global --list 2>&1 || true
@@ -303,17 +287,8 @@ do_github_auth() {
   # Wire gh as git credential helper regardless (idempotent).
   docker exec "$AGENT" gh auth setup-git || warn "gh auth setup-git failed (non-fatal)"
 }
-do_gitlab_auth() {
-  if docker exec "$AGENT" glab auth status >/dev/null 2>&1; then
-    ok "glab: already authenticated."
-  else
-    docker exec -it "$AGENT" glab auth login
-  fi
-}
 case "$GIT_HOSTS" in
   github) do_github_auth ;;
-  gitlab) do_gitlab_auth ;;
-  both)   do_github_auth; do_gitlab_auth ;;
   none)   warn "Skipping git host auth (--no-git-auth)." ;;
 esac
 

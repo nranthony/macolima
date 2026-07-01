@@ -121,8 +121,6 @@ cloudcode-pa.googleapis.com
 # objects.githubusercontent.com
 # gist.githubusercontent.com
 # github.io
-# gitlab.com
-# about.gitlab.com
 # # --- Python package ecosystem [pypi] ---
 # .pypi.org
 # .files.pythonhosted.org

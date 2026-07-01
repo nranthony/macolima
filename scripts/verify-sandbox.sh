@@ -192,10 +192,9 @@ else
 fi
 [[ ! -e /home/agent/.gitconfig ]] && pass "no host .gitconfig copied into rootfs" \
   || fail "/home/agent/.gitconfig present (disable dev.containers.copyGitConfig on host)"
-# Only flag host-reaching helpers. Benign in-container helpers (e.g. glab
-# auth setup-git writes `!/usr/local/bin/glab auth git-credential`, gh does
-# the same via /usr/local/bin/gh) are expected and use the sandbox's own
-# tokens. The injections we're watching for are VS Code Dev Containers'
+# Only flag host-reaching helpers. The benign in-container helper (gh auth
+# setup-git writes `!/usr/local/bin/gh auth git-credential`) is expected and
+# uses the sandbox's own token. The injections we're watching for are VS Code Dev Containers'
 # IPC-backed shim (vscode-server / vscode-remote-containers paths) and macOS
 # host helpers (osxkeychain, git-credential-manager) leaked via copyGitConfig.
 if [[ -f /home/agent/.config/git/config ]] && \
@@ -210,8 +209,8 @@ fi
 # (/etc/gitconfig) instead, and a stray helper can also land in a repo-local
 # /workspace/.git/config — neither of which the single-file grep sees. Ask git
 # itself to resolve credential.helper across all layers and report the origin,
-# so an injection at any layer surfaces. Same allowlist: gh/glab's own
-# in-container shims (!/usr/local/bin/{gh,glab}) are expected and pass; only
+# so an injection at any layer surfaces. Same allowlist: gh's own
+# in-container shim (!/usr/local/bin/gh) is expected and passes; only
 # VS Code / host-keychain helpers fail. `|| true` because git exits non-zero
 # when no helper is configured at all (the clean case).
 helper_origins="$(git config --show-origin --get-all credential.helper 2>/dev/null || true)"

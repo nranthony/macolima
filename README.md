@@ -22,7 +22,7 @@ scripts/setup.sh <profile> --name "Your Name" --email "you@x"   # 5. up + claude
 scripts/profile.sh <profile> attach                             # 6. zsh inside the agent container
 ```
 
-`<profile>` is whatever you call this slice — `work`, `personal`, `nranthony`, etc. Default git auth is GitHub; pass `--gitlab` or `--both` to change. The base image digest pin in `Dockerfile` is fine to leave as-is for first-time setup; refresh it once-a-month per the "Updating" section.
+`<profile>` is whatever you call this slice — `work`, `personal`, `nranthony`, etc. Git auth is GitHub-only (`gh`). The base image digest pin in `Dockerfile` is fine to leave as-is for first-time setup; refresh it once-a-month per the "Updating" section.
 
 For a one-line restart-existing-profile after compose / squid / seccomp changes:
 
@@ -100,7 +100,7 @@ A *profile* is a named sandbox instance — e.g. `work`, `personal`, `sideprojec
 
 - Has its own agent container (`claude-agent-<profile>`) and proxy (`egress-proxy-<profile>`).
 - Runs on its own isolated Docker networks (no cross-profile traffic).
-- Has its own Claude auth, session history, MCP config, git identity, and gh/glab tokens.
+- Has its own Claude auth, session history, MCP config, git identity, and gh token.
 - Mounts one subfolder of `/Volumes/DataDrive/repo/<profile>/` as `/workspace`. By convention, drop locally-built wheels for that profile into `/Volumes/DataDrive/repo/<profile>/dist/` — they appear at `/workspace/dist/` inside the container for `uv pip install`. See `CLAUDE.md` → "Per-profile `dist/` for local wheels".
 - Can run concurrently with other profiles, or be brought up/down independently.
 
@@ -110,7 +110,7 @@ All profiles share the same `macolima:latest` image. Rebuild once, all profiles 
 
 ```
 macolima/
-├── Dockerfile                     # hardened image: non-root agent, zsh+p10k, gh, glab
+├── Dockerfile                     # hardened image: non-root agent, zsh+p10k, gh
 ├── docker-compose.yml             # parameterized by $PROFILE
 ├── seccomp.json                   # syscall filter
 ├── config/
@@ -148,7 +148,6 @@ macolima/
         │   ├── claude.json                 # → /home/agent/.claude.json (chmod 644)
         │   ├── config/                     # → /home/agent/.config
         │   │   ├── gh/                     #     GitHub CLI tokens
-        │   │   ├── glab-cli/               #     GitLab CLI tokens
         │   │   └── git/config              #     git global config (via GIT_CONFIG_GLOBAL)
         │   ├── gemini-home/                # → /home/agent/.gemini  (Gemini CLI state)
         │   └── db.env                      #     postgres/mongo creds (chmod 600)
@@ -213,11 +212,6 @@ git clone git@github.com:acme/project.git /Volumes/DataDrive/repo/work/project
 # sets git user.name/email, verifies.
 scripts/setup.sh work --name "Your Work Name" --email "you@work.example"
 
-# For GitLab instead of GitHub:
-scripts/setup.sh work --name "..." --email "..." --gitlab
-# For both:
-scripts/setup.sh work --name "..." --email "..." --both
-
 # Shell in
 scripts/profile.sh work attach
 ```
@@ -227,20 +221,20 @@ scripts/profile.sh work attach
 | Flag | Purpose |
 |---|---|
 | `--name "..."` + `--email "..."` | git identity (required for first-time setup) |
-| `--github` (default) / `--gitlab` / `--both` | which platform(s) to auth |
+| `--github` (default) | authenticate `gh` (GitHub-only; GitLab support removed) |
 | `--no-git-auth` / `--no-git-config` / `--no-claude-auth` | skip individual steps |
 | `--restart` | `docker compose restart` (preserves container IDs) |
 | `--recreate` | force-recreate containers (picks up compose/seccomp/mount changes) |
 | `--remove` | `docker compose down` — stops containers, keeps persistent state |
 | `--reset --yes` | **nuke** the profile's state dir + drop the `vscode-server`/`cache` volumes, then fresh setup if `--name`/`--email` given. **DB volumes (postgres-data / mongo-data) are preserved by default** — re-up brings the same data back. |
-| `--verify` | print compose ps, auth status (claude/gh/glab), git config, egress sentinel state, and `db.env` perms |
+| `--verify` | print compose ps, auth status (claude/gh), git config, egress sentinel state, and `db.env` perms |
 | `--yes` | skip confirmation prompts (required for `--reset`) |
 
 `--reset` vs `profile.sh wipe`: both clear rotating state, but they differ on auth:
-- **`setup.sh --reset`** deletes Claude/gh/glab tokens with the profile dir, intended for "I want to re-login from scratch" workflows.
-- **`profile.sh wipe`** preserves Claude / Gemini / gh / glab / git auth and `db.env`, intended for "I want everything else fresh but don't want to redo OAuth or DB passwords" workflows. `wipe --all-volumes` if you also want DB data dropped (creds in `db.env` still preserved — `rm` it yourself for fresh creds).
+- **`setup.sh --reset`** deletes Claude/gh tokens with the profile dir, intended for "I want to re-login from scratch" workflows.
+- **`profile.sh wipe`** preserves Claude / Gemini / gh / git auth and `db.env`, intended for "I want everything else fresh but don't want to redo OAuth or DB passwords" workflows. `wipe --all-volumes` if you also want DB data dropped (creds in `db.env` still preserved — `rm` it yourself for fresh creds).
 
-Idempotent: `setup.sh` detects if Claude, gh, or glab are already authenticated and skips those prompts. Safe to re-run.
+Idempotent: `setup.sh` detects if Claude or gh is already authenticated and skips those prompts. Safe to re-run.
 
 ### `profile.sh` commands (granular)
 
@@ -252,11 +246,11 @@ Idempotent: `setup.sh` detects if Claude, gh, or glab are already authenticated 
 | `scripts/profile.sh <p> up` | Start the stack |
 | `scripts/profile.sh <p> down` | Stop + remove containers AND networks (state preserved; needed before subnet/IPAM changes) |
 | `scripts/profile.sh <p> attach` | `zsh` into the agent container |
-| `scripts/profile.sh <p> auth` / `auth-github` / `auth-gitlab` | interactive auth |
+| `scripts/profile.sh <p> auth` / `auth-github` | interactive auth (claude / gh) |
 | `scripts/profile.sh <p> status` / `logs` | `docker compose ps` / logs |
 | `scripts/profile.sh <p> recreate` | force-recreate containers without rebuilding the image (picks up compose / seccomp / squid / mount changes). Same effect as `setup.sh <p> --recreate`. |
 | `scripts/profile.sh <p> rebuild` | build image + recreate `<p>` (use after Dockerfile changes) |
-| `scripts/profile.sh <p> wipe` | blank-slate the profile, **preserve** Claude / Gemini / gh / glab / git auth + `db.env` (use `--all-volumes` to also drop DB data) |
+| `scripts/profile.sh <p> wipe` | blank-slate the profile, **preserve** Claude / Gemini / gh / git auth + `db.env` (use `--all-volumes` to also drop DB data) |
 | `scripts/profile.sh <p> exec <cmd>` | run arbitrary command in the container |
 | `scripts/profile.sh build` | rebuild the shared image only |
 
@@ -321,19 +315,16 @@ For non-VS Code use, add a loopback port to the `claude-agent` service: `ports: 
 ### Claude Code
 `scripts/profile.sh <p> auth` runs `claude login`. Use the URL/code flow on your Mac browser — the token lands in the profile's mounted `.claude/.credentials.json` and survives container recreates.
 
-### GitHub (`gh`) / GitLab (`glab`)
+### GitHub (`gh`)
 
-Run `scripts/profile.sh <p> auth-github` or `auth-gitlab`. At the prompts, pick **HTTPS** and **"Paste an authentication token"** (not browser).
+Run `scripts/profile.sh <p> auth-github`. At the prompts, pick **HTTPS** and **"Paste an authentication token"** (not browser). (This setup is GitHub-only; the GitLab CLI was removed.)
 
 **Why not browser flow?** The OAuth callback goes to `http://localhost:<port>` on the *container's* loopback, which your Mac browser can't reach — the sandbox network is `internal: true` by design. You'll see "this site can't be reached" on the redirect. Token flow sidesteps this entirely.
 
 Generate the token in the web UI:
 - **GitHub:** Settings → Developer settings → Personal access tokens → Fine-grained or classic. Scopes: `repo`, `read:org`, `workflow` (or the fine-grained equivalents).
-- **GitLab:** User settings → Access Tokens. Scopes: `api` + `write_repository` (skip `read_repository`/`read_user` — redundant).
 
-Tokens are stored under the profile's `config/gh/` or `config/glab-cli/` and survive recreates. After login, `git push`/`pull` works transparently — both CLIs install themselves as git credential helpers.
-
-For **self-hosted GitLab**, add the host to `proxy/allowed_domains.txt` before `glab auth login`.
+Tokens are stored under the profile's `config/gh/` and survive recreates. After login, `git push`/`pull` works transparently — `gh` installs itself as a git credential helper.
 
 ### Per-profile git identity
 Git's global config file is redirected via `GIT_CONFIG_GLOBAL=/home/agent/.config/git/config` — a regular file inside the mounted `.config/` directory. (Bind-mounting `~/.gitconfig` directly fails with `Device or resource busy` because `git config` writes atomically via `rename()`, which can't cross a single-file bind-mount boundary.)
@@ -523,7 +514,7 @@ scripts/profile.sh <profile> wipe --all-volumes  # also drop postgres-data / mon
 ```
 
 Drops: containers + `vscode-server` / `cache` named volumes, `profiles/<p>/` (settings, sessions, audits, MCP config, paste-cache).
-Keeps: `.credentials.json` (Claude), `claude.json`, `config/gh/`, `config/glab-cli/`, `config/git/`, `gemini-home/oauth_creds.json`, `db.env`, DB volumes (unless `--all-volumes`).
+Keeps: `.credentials.json` (Claude), `claude.json`, `config/gh/`, `config/git/`, `gemini-home/oauth_creds.json`, `db.env`, DB volumes (unless `--all-volumes`).
 
 ### Tier 2 — Single profile, **also re-do auth**
 
@@ -569,7 +560,7 @@ What Tier 3 **does not touch** (deliberately):
 - `~/Library/Application Support/Code/User/settings.json` (the three Dev Containers hardening keys).
 - Homebrew packages and Rosetta.
 - The `macolima` repo itself.
-- Personal access tokens you generated on github.com / gitlab.com — those are upstream. Revoke in the respective web UI if you want clean state there.
+- Personal access tokens you generated on github.com — those are upstream. Revoke in the web UI if you want clean state there.
 
 After Tier 3, return to **Quickstart** at the top of this README — same six commands.
 
@@ -588,9 +579,9 @@ See `CLAUDE.md` for root-caused gotchas. Common ones:
   ```
   Include `COMPOSE_PROFILES=` if you have DB siblings; otherwise they stay on the old network. (Named volumes including DB data are preserved by `down`.)
 - **`scripts/profile.sh <p> --recreate` exits and prints the help** → flag-style vs subcommand-style mix-up. `setup.sh` uses flags (`--recreate`); `profile.sh` uses subcommands (`recreate`). The script prints a "did you mean" hint pointing at the right form.
-- **Tripwire FAIL on `credential.helper`** but value is `!/usr/local/bin/glab auth git-credential` (or `gh`) → that's the **in-container** helper from `glab`/`gh auth setup-git`, which is expected and benign. The tripwire only flags host-reaching helpers (`vscode-server | vscode-remote-containers | osxkeychain | git-credential-manager`); if yours matches one of those, check your host VS Code settings (see "VS Code integration" above).
+- **Tripwire FAIL on `credential.helper`** but value is `!/usr/local/bin/gh auth git-credential` → that's the **in-container** helper from `gh auth setup-git`, which is expected and benign. The tripwire only flags host-reaching helpers (`vscode-server | vscode-remote-containers | osxkeychain | git-credential-manager`); if yours matches one of those, check your host VS Code settings (see "VS Code integration" above).
 - **Claude asks to log in after recreate** → check `claude.json` exists, is 644, and contains `{}` (not empty) under the profile's dir.
 - **`claude login` → "invalid JSON: Unexpected EOF"** → `claude.json` is 0 bytes. `profile.sh` now seeds `{}` automatically; for older profiles: `echo '{}' > /V/.../profiles/<p>/claude.json`.
-- **`gh`/`glab auth login` browser redirect shows "this site can't be reached"** → expected; use token flow instead (see Authentication above).
+- **`gh auth login` browser redirect shows "this site can't be reached"** → expected; use token flow instead (see Authentication above).
 - **Terminal job-control errors** → seccomp gap; see `CLAUDE.md` debug recipes.
 - **VS Code Dev Container tar `utime` errors** → `.vscode-server` is a named volume for a reason; don't switch it to a bind mount.

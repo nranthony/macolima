@@ -86,7 +86,6 @@
       "Bash(git fetch:*)",
       "Bash(git pull:*)",
       "Bash(gh:*)",
-      "Bash(glab:*)",
       "Bash(npm install:*)",
       "Bash(npm ci:*)",
       "Bash(npx:*)",

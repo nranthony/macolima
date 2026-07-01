@@ -24,7 +24,7 @@ LABEL description="Hardened sandbox for Claude Code on Colima/macOS"
 #     would weaponize VS Code's SSH_AUTH_SOCK forwarding if it ever
 #     reappears. Removing the package physically closes the SSH exfil path
 #     even if the host-side VS Code setting reverts. No legitimate agent
-#     workflow needs it: gh/glab authenticate with HTTPS tokens, git uses
+#     workflow needs it: gh authenticates with HTTPS tokens, git uses
 #     HTTPS remotes, and agent-mode already denies `git push/clone/fetch`.
 # Everything else: dev essentials for typical agent work.
 RUN apt-get update \
@@ -35,7 +35,7 @@ RUN apt-get update \
       python3 python3-pip python3-venv \
       ripgrep jq less vim-tiny \
       postgresql-client \
-      zsh lsd fontconfig locales \
+      zsh lsd fontconfig locales lsof \
  && apt-get purge -y openssh-client \
  && if dpkg -l openssh-client 2>/dev/null | awk '/^ii/{found=1} END{exit !found}'; then \
       echo "FATAL: openssh-client still installed after purge — invariant violated" >&2; \
@@ -108,47 +108,20 @@ RUN install -d -m 0755 /etc/apt/keyrings \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# ---------- GitLab CLI (glab) — official binary ------------------------------
-# Target: a release built with Go >= 1.26.2 (earlier Go stdlib has
-# crypto/x509 + crypto/tls CVEs — CVE-2026-32280/32281/32283/33810).
-# Latest as of 2026-04-21 is v1.92.1, still built with Go 1.26.1 — those
-# CVEs are accepted via .trivyignore pending an upstream rebuild. Re-check
-# https://gitlab.com/gitlab-org/cli/-/releases when bumping, and confirm
-# the Go version in the release notes before expecting those CVEs to clear.
-#
-# Integrity: GitLab publishes `checksums.txt` alongside each release. We
-# fetch it, grep the line for our exact tarball, and pipe to sha256sum -c.
-# This closes audit L3 — without this check, a one-time compromise of
-# gitlab.com's release CDN between two builds would land a malicious glab
-# binary in the image with no detection. When bumping GLAB_VERSION:
-#   1. Update the ARG below.
-#   2. Re-run the build — checksum is fetched fresh per build, no manual
-#      pin needed (the integrity assertion is "the binary matches what
-#      checksums.txt says it should be," and checksums.txt is fetched over
-#      TLS from the same release).
-ARG GLAB_VERSION=1.92.1
-RUN ARCH="$(dpkg --print-architecture)" \
- && case "$ARCH" in amd64) GARCH=x86_64 ;; arm64) GARCH=arm64 ;; *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; esac \
- && TARBALL="glab_${GLAB_VERSION}_linux_${GARCH}.tar.gz" \
- && BASE="https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads" \
- && curl -fsSL "$BASE/$TARBALL" -o "/tmp/$TARBALL" \
- && curl -fsSL "$BASE/checksums.txt" -o /tmp/glab_checksums.txt \
- && grep -E "  $TARBALL\$" /tmp/glab_checksums.txt > /tmp/glab_checksum.line \
- && (cd /tmp && sha256sum -c glab_checksum.line) \
- && tar -xzf "/tmp/$TARBALL" -C /tmp bin/glab \
- && mv /tmp/bin/glab /usr/local/bin/glab \
- && rm -rf /tmp/bin "/tmp/$TARBALL" /tmp/glab_checksums.txt /tmp/glab_checksum.line \
- && chmod 0755 /usr/local/bin/glab \
- && glab --version
+# GitLab CLI (glab) intentionally NOT installed — this setup is GitHub-only.
+# gh (above) is the sole forge CLI. If GitLab support is ever needed again,
+# re-add a checksum-verified install here AND restore the [git] gitlab.com
+# allowlist entries, the profile.sh/setup.sh auth-gitlab paths, the
+# Bash(glab:*) deny, and the .trivyignore glab block.
 
 # ---------- just (command runner) — official static binary -------------------
 # `just` is a single static musl binary, so it has no glibc/runtime deps and
 # drops straight into /usr/local/bin. Not apt-installable on noble, and the
 # agent can't fetch it at runtime anyway (github.com is off the proxy
 # allowlist + no root for apt) — so it must be baked in here, where the build
-# has full network. Same integrity model as glab: GitHub publishes SHA256SUMS
-# per release; we fetch it, grep our exact tarball's line, and sha256sum -c
-# before trusting the binary. When bumping JUST_VERSION just update the ARG —
+# has full network. Checksum-verified like gitstatusd: GitHub publishes
+# SHA256SUMS per release; we fetch it, grep our exact tarball's line, and
+# sha256sum -c before trusting the binary. When bumping JUST_VERSION just update the ARG —
 # the checksum is fetched fresh per build over TLS, no manual pin needed.
 # Re-check https://github.com/casey/just/releases when bumping.
 ARG JUST_VERSION=1.51.0

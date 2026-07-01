@@ -36,7 +36,7 @@ REQUIRED_DENY = {
     ],
     "vcs": [
         "Bash(git push:*)", "Bash(git clone:*)", "Bash(git fetch:*)",
-        "Bash(git pull:*)", "Bash(gh:*)", "Bash(glab:*)",
+        "Bash(git pull:*)", "Bash(gh:*)",
     ],
     "installers": [
         "Bash(npm install:*)", "Bash(npm ci:*)", "Bash(npx:*)",

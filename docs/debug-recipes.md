@@ -28,7 +28,7 @@ the two in sync if you edit either.
 ## Troubleshooting recipes
 
 ```bash
-# One-shot verify (auth status for claude/gh/glab + git identity + compose ps)
+# One-shot verify (auth status for claude/gh + git identity + compose ps)
 scripts/setup.sh <p> --verify
 
 # Force recreate (covers compose/seccomp/mount changes) via wrapper
@@ -37,7 +37,7 @@ scripts/setup.sh <p> --recreate
 # Full rebuild + recreate (covers Dockerfile changes)
 scripts/profile.sh <p> rebuild
 
-# Blank-slate a profile but KEEP auth (claude creds + claude.json + gh + glab + git identity).
+# Blank-slate a profile but KEEP auth (claude creds + claude.json + gh + git identity).
 # Tears down containers, drops vscode-server volume, nukes everything else under
 # profiles/<p>/ except the auth files, then re-seeds settings.json + skills from
 # config/. DB volumes (postgres-data/mongo-data) are preserved unless you pass
