@@ -1,9 +1,11 @@
 # IN TRANSIT — Mac verification handoff (glab removal + resource-limit ports)
 
-**Status:** in-transit — code changes were authored **off-Mac (WSL/Ubuntu)** and
-cannot be runtime-verified where they were made. A Mac agent must rebuild,
-recreate, and run the verifier before this is considered done.
-**Date authored:** 2026-07-01.
+**Status:** VERIFIED ON MAC 2026-07-02 — rebuilt, recreated, tripwire 24/0/0,
+point checks pass (gitstatus=4, pids.max=2048, lsof present, glab absent),
+trivy shows the 4 glab CVEs gone + Ubuntu 0. Code changes were authored
+**off-Mac (WSL/Ubuntu)** where they could not be runtime-verified; that gap is
+now closed.
+**Date authored:** 2026-07-01. **Verified:** 2026-07-02 (on-Mac).
 **Author context:** cross-check pass against sibling `windows-ai-sandbox`.
 
 ---
@@ -37,21 +39,30 @@ working tree before this work started — leave it / handle separately.
 # Pre-req: Colima up. If the daemon socket errors, run scripts/colima-up.sh.
 colima status || scripts/colima-up.sh
 
-# 1. Rebuild the shared image (Dockerfile + .zshrc changed → rebuild required,
-#    NOT just recreate). Use --no-cache if a cached layer masks the apt change.
-scripts/profile.sh build            # add --no-cache if lsof/glab layer is stale
-
-# 2. Recreate each running profile so compose (pids_limit) + the new image apply.
-scripts/profile.sh <profile> rebuild   # per profile; 'rebuild' = build + recreate
+# 1+2. Rebuild the shared image AND recreate the profile in one step
+#    (Dockerfile + .zshrc changed → rebuild required, NOT just recreate).
+#    `rebuild` = `docker compose build claude-agent` + force-recreate.
+#    NOTE: build/rebuild both require a profile arg — only `list` is
+#    profile-less, so a bare `scripts/profile.sh build` just prints usage and
+#    builds nothing. Add --no-cache if a cached layer masks the apt (lsof) /
+#    glab change (the changed apt line + deleted glab block auto-invalidate the
+#    cache from that layer on, so a plain rebuild is normally enough).
+scripts/profile.sh <profile> rebuild   # build shared image + recreate <profile>
 
 # 3. Tripwire — MUST pass unchanged. seccomp/probe invariants were confirmed
 #    byte-identical to the sibling before this pass; this proves nothing
 #    regressed (SUID set, credential-helper allowlist, egress).
-scripts/verify-sandbox.sh <profile>
+#    verify-sandbox.sh runs INSIDE the container — stage it into the workspace
+#    first, then exec it. Running it from the host scans the *host* (UID 501,
+#    no /proc, host SSH_AUTH_SOCK) and every check false-fails.
+scripts/stage-audit-package.sh <profile>
+docker exec claude-agent-<profile> bash /workspace/temp_audit_package/scripts/verify-sandbox.sh
+# (clean up after: docker exec claude-agent-<profile> rm -rf /workspace/temp_audit_package)
 
-# 4. Point checks inside the agent (attach or exec):
-scripts/profile.sh <profile> exec bash -c '
-  echo "gitstatus: $GITSTATUS_NUM_THREADS"      # expect 4
+# 4. Point checks inside the agent. NOTE: GITSTATUS_NUM_THREADS is exported from
+#    ~/.zshrc, so a bash shell never sees it — check it via zsh, not bash.
+docker exec claude-agent-<profile> zsh -ic 'echo "gitstatus: $GITSTATUS_NUM_THREADS"'  # expect 4
+docker exec claude-agent-<profile> bash -c '
   cat /sys/fs/cgroup/pids.max                    # expect 2048
   command -v lsof && echo lsof-present           # expect a path
   command -v glab && echo "GLAB STILL PRESENT — FAIL" || echo "glab absent OK"

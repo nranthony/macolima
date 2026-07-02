@@ -32,11 +32,12 @@ harmful.**
 > The mem-sizing table in §3 is therefore *more* conservative than it reads —
 > re-derive against 6GB, not 10, before touching `mem_limit`.
 
-**The headline:** macolima's Colima VM is **10GB total**, and the agent alone is
-already capped at 8g. Add Squid (2g) and the VM is fully committed before a DB
-profile starts. The VM — not `mem_limit` — is the real ceiling, and here it is
-*tiny*. Any RAM increase **must start by growing the Colima VM**, which is itself
-bounded by the Mac's physical RAM.
+**The headline:** macolima's Colima VM is **6GB total** (`--memory 6`), and the
+agent is capped at `mem_limit: 3g`. Add Squid (512m) plus a DB profile
+(postgres/mongo 512m each) and the VM is close to fully committed. The VM — not
+`mem_limit` — is the real ceiling, and here it is *tiny*. Any RAM increase
+**must start by growing the Colima VM**, which is itself bounded by the Mac's
+physical RAM.
 
 ---
 
