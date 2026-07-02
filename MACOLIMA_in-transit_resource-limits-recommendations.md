@@ -22,15 +22,22 @@ harmful.**
 
 | Layer | macolima (now) | windows-ai-sandbox (new) |
 |---|---|---|
-| VM | Colima: `--cpu 6 --memory 10 --disk 128` | WSL2: `memory=48GB` (was 32 default) |
-| Agent container | `pids_limit: 512`, `mem_limit: 8g`, `cpus: 4` | `pids_limit: 4096`, `mem_limit: 20g`, `cpus: 4` |
-| Sidecars in same VM | Squid 2g + postgres 2g + mongo 512m | (host has 48GB to spare) |
+| VM | Colima: `--cpu 6 --memory 6 --disk 128` (`colima-up.sh`) | WSL2: `memory=48GB` (was 32 default) |
+| Agent container | `pids_limit: 2048`, `mem_limit: 3g`, `cpus: 4` | `pids_limit: 4096`, `mem_limit: 20g`, `cpus: 4` |
+| Sidecars in same VM | Squid 512m + postgres 512m + mongo 512m | Squid/pg/mongo 2g each (host has 48GB) |
 
-**The headline:** macolima's Colima VM is **10GB total**, and the agent alone is
-already capped at 8g. Add Squid (2g) and the VM is fully committed before a DB
-profile starts. The VM — not `mem_limit` — is the real ceiling, and here it is
-*tiny*. Any RAM increase **must start by growing the Colima VM**, which is itself
-bounded by the Mac's physical RAM.
+> **Numbers corrected 2026-07-01.** The original draft of this note assumed
+> `--memory 10` / `mem_limit: 8g`; the repo was since right-sized down for a
+> lightweight host (commit `839ac2e`), so the VM is a **6GB** ceiling, not 10.
+> The mem-sizing table in §3 is therefore *more* conservative than it reads —
+> re-derive against 6GB, not 10, before touching `mem_limit`.
+
+**The headline:** macolima's Colima VM is **6GB total** (`--memory 6`), and the
+agent is capped at `mem_limit: 3g`. Add Squid (512m) plus a DB profile
+(postgres/mongo 512m each) and the VM is close to fully committed. The VM — not
+`mem_limit` — is the real ceiling, and here it is *tiny*. Any RAM increase
+**must start by growing the Colima VM**, which is itself bounded by the Mac's
+physical RAM.
 
 ---
 
@@ -102,8 +109,8 @@ mitigation; the config changes above are the durable fix.
 ---
 
 ## Checklist when next on macolima
-- [ ] Add `GITSTATUS_NUM_THREADS=4` to `config/.zshrc`; rebuild image.
-- [ ] `pids_limit: 512 → 2048` in `docker-compose.yml`.
+- [x] Add `GITSTATUS_NUM_THREADS=4` to `config/.zshrc`. **(applied 2026-07-01 — needs rebuild on Mac to take effect.)**
+- [x] `pids_limit: 512 → 2048` in `docker-compose.yml`. **(applied 2026-07-01 — needs `recreate` on Mac.)**
 - [ ] Decide Mac physical RAM → set Colima `--memory` in `colima-up.sh`, then
       size `mem_limit` under it (table above). Recreate VM.
 - [ ] Confirm `mem_limit + Squid + DB ≤ --memory`.

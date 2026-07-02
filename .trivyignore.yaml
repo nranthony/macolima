@@ -14,27 +14,6 @@
 # =============================================================================
 
 vulnerabilities:
-  # --- glab / Go stdlib 1.26.1 ---------------------------------------------
-  # glab v1.92.1 (latest as of 2026-04-21) is built with Go 1.26.1. Upstream
-  # has not yet shipped a release on Go 1.26.2+, which fixes these.
-  # In this sandbox, glab only calls gitlab.com over TLS via the Squid egress
-  # proxy; Squid is HTTP-proxy (not MITM), so the TLS session terminates at
-  # gitlab.com and glab's x509 code is the validator. An attacker would need
-  # to MITM that session — requires compromising the Squid proxy or the
-  # Colima VM's networking, neither of which is reachable from the agent.
-  - id: CVE-2026-32280
-    statement: "glab Go stdlib 1.26.1 TLS DoS; upstream awaiting rebuild. See .trivyignore.yaml header."
-    expired_at: 2026-05-21
-  - id: CVE-2026-32281
-    statement: "glab Go stdlib 1.26.1 x509 DoS; upstream awaiting rebuild."
-    expired_at: 2026-05-21
-  - id: CVE-2026-32283
-    statement: "glab Go stdlib 1.26.1 TLS key update DoS; upstream awaiting rebuild."
-    expired_at: 2026-05-21
-  - id: CVE-2026-33810
-    statement: "glab Go stdlib 1.26.1 x509 DNS constraint bypass; upstream awaiting rebuild."
-    expired_at: 2026-05-21
-
   # --- mongosh-bundled transitive deps -------------------------------------
   # mongosh ships vendored node_modules and rolls them up slowly. In this
   # sandbox mongosh only talks to the per-profile mongo:27017 sibling on

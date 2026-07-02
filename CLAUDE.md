@@ -30,7 +30,7 @@ Both export `COMPOSE_PROJECT_NAME=macolima-<profile>` and `PROFILE=<profile>` be
 `/V/.../profiles/<profile>/` shorthand below means
 `/Volumes/DataDrive/.claude-colima/profiles/<profile>/`. **`.claude-colima/`
 is a historic misnomer** — it's the macolima state root for ALL per-profile
-state (Gemini, gh/glab, db.env, etc.), not just Claude's. Renaming would
+state (Gemini, gh, db.env, etc.), not just Claude's. Renaming would
 touch every script + the dashboard + the audit probes for cosmetic gain;
 treat the path as canonical.
 
@@ -42,7 +42,7 @@ Everything outside these paths is **wiped on container recreate**:
 | `/home/agent/.claude/` | `/V/.../profiles/<profile>/claude-home/` | Tokens, sessions, MCP, projects |
 | `/home/agent/.claude.json` | `/V/.../profiles/<profile>/claude.json` | Single file, chmod 644, must contain `{}`. See `docs/virtiofs-gotchas.md`. |
 | `/home/agent/.cache/` | named volume `cache` (per profile) | npm/uv/pip caches. Named volume by necessity — see `docs/virtiofs-gotchas.md`. |
-| `/home/agent/.config/` | `/V/.../profiles/<profile>/config/` | Holds `gh/`, `glab-cli/`, and `git/config` (git global config, via `GIT_CONFIG_GLOBAL`). |
+| `/home/agent/.config/` | `/V/.../profiles/<profile>/config/` | Holds `gh/` and `git/config` (git global config, via `GIT_CONFIG_GLOBAL`). |
 | `/home/agent/.gemini/` | `/V/.../profiles/<profile>/gemini-home/` | Gemini CLI state (`oauth_creds.json` after first `gemini` login, `settings.json`, MCP). Directory mount; no chmod 644 dance. |
 | `/home/agent/.vscode-server/` | named volume `vscode-server` (per project) | Named volume by necessity — see `docs/virtiofs-gotchas.md`. |
 
@@ -65,7 +65,7 @@ For project-customization patterns (local wheels, overlay images), see `docs/loc
 | Bind mounts, `.gitconfig`, `.claude.json`, `.cache`/`.vscode-server`, tmpfs uid | `docs/virtiofs-gotchas.md` |
 | Subnet / `ipv4_address` / `extra_hosts` / `dns:` / `internal:` changes | `docs/compose-network-ipam.md` |
 | `permissions.allow`/`deny`, `WebFetch`, `with-egress.sh`, hook self-protection | `docs/permissions-model.md` + `docs/deny-destructive-hook-plan.md` |
-| Rootfs read-only, bwrap disabled, `setup.sh` bash 3.2, skills seeding, gh/glab proxy, commit identity | `docs/sandbox-design-notes.md` |
+| Rootfs read-only, bwrap disabled, `setup.sh` bash 3.2, skills seeding, gh proxy, commit identity | `docs/sandbox-design-notes.md` |
 | Colima VM lifecycle, `--cpu`/mount flags wiped by `delete` | `docs/sandbox-design-notes.md` §"Colima VM delete…" + README troubleshooting |
 
 ## Editing checklist
@@ -76,7 +76,7 @@ Before committing:
 - [ ] New seccomp allowance? Document the syscall and why in the comment above the `names` array.
 - [ ] New allowed domain? Justify with a one-line comment above its block.
 - [ ] New internal hostname (besides egress-proxy/postgres/mongo)? Add it to `claude-agent`'s `extra_hosts` AND give the target service a static `ipv4_address` in the `172.30.0.0/24` subnet. Don't rely on Docker's embedded resolver — it's bypassed by `dns: [127.0.0.1]`.
-- [ ] New build-time download (curl, wget, npm install) of a non-package binary? Add a checksum verification step (compare gitstatusd / glab in `Dockerfile`).
+- [ ] New build-time download (curl, wget, npm install) of a non-package binary? Add a checksum verification step (compare gitstatusd / `just` in `Dockerfile`).
 - [ ] New entry in `permissions.allow`? Run through the L7 question list (`docs/permissions-model.md`): does it provide a shell-out path (`-c`, `-e`, `system()`, `exec`, scripted-input)? If so, deny it instead.
 - [ ] New allow-listed Bash prefix? Audit its flag surface for destructive primitives (`-delete`, `-exec`, `-c`, `-e`, `of=`, etc.) — extend `config/hooks/deny-destructive.sh` ruleset, the test harness, and the `verify-sandbox.sh` probe if any exist. The hook is the only enforcement for flag-shape destructiveness; matcher-level denies cannot see it.
 - [ ] Compose change touching subnet / `ipv4_address` / `extra_hosts` / `dns:` / `internal:`? Plan a full `down` + `rebuild`, not just `--force-recreate` (see `docs/compose-network-ipam.md`).

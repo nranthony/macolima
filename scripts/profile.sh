@@ -11,7 +11,6 @@
 #   attach          shell into the agent container (zsh as agent user)
 #   auth            run `claude login` inside the container (one-time per profile)
 #   auth-github     run `gh auth login` inside the container
-#   auth-gitlab     run `glab auth login` inside the container
 #   logs            tail container logs
 #   status          all containers in this profile's compose project, any state
 #                   (running + stopped), by project label — robust to
@@ -29,7 +28,7 @@
 #   clean           prune rotating state (old .claude.json backups, paste-cache, shell-snapshots).
 #                   Pass --deep to also drop MCP debug logs + settings.json.bak.* backups.
 #   wipe            blank-slate this profile: down -v, nuke per-profile state, KEEP auth
-#                   (claude creds, claude.json, gh, glab, git identity). Confirms first.
+#                   (claude creds, claude.json, gh, git identity). Confirms first.
 #                   Flags: --dry-run (show only), --yes (skip prompt), --all-volumes (also drop DB volumes)
 #   list            list all existing profiles (by drive dir)
 #   exec <cmd...>   run an arbitrary command inside the agent container
@@ -152,8 +151,8 @@ ensure_state() {
   # a node shim in .vscode-server), and macOS's copyGitConfig can leak
   # osxkeychain / git-credential-manager helpers. Both forward git auth to
   # the host, bypassing the sandbox's network identity. Strip those on every
-  # `up` — but leave benign in-container helpers alone (glab and gh's own
-  # credential shims, which use in-container tokens from ~/.config/<tool>/).
+  # `up` — but leave benign in-container helpers alone (gh's own credential
+  # shim, which uses in-container tokens from ~/.config/gh/).
   if [[ -f "$p/config/git/config" ]] && \
      grep -qE 'helper\s*=.*(vscode-server|vscode-remote-containers|osxkeychain|git-credential-manager)' \
        "$p/config/git/config"; then
@@ -299,11 +298,6 @@ case "$CMD" in
   auth-github)
     info "Running 'gh auth login' inside $AGENT"
     exec docker exec -it "$AGENT" gh auth login
-    ;;
-
-  auth-gitlab)
-    info "Running 'glab auth login' inside $AGENT"
-    exec docker exec -it "$AGENT" glab auth login
     ;;
 
   logs)
@@ -512,7 +506,7 @@ case "$CMD" in
     # Blank-slate this profile while preserving auth tokens + git identity.
     # Use case: testing the stack from a clean state without re-doing OAuth.
     # Preserves: claude-home/.credentials.json, claude.json, config/gh/,
-    #            config/glab-cli/, config/git/, gemini-home/oauth_creds.json,
+    #            config/git/, gemini-home/oauth_creds.json,
     #            db.env (DB superuser credentials — preserved even with
     #            --all-volumes; rm it yourself if you want fresh creds).
     # Wipes:     containers (agent AND db siblings, even if not in the caller's
@@ -555,7 +549,6 @@ case "$CMD" in
     echo "    $p/claude.json"
     echo "    $p/claude-home/.credentials.json"
     echo "    $p/config/gh/"
-    echo "    $p/config/glab-cli/"
     echo "    $p/config/git/"
     echo "    $p/gemini-home/oauth_creds.json"
     echo "    $p/db.env  (if present)"
@@ -616,7 +609,6 @@ case "$CMD" in
     [[ -f "$p/claude.json" ]]                && mv "$p/claude.json"                "$stage/claude.json"
     [[ -f "$p/claude-home/.credentials.json" ]] && mv "$p/claude-home/.credentials.json" "$stage/claude-home/.credentials.json"
     [[ -d "$p/config/gh" ]]                  && mv "$p/config/gh"                  "$stage/config/gh"
-    [[ -d "$p/config/glab-cli" ]]            && mv "$p/config/glab-cli"            "$stage/config/glab-cli"
     [[ -d "$p/config/git" ]]                 && mv "$p/config/git"                 "$stage/config/git"
     [[ -f "$p/gemini-home/oauth_creds.json" ]] && mv "$p/gemini-home/oauth_creds.json" "$stage/gemini-home/oauth_creds.json"
     [[ -f "$p/db.env" ]]                       && mv "$p/db.env"                       "$stage/db.env"
@@ -631,7 +623,6 @@ case "$CMD" in
     [[ -f "$stage/claude.json" ]]                && mv "$stage/claude.json"                "$p/claude.json"
     [[ -f "$stage/claude-home/.credentials.json" ]] && mv "$stage/claude-home/.credentials.json" "$p/claude-home/.credentials.json"
     [[ -d "$stage/config/gh" ]]                  && mv "$stage/config/gh"                  "$p/config/gh"
-    [[ -d "$stage/config/glab-cli" ]]            && mv "$stage/config/glab-cli"            "$p/config/glab-cli"
     [[ -d "$stage/config/git" ]]                 && mv "$stage/config/git"                 "$p/config/git"
     [[ -f "$stage/gemini-home/oauth_creds.json" ]] && mv "$stage/gemini-home/oauth_creds.json" "$p/gemini-home/oauth_creds.json"
     [[ -f "$stage/db.env" ]]                       && mv "$stage/db.env"                       "$p/db.env"

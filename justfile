@@ -91,10 +91,6 @@ auth profile:
 auth-github profile:
     {{profile_sh}} {{profile}} auth-github
 
-# `glab auth login` inside the container
-auth-gitlab profile:
-    {{profile_sh}} {{profile}} auth-gitlab
-
 # ---- state management (profile.sh) ------------------------------------------
 
 # prune rotating state (old backups, paste-cache, shell-snapshots). Accepts --deep

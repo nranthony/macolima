@@ -17,7 +17,7 @@ CRED_PATTERNS = [
 ]
 
 # Host-reaching credential helpers — VS Code IPC shim or macOS host helpers.
-# Benign in-container helpers (gh / glab) are NOT in this set.
+# The benign in-container helper (gh) is NOT in this set.
 HOST_REACHING_HELPER = re.compile(
     r"helper\s*=.*(vscode-server|vscode-remote-containers|"
     r"osxkeychain|git-credential-manager)"
@@ -97,7 +97,7 @@ def run():
         "no_host_reaching_credential_helper",
         not host_reaching,
         found=host_reaching,
-        rationale=("benign gh/glab helpers OK; flag only "
+        rationale=("benign gh helper OK; flag only "
                    "vscode-server | vscode-remote-containers | "
                    "osxkeychain | git-credential-manager"),
     ))
