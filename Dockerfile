@@ -78,16 +78,37 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# ---------- Node.js + Claude Code -------------------------------------------
+# ---------- Node.js + Claude Code + Antigravity (agy) ------------------------
 # Upgrade bundled npm first — NodeSource ships an older npm whose own
 # vendored deps (cross-spawn, glob, minimatch, tar) accumulate CVEs between
 # NodeSource publishes. Pulling latest npm before installing global packages
 # means mongosh/claude-code get extracted by the newer tar, too.
+#
+# pnpm: real npm-global install, NOT `corepack enable` (parity with
+# windows-ai-sandbox). The corepack shim downloads pnpm lazily at first use —
+# registry.npmjs.org is not in the egress allowlist, so the shim can never
+# resolve inside the sandbox. Repo `packageManager` pins are deliberately
+# ignored at runtime: pnpm 10's own version manager re-execs a downloaded
+# pnpm from ~/.local/share/pnpm/.tools/ (noexec tmpfs → EACCES), so
+# ensure_state seeds manage-package-manager-versions=false into the
+# per-profile ~/.config/pnpm/rc. Pins stay honored on host/CI.
+#
+# agy: Google's Antigravity CLI (replaces the former Gemini CLI). Native
+# binary to /usr/local/bin via --dir, NOT the installer default ~/.local/bin
+# (noexec tmpfs at runtime — see docker-compose.yml — so a binary there can't
+# run or survive a recreate). The installer sha512-verifies the payload
+# against its signed manifest. This step runs on the host network, bypassing
+# Squid; RUNTIME auth/API hosts are gated in proxy/allowed_domains.txt under
+# [antigravity]. Sign in at the container console (`scripts/profile.sh <p>
+# auth-antigravity`, or just `agy`); config lives under
+# ~/.gemini/antigravity-cli/ (agy reuses the ~/.gemini home — the per-profile
+# gemini-home mount is kept, so auth persists across recreates).
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g npm@latest \
- && npm install -g @anthropic-ai/claude-code mongosh@latest @google/gemini-cli@latest \
- && corepack enable pnpm \
+ && npm install -g @anthropic-ai/claude-code mongosh@latest pnpm@10 \
+ && curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr/local/bin \
+ && /usr/local/bin/agy --version \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

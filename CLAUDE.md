@@ -43,7 +43,7 @@ Everything outside these paths is **wiped on container recreate**:
 | `/home/agent/.claude.json` | `/V/.../profiles/<profile>/claude.json` | Single file, chmod 644, must contain `{}`. See `docs/virtiofs-gotchas.md`. |
 | `/home/agent/.cache/` | named volume `cache` (per profile) | npm/uv/pip caches. Named volume by necessity — see `docs/virtiofs-gotchas.md`. |
 | `/home/agent/.config/` | `/V/.../profiles/<profile>/config/` | Holds `gh/` and `git/config` (git global config, via `GIT_CONFIG_GLOBAL`). |
-| `/home/agent/.gemini/` | `/V/.../profiles/<profile>/gemini-home/` | Gemini CLI state (`oauth_creds.json` after first `gemini` login, `settings.json`, MCP). Directory mount; no chmod 644 dance. |
+| `/home/agent/.gemini/` | `/V/.../profiles/<profile>/gemini-home/` | Antigravity CLI (`agy`) state — agy reuses the `~/.gemini` home; config under `~/.gemini/antigravity-cli/`. Host dir name kept from the former Gemini CLI mount. Directory mount; no chmod 644 dance. |
 | `/home/agent/.vscode-server/` | named volume `vscode-server` (per project) | Named volume by necessity — see `docs/virtiofs-gotchas.md`. |
 
 Volatile (tmpfs): `/tmp`, `/run`, `/home/agent/.npm-global`, `/home/agent/.local`.

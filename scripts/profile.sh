@@ -11,6 +11,8 @@
 #   attach          shell into the agent container (zsh as agent user)
 #   auth            run `claude login` inside the container (one-time per profile)
 #   auth-github     run `gh auth login` inside the container
+#   auth-antigravity  run `agy` (Antigravity CLI) inside the container —
+#                   interactive console sign-in (URL + one-time code)
 #   logs            tail container logs
 #   status          all containers in this profile's compose project, any state
 #                   (running + stopped), by project label — robust to
@@ -112,8 +114,9 @@ ensure_state() {
   # `cache/` is intentionally not pre-created on host — `/home/agent/.cache` is
   # backed by a named Docker volume (`macolima-<p>_cache`), not a bind mount,
   # to avoid virtiofs chmod issues during wheel extraction (lxml etc.).
-  # `gemini-home/` mirrors `claude-home/` for the Gemini CLI's per-profile state
-  # (oauth_creds.json on first `gemini` run, settings.json, MCP config).
+  # `gemini-home/` mirrors `claude-home/` for the Antigravity CLI's per-profile
+  # state (agy reuses the ~/.gemini home; config under ~/.gemini/antigravity-cli/.
+  # Dir name kept from the former Gemini CLI mount to avoid churn).
   mkdir -p "$p/claude-home" "$p/config" "$p/gemini-home"
   # Single-file bind mounts need the target to exist on host before first compose up.
   # Seed with '{}' — Claude rejects a 0-byte file as invalid JSON (Unexpected EOF).
@@ -122,6 +125,15 @@ ensure_state() {
     chmod 644 "$p/claude.json"
   fi
   mkdir -p "$p/config/git"
+  # pnpm: always run the image's pnpm; ignore repo `packageManager` pins.
+  # pnpm 10's version manager re-execs a downloaded pnpm from ~/.local/share/
+  # pnpm/.tools/ — a noexec tmpfs — so any pin that drifts from the image
+  # kills every pnpm command with EACCES. Global pnpm rc only; npm never
+  # reads it (no warnings). Mirrors windows-ai-sandbox ensure_state.
+  mkdir -p "$p/config/pnpm"
+  if ! grep -qs '^manage-package-manager-versions=' "$p/config/pnpm/rc"; then
+    printf 'manage-package-manager-versions=false\n' >> "$p/config/pnpm/rc"
+  fi
   # Seed a db.env.example so users know which keys to set if they opt into
   # the Postgres/Mongo sibling containers. We never write db.env itself —
   # user copies the example and fills in secrets. The example is a *template*
@@ -298,6 +310,11 @@ case "$CMD" in
   auth-github)
     info "Running 'gh auth login' inside $AGENT"
     exec docker exec -it "$AGENT" gh auth login
+    ;;
+
+  auth-antigravity)
+    info "Running 'agy' inside $AGENT (interactive Antigravity sign-in)"
+    exec docker exec -it "$AGENT" agy
     ;;
 
   logs)

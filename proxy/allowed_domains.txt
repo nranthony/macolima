@@ -50,55 +50,40 @@ marketplace.visualstudio.com
 .vscode-unpkg.net
 update.code.visualstudio.com
 
-# --- Gemini CLI [gemini] ---
-# Runtime + OAuth ("Login with Google") for the official `gemini` CLI
-# (npm @google/gemini-cli). Pinned subdomains only — `.googleapis.com` is a
-# parent hosting hundreds of services and would be a wide exfil channel. Add
-# specific hosts here as Gemini needs them; a 403 in the access log tells you
-# which. Sourced from upstream issues #4552, #24306, #25167 and the
-# google-gemini/gemini-cli source (oauth2.ts, server.ts).
+# --- Antigravity CLI [antigravity] ---
+# Runtime + OAuth for Google's `agy` (Antigravity CLI; replaces the former
+# Gemini CLI). Google-account login uses the standard OAuth/identity hosts; the
+# headless flow prints a URL + one-time code (works in-sandbox — no loopback
+# needed). Pinned subdomains only — never wildcard `.googleapis.com`.
 #
-# OAuth callback gotcha (same root cause as gh auth login): the default flow
-# is a loopback redirect to http://127.0.0.1:<random>/oauth2callback, which
-# the host browser cannot reach inside this sandbox (sandbox-internal is
-# internal: true, no published ports). The CLI falls back to the out-of-band
-# code flow at codeassist.google.com/authcode — the browser shows an auth
-# code, you paste it in the terminal. Same UX as `claude login`. That's why
-# codeassist.google.com is on this list — without it, first-run login can't
-# complete inside the sandbox.
+# NOTE: the `agy` binary is installed at IMAGE BUILD time (see Dockerfile),
+# which runs on the host network and bypasses Squid — so the download/update
+# hosts are NOT needed here. They live under [antigravity-install] in
+# PLANNING-MODE for the rare in-container install/upgrade.
 #
 # Auth/identity:
-#   - accounts.google.com         — OAuth authorization (sign-in pages)
-#   - oauth2.googleapis.com       — token exchange + refresh
-#   - www.googleapis.com          — userinfo lookup post-login
-#   - codeassist.google.com       — OOB auth-code fallback (LOAD-BEARING)
-#   - developers.google.com       — post-login success/failure landing pages
-# API (chat/completions):
-#   - cloudcode-pa.googleapis.com — Code Assist endpoint for OAuth users
-#                                    (free + consumer Pro). Workspace tier
-#                                    needs cloudaicompanion + cloudresource-
-#                                    manager + people.googleapis.com instead.
-# NOT included on purpose:
-#   - generativelanguage.googleapis.com — only for GEMINI_API_KEY auth, not
-#                                          OAuth. Add only if switching auth.
-#   - play.googleapis.com / firebaselogging-pa.googleapis.com — telemetry.
-#                                          Disable instead by adding
-#                                          `"usageStatisticsEnabled": false`
-#                                          to ~/.gemini/settings.json (see
-#                                          gemini-cli issue #1599).
-#   - github.com / objects.githubusercontent.com — Gemini auto-downloads
-#                                          ripgrep on first run if absent;
-#                                          we pre-install ripgrep in the
-#                                          Dockerfile so it's reused. If
-#                                          first run still hangs ~135s,
-#                                          one-shot the [git] block via
-# with-egress.sh.
 accounts.google.com
 oauth2.googleapis.com
 www.googleapis.com
+# Agentic API backend (Code Assist endpoint — same host family the former
+# Gemini CLI used). `agy` uses the DAILY channel for its eligibility check
+# (loadCodeAssist) — both confirmed needed via Squid 403s on first console
+# sign-in of the windows-ai-sandbox sibling (2026-06-19):
+cloudcode-pa.googleapis.com
+daily-cloudcode-pa.googleapis.com
+# Code Assist sign-in/eligibility companions (tier-2 probe REQUIRED_DOMAINS
+# in the sibling repo — audit reported DRIFT while these were absent):
 codeassist.google.com
 developers.google.com
-cloudcode-pa.googleapis.com
+# Candidates also embedded in the `agy` binary — uncomment if startup/auth/run
+# hits a TCP_DENIED (verify against Squid access.log on first authed run; kept
+# commented to keep egress tight):
+# antigravity-unleash.goog          (startup feature flags — Unleash)
+# play.googleapis.com               (experiments / telemetry)
+# oauth2.mtls.googleapis.com        (mTLS OAuth token variant)
+# www.mtls.googleapis.com           (mTLS identity variant)
+# iamcredentials.googleapis.com     (GCP-project auth mode only)
+# aiplatform.googleapis.com         (Vertex / GCP-project mode only)
 
 
 # =============================================================================
@@ -106,6 +91,15 @@ cloudcode-pa.googleapis.com
 # =============================================================================
 # Uncomment while you're driving installs/clones/pushes; recomment before
 # handing the session back to the agent. Each block is independent.
+
+# # --- Antigravity CLI install/update [antigravity-install] ---
+# # Binary download + auto-updater for `agy`. Only needed when installing or
+# # upgrading the CLI INSIDE a running container — the image build doesn't need
+# # this (it bypasses Squid). storage.googleapis.com is broad (all public GCS
+# # buckets); keep it gated to install-time only.
+# antigravity.google
+# antigravity-cli-auto-updater-974169037036.us-central1.run.app
+# storage.googleapis.com
 
 # --- Source code / git [git] ---
 # Pinned hosts (per CLAUDE.md discipline: no parent wildcards under vendors
