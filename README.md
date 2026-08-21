@@ -149,7 +149,7 @@ macolima/
         │   ├── config/                     # → /home/agent/.config
         │   │   ├── gh/                     #     GitHub CLI tokens
         │   │   └── git/config              #     git global config (via GIT_CONFIG_GLOBAL)
-        │   ├── gemini-home/                # → /home/agent/.gemini  (Gemini CLI state)
+        │   ├── gemini-home/                # → /home/agent/.gemini  (Antigravity CLI `agy` state)
         │   └── db.env                      #     postgres/mongo creds (chmod 600)
         ├── personal/ ...
         └── sideproject/ ...
