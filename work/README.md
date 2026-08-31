@@ -13,4 +13,4 @@ of what this directory replaces.
 
 | # | Item | Status |
 |---|---|---|
-| [0001](0001-port-from-windows-ai-sandbox/plan.md) | Port stable windows-ai-sandbox work forward to macolima | Planned 2026-08-23, not started — needs macOS host |
+| [0001](0001-port-from-windows-ai-sandbox/plan.md) | Port stable windows-ai-sandbox work forward to macolima. **Re-validated and re-anchored 2026-08-31** on `W main@eda42dd`; the re-diff it asked for is in §0.1, Phase 0 (seccomp `creat` + the openssl CVE) is new and goes first, Phase D is unblocked, and §A9 is superseded by `W work/0021`. Read W's `docs/handoff-to-macolima-port-forward.md` alongside it — that is the procedure, this is the strategy | Planned 2026-08-23, **not started** — needs the macOS host |
