@@ -775,6 +775,20 @@ exist here and were not invented). `verify-sandbox.sh` **32 passed / 0 failed /
    (c) **The post-build cache prune was negating the whole optimisation** — §4
    item 8. It is W's line too, unchanged.
 
+9. **`just code <profile> <repo>` — DONE 2026-09-01 (owner request).** Ported
+   from W `justfile:103` + `scripts/code-attach.sh`. Was mapped to A8; landed
+   early on the same reasoning as `health` — it is a host-side addressing helper
+   that starts nothing and touches no container state, so it has no subject to
+   wait for. Adaptations: container `claude-agent-<p>`; docker context `colima`
+   rather than W's `rootless` (both are "whichever context owns the sandbox
+   daemon" — `default` here points at /var/run/docker.sock and cannot see these
+   containers at all); and W's WSL2 branch, which records a Windows-side `cwd`
+   UNC path in the authority JSON, deliberately dropped since VS Code runs
+   natively on macOS. README's VS Code section gains it as option A2, with the
+   reason it exists: the attach menu's recent-window history beats the
+   `workspaceFolder` key in the attached-container config file, so the folder
+   must be named in the URI to win.
+
 ## 3.6 Loose ends — found during Phase 0, none blocking
 
 Recorded here because Phase 0 surfaced them and prose asides get lost. None is

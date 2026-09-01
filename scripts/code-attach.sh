@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# =============================================================================
+# code-attach.sh — open a SPECIFIC folder in a running agent container in VS Code
+# =============================================================================
+# Usage:
+#   scripts/code-attach.sh <profile> [folder] [-- code-args...]
+#
+# Examples:
+#   scripts/code-attach.sh therapod                     # list repos under /workspace
+#   scripts/code-attach.sh therapod engine              # -> /workspace/engine
+#   scripts/code-attach.sh therapod /workspace/deep/path
+#   scripts/code-attach.sh therapod engine -r           # reuse the current window
+#
+# Why this exists alongside `profile.sh <profile> attach`:
+#   - `attach` gives you a zsh shell inside the container.
+#   - this opens the VS Code *window* against a folder in the same already-
+#     running, already-hardened container. It starts nothing and changes no
+#     container state — it is a pure host-side addressing helper.
+#
+# Why not the "Attach to Running Container" menu (README §VS Code, option A):
+#   The menu reopens whatever folder you had open last. VS Code records
+#   (container + folder) in its recent-window history and that history WINS
+#   over the `workspaceFolder` key in the attached-container configuration file,
+#   so editing that file has no effect once a container has any history. Naming
+#   the folder in the URI bypasses history entirely — and needs no
+#   devcontainer.json in the repo, so the container's hardening is untouched.
+#   The menu remains the right entry point when you do not care which folder
+#   opens; this script is for when you do.
+#
+# Mechanism: VS Code addresses a folder-in-a-container as
+#   vscode-remote://attached-container+<hex>/<path>
+# where <hex> is the hex-encoded JSON authority naming the container AND the
+# docker context. On this Mac the context is `colima` — NOT `default`, which
+# points at /var/run/docker.sock and cannot see these containers at all
+# (windows-ai-sandbox names `rootless` here for the same reason: it is whichever
+# context actually owns the sandbox daemon). Override with
+# SANDBOX_VSCODE_CONTEXT. SANDBOX_CODE_DRYRUN=1 prints the URI instead of
+# opening a window.
+#
+# W's script carries a WSL2 branch that also records a Windows-side `cwd` (a UNC
+# path to the distro root). Deliberately not ported: VS Code runs natively on
+# macOS, so there is no second filesystem namespace to name.
+# =============================================================================
+set -euo pipefail
+
+info() { printf '\033[0;36m[INFO]\033[0m  %s\n' "$*"; }
+die()  { printf '\033[0;31m[ERR]\033[0m   %s\n' "$*" >&2; exit 1; }
+
+DOCKER_CONTEXT_NAME="${SANDBOX_VSCODE_CONTEXT:-colima}"
+
+[ $# -ge 1 ] || die "usage: scripts/code-attach.sh <profile> [folder] [-- code-args...]"
+
+profile="$1"; shift
+
+# Accept a bare profile ("therapod") or the full container name.
+case "$profile" in
+  claude-agent-*) container="$profile" ;;
+  *)              container="claude-agent-$profile" ;;
+esac
+
+folder=""
+if [ $# -gt 0 ] && [ "$1" != "--" ]; then
+  folder="$1"; shift
+fi
+[ "${1:-}" = "--" ] && shift   # allow an explicit -- before code args
+
+command -v docker >/dev/null 2>&1 || die "docker not found on PATH"
+command -v code   >/dev/null 2>&1 || \
+  die "the 'code' CLI is not on PATH — in VS Code run: Cmd-Shift-P → 'Shell Command: Install code command in PATH'"
+
+# The container must already be up — this script never starts anything.
+docker ps --format '{{.Names}}' | grep -qx "$container" \
+  || die "container '$container' is not running — start it with: just up $profile"
+
+# No folder given: show what's there rather than guessing. This is a discovery
+# path, not a failure, so it exits 0 — `just code <profile>` printing a list and
+# then "recipe failed" reads as a crash when nothing went wrong.
+# Only directories are listed: a plain file under /workspace (a stray README)
+# is not a valid target and would fail the -d guard below.
+if [ -z "$folder" ]; then
+  info "repos under /workspace in $container:"
+  docker exec "$container" find /workspace -maxdepth 1 -mindepth 1 -type d \
+    -printf '  %f\n' 2>/dev/null | sort || true
+  echo
+  info "pick one:                    scripts/code-attach.sh $profile <folder>"
+  info "or open the whole workspace: scripts/code-attach.sh $profile /workspace"
+  exit 0
+fi
+
+# Bare name -> /workspace/<name>; an absolute path is used as-is.
+case "$folder" in
+  /*) path="$folder" ;;
+  *)  path="/workspace/$folder" ;;
+esac
+
+docker exec "$container" test -d "$path" \
+  || die "'$path' does not exist in $container (run without a folder to list)"
+
+json='{"containerName":"/'"$container"'","settings":{"context":"'"$DOCKER_CONTEXT_NAME"'"}}'
+
+if command -v xxd >/dev/null 2>&1; then
+  hex="$(printf '%s' "$json" | xxd -p | tr -d '\n')"
+else
+  hex="$(printf '%s' "$json" | od -An -tx1 | tr -d ' \n')"
+fi
+
+uri="vscode-remote://attached-container+${hex}${path}"
+
+# SANDBOX_CODE_DRYRUN=1 prints the URI instead of opening a window.
+if [ -n "${SANDBOX_CODE_DRYRUN:-}" ]; then
+  printf '%s\n' "$uri"
+  exit 0
+fi
+
+info "opening $container : $path"
+exec code --folder-uri "$uri" "$@"

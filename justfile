@@ -18,11 +18,14 @@
 # below — Colima is shared across all profiles, so those front the VM scripts
 # (scripts/start.sh, scripts/stop.sh), not profile.sh/setup.sh; and the
 # `test-*` recipes, which run host-side offline suites that take no profile and
-# need no VM. All still thin pass-throughs; still no `docker compose`.
+# need no VM. `code` is a pass-through too, but to scripts/code-attach.sh — a
+# host-side VS Code addressing helper that starts nothing. All still thin
+# pass-throughs; still no `docker compose`.
 # =============================================================================
 
 profile_sh := justfile_directory() / "scripts" / "profile.sh"
 setup_sh   := justfile_directory() / "scripts" / "setup.sh"
+code_sh    := justfile_directory() / "scripts" / "code-attach.sh"
 
 # default: banner + recipe list (a bare `just` lists, never runs a recipe).
 _default:
@@ -57,6 +60,10 @@ build *args:
 # shell into the agent container (zsh as the agent user)
 attach profile:
     {{profile_sh}} {{profile}} attach
+
+# open a container folder in VS Code (`just code therapod engine`; no folder = list; -r reuses window)
+code profile *args:
+    {{code_sh}} {{profile}} {{args}}
 
 # all containers in this profile's compose project, any state (running + stopped)
 status profile *args:
