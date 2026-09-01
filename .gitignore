@@ -10,16 +10,21 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+# Anchored with a leading slash. These are setuptools/distutils BUILD OUTPUT at
+# the repo root; unanchored, `lib/` matches a directory named lib at ANY depth —
+# which silently excluded dashboard/src/lib/ (config_io.py, docker_client.py)
+# from version control. `git status` says nothing about an ignored file, so the
+# dashboard's two library modules were never committed and nothing reported it.
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
