@@ -384,7 +384,7 @@ A4. **`with-egress.sh` instrumentation + `with-egress.test.sh`** — **DONE
     lockfile-hash + module-tree snapshots, Squid access.log window analysis,
     `depgate.jsonl` under `profiles/<p>/audit/`. Fix `open_section()` prose bug
     (`fcaf831`). Skip W's "phase 3" egress-topology parts per D5.
-A5. **Gate 2 / Gate 3 in Dockerfile** (npm `min-release-age` quarantine; pip
+A5. **Gate 2 / Gate 3 in Dockerfile** — **DONE 2026-08-31.** (npm `min-release-age` quarantine; pip
     wheels-only) + `dockerfile-order.test.sh`. Adapt paths to `/home/agent`
     (`~/.config/pnpm/rc`). Document in `docs/local-wheels.md`.
     **Layer order is load-bearing** and `dockerfile-order.test.sh` locks it:
@@ -646,7 +646,8 @@ Do not queue it as its own task — there is nothing here to edit.
    non-profile squatter); `verify-sandbox.sh` **24/0/0**; tier-2 audit **70
    probes, OK 64 / INFO 4 / N/A 1 / DRIFT 1 — identical to the Phase 0
    baseline**, same pre-existing `settings/template_diff`.
-4. **A2, A4, A6 — DONE 2026-08-31.** (see Phase A above; the inode bug was live here
+4. **A2, A4, A6, A5 — ALL DONE 2026-08-31.** Phase A is complete except A8
+   (ops verbs) and A9 (struck). (see Phase A above; the inode bug was live here
    and silent). **A4+A6, then A5** remain, in that order. A4 carries
    `with-egress.test.sh` (82); A6 carries `depaudit.test.sh` (56) **and
    `ccf27a3` folded in**; A5 carries `dockerfile-order.test.sh` (8) and the
@@ -694,6 +695,38 @@ Do not queue it as its own task — there is nothing here to edit.
   repo, with nothing previously watching. Recorded in the window's audit record
   as `rc_overrides`. Needs a decision by the workspace owner; it is not a
   macolima defect.
+
+**A5 results (2026-08-31).** `dockerfile-order.test.sh` **6/6** (W's is 8; two
+of its six anchors — `beads` and an `ARG AI_CLI_REFRESH` cache-buster — do not
+exist here and were not invented). `verify-sandbox.sh` **32 passed / 0 failed /
+1 warning**, up from 24/0/0.
+
+- **Gate 2 could not be placed where W puts it.** npm's `globalconfig` derives
+  from `prefix`, which here is `/home/agent/.npm-global` — **tmpfs**, wiped every
+  recreate — so a gate written there vanishes on the next `up`.
+  `NPM_CONFIG_GLOBALCONFIG` now points npm at `/usr/etc/npmrc` in the image
+  layer. That makes macolima **stronger** than upstream on this one axis: the
+  file is root-owned and the UID-1000 agent cannot edit it, where W's root agent
+  can.
+- **The pnpm half is seeded by `ensure_state`**, not baked, because `~/.config`
+  is a per-profile bind mount. W cites its `init-profile-state.sh` (C1, not yet
+  ported); `ensure_state` is macolima's equivalent and already seeded that file.
+  Units differ and both are right: npm counts DAYS (`7`), pnpm counts MINUTES
+  (`10080`).
+- **A5 found a live defect that had nothing to do with A5.** Gate 2's in-layer
+  `claude --version` self-check failed the build. Cause: npm 12 blocks lifecycle
+  scripts by default, so the claude package's postinstall never fetched its
+  native binary, and `/usr/bin/claude` was a stub whose whole body is
+  `echo "Error: claude native binary not installed."` — **the in-container CLI
+  was broken, and `verify-sandbox.sh`'s `command -v claude` check passed on it
+  the entire time.** Fixed with W's `--allow-scripts=@anthropic-ai/claude-code`,
+  scoped to that one package. `claude --version` now reports 2.1.252. This is
+  the second time in this work item that a presence check stood in for a
+  behavioural one (see also A2's `reconfigure` exit 0).
+- The uv gate is asserted **behaviourally**, not just by grep: verify builds a
+  throwaway sdist and requires the refusal, because `UV_NO_SYSTEM_CONFIG=1`
+  makes uv ignore `/etc/uv/uv.toml` without touching the file.
+- **Known gap, not closed here:** nothing gates `apt`. Out of scope.
 
 **Decided — no longer an open fork:**
 

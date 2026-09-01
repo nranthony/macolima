@@ -231,6 +231,344 @@ ROOT_PROCS=$(ps -eo pid,user | awk 'NR>1 && $2=="root" && $1!=1 {n++} END{print 
 # Claude CLI present
 command -v claude >/dev/null && pass "claude CLI present" || fail "claude CLI missing"
 
+# ---------------------------------------------------------------------------
+# Gate 2 — dependency-resolution quarantine (slopsquat defence).
+# These assert the LIVE values rather than the files, because a config that
+# looks correct and does nothing is the failure shape this repo keeps meeting.
+#
+# macolima posture, which differs from windows-ai-sandbox: the agent is UID 1000
+# with cap_drop ALL and no_new_privs, so it CANNOT edit /usr/etc/npmrc (root-owned,
+# image layer). It CAN edit ~/.config/pnpm/rc, which is a per-profile bind mount
+# it owns. So the npm half is genuinely out of the agent's reach here and the
+# pnpm half is defence-in-depth; this tripwire is what makes either drift
+# surface within one `up`.
+# Purely local: no network call, so it still runs with egress down.
+# ---------------------------------------------------------------------------
+# UNITS ARE DIFFERENT AND BOTH ARE VERIFIED FROM SOURCE (2026-07-31):
+#   npm  min-release-age     = DAYS.    man 7 config: "only versions that were
+#                              available more than the given number of days ago".
+#   pnpm minimum-release-age = MINUTES. pnpm.cjs:
+#                              new Date(Date.now() - minimumReleaseAge * 60 * 1e3)
+# So 7 (npm) and 10080 (pnpm) are the SAME 7-day window. Do not "harmonise" them.
+NPM_AGE="$(npm config get min-release-age 2>/dev/null || echo '')"
+case "$NPM_AGE" in
+  ''|null|undefined)
+    fail "npm min-release-age unset — freshly-published packages resolve with no quarantine (expected 7 DAYS; see Dockerfile 'Gate 2')" ;;
+  *[!0-9]*)
+    fail "npm min-release-age='$NPM_AGE' is not a plain integer — the value is a NUMBER OF DAYS, and a suffixed form (7d, 1w) does not parse" ;;
+  *)
+    if [[ "$NPM_AGE" -ge 1 ]]; then pass "npm min-release-age=$NPM_AGE day(s)"
+    else fail "npm min-release-age=$NPM_AGE — quarantine disabled"; fi ;;
+esac
+
+# A non-integer here is worse than "off": pnpm computes the cutoff as
+# `value * 60 * 1e3`, so a suffixed string ("0s", "7d") yields NaN and
+# `new Date(NaN)` = Invalid Date. Every comparison against it is false, so pnpm
+# rejects EVERY version and no install can resolve at all. Fails closed and
+# looks like a broken registry. Hard FAIL, with the fix in the message.
+PNPM_AGE="$(pnpm config get minimumReleaseAge 2>/dev/null || echo '')"
+case "$PNPM_AGE" in
+  ''|null|undefined)
+    fail "pnpm minimum-release-age unset — pnpm resolves with no quarantine (expected 10080 MINUTES; seeded by ensure_state in scripts/profile.sh)" ;;
+  *[!0-9]*)
+    fail "pnpm minimum-release-age='$PNPM_AGE' is not a plain integer — pnpm computes value*60*1e3, so a suffixed form gives Invalid Date and REJECTS EVERY VERSION (no install can resolve). Use plain minutes, e.g. 10080 for 7 days" ;;
+  *)
+    if [[ "$PNPM_AGE" -ge 1440 ]]; then pass "pnpm minimum-release-age=$PNPM_AGE min ($((PNPM_AGE/1440)) day(s))"
+    elif [[ "$PNPM_AGE" -ge 1 ]]; then fail "pnpm minimum-release-age=$PNPM_AGE MINUTES (<1 day) — looks like days were entered where MINUTES are required (1440 = 24h, 10080 = 7d); quarantine is effectively off"
+    else fail "pnpm minimum-release-age=$PNPM_AGE — quarantine disabled"; fi ;;
+esac
+
+# G10: a PROJECT .npmrc beats our global /usr/etc/npmrc (precedence is
+# cli > env > project > user > global), so any repo under /workspace can switch
+# the quarantine off for itself — silently, and without touching anything this
+# sandbox owns. Verified 2026-07-31: a project file with min-release-age=0 takes
+# `npm config get min-release-age` from 7 to 0.
+#
+# COMPARE, do not merely report. The first version of this check warned on the
+# PRESENCE of any project release-age setting, which made it unactionable: a repo
+# doing the right thing (committing a window so it also applies outside this
+# sandbox, per plan 04) got the same warning as one switching the gate off, so
+# the line became permanent furniture. Warn only when the project value is
+# WEAKER than the global; a value that meets or beats it is the wanted state.
+#
+# Still never FAIL: the workspace is the user's own repo and may have a
+# considered reason. This reports; the human decides.
+if [[ -d /workspace ]]; then
+  # Baselines in MINUTES. Read with the explicit global flags — a plain
+  # `npm config get` is CWD-sensitive and a project .npmrc overrides it, so a
+  # weak file would end up compared against itself and pass. Verified 2026-08-02:
+  # inside a dir with min-release-age=1, `config get` says 1 and
+  # `config get --location=global` still says 7.
+  # npm counts DAYS, pnpm counts MINUTES (see the block above) — normalise.
+  g_npm_d="$(npm config get --location=global min-release-age 2>/dev/null || echo '')"
+  g_pnpm_m="$(pnpm config get --global minimum-release-age 2>/dev/null || echo '')"
+  if [[ -n "$g_npm_d" && "$g_npm_d" != *[!0-9]* ]]; then g_npm_m=$(( g_npm_d * 1440 )); else g_npm_m=""; fi
+  [[ -n "$g_pnpm_m" && "$g_pnpm_m" != *[!0-9]* ]] || g_pnpm_m=""
+
+  fmt_window() {  # minutes -> human-readable window
+    if   (( $1 == 0 ));    then printf 'OFF'
+    elif (( $1 < 60 ));    then printf '%dmin' "$1"
+    elif (( $1 < 1440 ));  then printf '%dh'   "$(( $1 / 60 ))"
+    else                        printf '%dd'   "$(( $1 / 1440 ))"; fi
+  }
+
+  weaker=""; malformed=""; uncomparable=""; ok_count=0
+  # Both file kinds carry the same setting under different spellings and units:
+  #   .npmrc              min-release-age=<DAYS> | minimum-release-age=<MINUTES>
+  #   pnpm-workspace.yaml minimumReleaseAge: <MINUTES>
+  # A pnpm workspace file in a monorepo CHILD is as effective an override as an
+  # .npmrc, and was invisible here until 2026-08-03.
+  while IFS= read -r rc; do
+    case "$rc" in
+      *pnpm-workspace.yaml) pat='^[[:space:]]*minimumReleaseAge[[:space:]]*:' ; sep=':' ;;
+      *)                    pat='^[[:space:]]*(min-release-age|minimum-release-age)[[:space:]]*=' ; sep='=' ;;
+    esac
+    while IFS= read -r line; do
+      key="${line%%${sep}*}"; key="${key//[[:space:]]/}"
+      val="${line#*${sep}}";  val="${val//[[:space:]]/}"
+      case "$key" in
+        min-release-age)     base="$g_npm_m"
+                             if [[ -n "$val" && "$val" != *[!0-9]* ]]; then mins=$(( val * 1440 )); else mins=""; fi ;;
+        minimum-release-age|minimumReleaseAge)
+                             base="$g_pnpm_m"
+                             if [[ -n "$val" && "$val" != *[!0-9]* ]]; then mins="$val"; else mins=""; fi ;;
+        *) continue ;;
+      esac
+      label="${rc#/workspace/} [$key=$val]"
+      if   [[ -z "$mins" ]]; then malformed="${malformed}${label}  "
+      elif [[ -z "$base" ]]; then uncomparable="${uncomparable}${label}  "
+      elif (( mins < base )); then
+        weaker="${weaker}${label} = $(fmt_window "$mins") vs global $(fmt_window "$base");  "
+      else ok_count=$(( ok_count + 1 ))
+      fi
+    done < <(grep -hE "$pat" "$rc" 2>/dev/null)
+  done < <(find /workspace -maxdepth 4 \( -name .npmrc -o -name pnpm-workspace.yaml \) \
+             -not -path '*/node_modules/*' 2>/dev/null)
+
+  # A non-integer is worse than a weak value: pnpm computes value*60*1e3, so a
+  # suffixed form yields NaN -> Invalid Date -> every version rejected.
+  [[ -n "$malformed" ]] && warn "project config has a NON-INTEGER release-age — pnpm computes value*60*1e3, so this yields Invalid Date and REJECTS EVERY VERSION (presents as a broken registry): $malformed"
+  [[ -n "$weaker" ]] && warn "project config WEAKENS the global quarantine (project > global): $weaker"
+  [[ -n "$uncomparable" ]] && warn "project config sets a release-age but the global baseline is unreadable, so it cannot be compared: $uncomparable"
+  if [[ -z "$malformed$weaker$uncomparable" ]]; then
+    if (( ok_count > 0 )); then
+      pass "$ok_count project release-age setting(s) under /workspace meet or beat the global quarantine"
+    else
+      pass "no project .npmrc / pnpm-workspace.yaml overriding the release-age quarantine under /workspace"
+    fi
+  fi
+  unset -f fmt_window
+fi
+
+# npm 12 blocks lifecycle scripts by default via the allow-scripts allowlist.
+# That is where a slopsquat payload runs, so losing it matters more than the
+# age gate. Empty list = nothing may run scripts (the wanted state).
+NPM_SCRIPTS="$(npm config get allow-scripts 2>/dev/null || echo '')"
+if [[ "$NPM_SCRIPTS" == '[""]' || -z "$NPM_SCRIPTS" ]]; then
+  pass "npm install scripts blocked (allow-scripts=${NPM_SCRIPTS:-empty})"
+else
+  warn "npm allow-scripts=$NPM_SCRIPTS — packages in this list run install scripts"
+fi
+
+# extra-index-url is a dependency-confusion vector: pip may prefer whichever
+# index offers the higher version. Its ABSENCE is the control.
+if [[ -f /etc/pip.conf ]]; then
+  if grep -qE '^[[:space:]]*extra-index-url' /etc/pip.conf; then
+    fail "/etc/pip.conf sets extra-index-url — dependency-confusion vector; remove it"
+  else
+    pass "pip index pinned, no extra-index-url"
+  fi
+else
+  warn "/etc/pip.conf absent — pip index not pinned (see Dockerfile 'Gate 2')"
+fi
+
+# Gate 3 (Python): wheels only. An sdist runs setup.py at INSTALL time — the
+# Python analogue of the npm lifecycle scripts already blocked above. Both tools
+# need asserting because they share no configuration: uv reads /etc/uv/uv.toml
+# and no pip config at all; pip reads /etc/pip.conf. Checking one would leave the
+# other silently open, and uv is the primary installer on this image.
+if [[ -f /etc/uv/uv.toml ]]; then
+  if grep -qE '^[[:space:]]*no-build[[:space:]]*=[[:space:]]*true' /etc/uv/uv.toml; then
+    pass "uv wheels-only (no-build=true) — source builds refused"
+  else
+    fail "/etc/uv/uv.toml exists but does not set no-build=true — uv will build sdists, running setup.py at install time (Dockerfile 'Gate 3')"
+  fi
+else
+  fail "/etc/uv/uv.toml absent — uv will build source distributions (Dockerfile 'Gate 3'). uv reads NO pip config, so /etc/pip.conf does not cover it"
+fi
+
+# BEHAVIOURAL assertion for the same gate, because the file check above can pass
+# while the gate is off.
+#
+# MEASURED 2026-08-03 on uv 0.12.0 in this image: `UV_NO_SYSTEM_CONFIG=1` makes uv
+# ignore /etc/uv/uv.toml entirely, and a source build that is otherwise refused
+# ("Building source distributions is disabled") installs cleanly. The env var is
+# undocumented in `uv help`. It never touches the file, so the grep above still
+# reports PASS — the exact shape of failure this repo keeps re-learning: a config
+# that looks correct and does nothing.
+#
+# So: actually try to build a trivial local package and require the refusal.
+# ~0.1s, no network (`--offline`), nothing fetched and nothing of the package's
+# code executed — the point is that uv REFUSES before any build runs.
+#
+# Honest about scope: this proves enforcement in THIS environment. The agent
+# cannot edit /etc/uv/uv.toml here (non-root), but it can still set UV_* in its
+# own environment per command, so no in-container check can prevent that bypass
+# — defence-in-depth, not the boundary (see CLAUDE.md's invariants). What it does
+# buy is that the gate cannot be silently off for the whole container without
+# this saying so.
+if command -v uv >/dev/null 2>&1; then
+  # /root is unreachable for a UID-1000 agent; use the agent's own home.
+  _uvg="${HOME:-/home/agent}/.uv-gate-probe"
+  rm -rf "$_uvg"; mkdir -p "$_uvg/pkg/src/gateprobe"
+  printf '[build-system]\nrequires = ["setuptools>=61"]\nbuild-backend = "setuptools.build_meta"\n[project]\nname = "gateprobe"\nversion = "0.0.1"\n' \
+    > "$_uvg/pkg/pyproject.toml"
+  : > "$_uvg/pkg/src/gateprobe/__init__.py"
+  if uv venv "$_uvg/v" >/dev/null 2>&1; then
+    _uvout=$(uv pip install --python "$_uvg/v/bin/python" --offline "$_uvg/pkg" 2>&1)
+    if printf '%s' "$_uvout" | grep -q 'source distributions is disabled'; then
+      pass "uv wheels-only is ENFORCED (a source build was refused, not just configured)"
+    elif printf '%s' "$_uvout" | grep -qE '^ \+ gateprobe|Installed 1 package'; then
+      fail "uv BUILT a source distribution despite /etc/uv/uv.toml — Gate 3 is not in effect (check UV_NO_SYSTEM_CONFIG / UV_NO_BUILD in the environment: $(env | grep -oE 'UV_[A-Z_]+' | tr '\n' ' '))"
+    else
+      warn "uv wheels-only could not be confirmed behaviourally (probe output: $(printf '%s' "$_uvout" | tail -1))"
+    fi
+  else
+    warn "uv wheels-only not confirmed behaviourally — could not create a probe venv"
+  fi
+  rm -rf "$_uvg"
+  # A persistent bypass in the container's own environment would make every
+  # install in this session unguarded, and unlike a per-command env var it is
+  # visible from here.
+  if [[ -n "${UV_NO_SYSTEM_CONFIG:-}" ]]; then
+    fail "UV_NO_SYSTEM_CONFIG is set in the container environment — uv ignores /etc/uv/uv.toml, so Gate 3's uv half is off for every install in this session"
+  fi
+fi
+
+if [[ -f /etc/pip.conf ]]; then
+  if grep -qE '^[[:space:]]*only-binary[[:space:]]*=[[:space:]]*:all:' /etc/pip.conf; then
+    # An exemption is legitimate but must be visible — same discipline as npm's
+    # allow-scripts allowlist (depaudit N11: an exemption needs a stated reason).
+    pip_exempt=$(grep -E '^[[:space:]]*no-binary[[:space:]]*=' /etc/pip.conf | sed 's/.*=[[:space:]]*//')
+    if [[ -n "$pip_exempt" ]]; then
+      warn "pip wheels-only, but exempts: $pip_exempt — each exemption builds from source; confirm the reason is recorded"
+    else
+      pass "pip wheels-only (only-binary=:all:), no exemptions"
+    fi
+  else
+    fail "/etc/pip.conf does not set only-binary=:all: — pip will build sdists (Dockerfile 'Gate 3')"
+  fi
+fi
+
+# G10p: the PYTHON half of G10, and the reason work/0008 item 1 exists. Gate 2's
+# project-level override was defended in three places (here, with-egress.sh's
+# scan_workspace_rc, depaudit's N03); Gate 3's was defended in none. The
+# asymmetry was accidental, not decided.
+#
+# What it catches: a repo under /workspace carrying `no-build = false` (uv.toml
+# or [tool.uv]) or a pip.conf without `only-binary = :all:`. Either restores
+# source builds for that project — an sdist runs setup.py / a PEP-517 backend at
+# INSTALL time, which is the Python analogue of the npm lifecycle script this
+# image already blocks (ADR-0004). The system-file and behavioural probes above
+# say nothing about it: they assert the IMAGE default, and a project override is
+# precisely what beats an image default.
+#
+# WARN, never FAIL — same standing as G10. The workspace is the user's own repo
+# and may have a considered reason; this reports, the human decides. Silence on
+# a project that declares nothing is the wanted state (the N03 lesson: a check
+# that fires on every healthy repo is furniture).
+#
+gate3_scan_file() {
+  python3 - "$1" <<'PY'
+import configparser, os, sys, tomllib
+
+path = sys.argv[1]
+name = os.path.basename(path)
+out = []
+
+def emit(key, val, cls):
+    out.append("%s=%s\t%s" % (key, val, cls))
+
+try:
+    if name == "pip.conf":
+        cp = configparser.ConfigParser(strict=False)
+        cp.read(path)
+        only_binary = no_binary = None
+        for sect in cp.sections():
+            if cp.has_option(sect, "only-binary"):
+                only_binary = (cp.get(sect, "only-binary") or "").strip()
+            if cp.has_option(sect, "no-binary"):
+                no_binary = (cp.get(sect, "no-binary") or "").strip()
+        # A pip.conf in the tree REPLACES /etc/pip.conf wherever it is in
+        # effect (PIP_CONFIG_FILE, a CI step, a tox env) rather than merging
+        # with it, so the wheels-only default is simply absent there. pip does
+        # not read it from the CWD on its own — which is exactly why this
+        # reports and never blocks.
+        if only_binary is None:
+            emit("only-binary", "<unset>", "OFF")
+        elif only_binary == ":all:":
+            emit("only-binary", only_binary, "OK")
+        else:
+            emit("only-binary", only_binary, "WEAKER")
+        if no_binary:
+            emit("no-binary", no_binary, "WEAKER")
+    else:
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+        table = data if name == "uv.toml" else (data.get("tool") or {}).get("uv") or {}
+        if not isinstance(table, dict):
+            table = {}
+        if "no-build" in table:
+            v = table["no-build"]
+            if v is False:
+                emit("no-build", "false", "OFF")
+            elif v is True:
+                emit("no-build", "true", "OK")
+            else:
+                emit("no-build", str(v), "UNPARSED")
+except (OSError, tomllib.TOMLDecodeError, configparser.Error, UnicodeDecodeError) as e:
+    emit("parse", type(e).__name__, "UNPARSED")
+
+for row in out:
+    print(row)
+PY
+}
+
+if [[ -d /workspace ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    g3_off=""; g3_weaker=""; g3_unparsed=""; g3_ok=0
+    while IFS= read -r g3f; do
+      while IFS=$'\t' read -r g3kv g3cls; do
+        [[ -n "$g3kv" ]] || continue
+        g3label="${g3f#/workspace/} [$g3kv]"
+        case "$g3cls" in
+          OFF)      g3_off="${g3_off}${g3label}  " ;;
+          WEAKER)   g3_weaker="${g3_weaker}${g3label}  " ;;
+          UNPARSED) g3_unparsed="${g3_unparsed}${g3label}  " ;;
+          *)        g3_ok=$(( g3_ok + 1 )) ;;
+        esac
+      done < <(gate3_scan_file "$g3f" 2>/dev/null)
+    done < <(find /workspace -maxdepth 4 \
+               \( -name uv.toml -o -name pyproject.toml -o -name pip.conf \) \
+               -not -path '*/node_modules/*' -not -path '*/.venv/*' \
+               -not -path '*/.venv-*/*' -not -path '*/site-packages/*' \
+               -not -path '*/.git/*' 2>/dev/null)
+
+    [[ -n "$g3_off" ]] && warn "project config OPTS OUT of wheels-only (project > /etc/uv/uv.toml, /etc/pip.conf): $g3_off— installs there build from source, running setup.py at install time (ADR-0004)"
+    [[ -n "$g3_weaker" ]] && warn "project config exempts package(s) from wheels-only: $g3_weaker— each exemption builds from source; confirm the reason is recorded"
+    [[ -n "$g3_unparsed" ]] && warn "project config could not be parsed, so its wheels-only stance is UNKNOWN (never read an unknown as a pass): $g3_unparsed"
+    if [[ -z "$g3_off$g3_weaker$g3_unparsed" ]]; then
+      if (( g3_ok > 0 )); then
+        pass "$g3_ok project wheels-only setting(s) under /workspace match the image default"
+      else
+        pass "no project uv.toml / pyproject.toml / pip.conf under /workspace overrides wheels-only"
+      fi
+    fi
+  else
+    warn "python3 absent — cannot check /workspace for project-level wheels-only opt-outs (G10p)"
+  fi
+fi
+
 echo ""
 echo "== $PASS passed | $FAIL failed | $WARN warnings =="
 [[ $FAIL -eq 0 ]]

@@ -140,6 +140,20 @@ ensure_state() {
   if ! grep -qs '^manage-package-manager-versions=' "$p/config/pnpm/rc"; then
     printf 'manage-package-manager-versions=false\n' >> "$p/config/pnpm/rc"
   fi
+  # Gate 2, pnpm half (work/0001 A5). The Dockerfile's /usr/etc/npmrc covers
+  # npm only: pnpm reads npmrc files but its quarantine key is a DIFFERENT one
+  # in DIFFERENT units — npm's `min-release-age` is DAYS, pnpm's
+  # `minimum-release-age` is MINUTES (pnpm computes value*60*1e3). 7 and 10080
+  # are the same 7-day window; do not "harmonise" them to one number.
+  #
+  # It is seeded here rather than baked into the image because ~/.config is a
+  # per-profile bind mount, and this is macolima's equivalent of the
+  # init-profile-state.sh seeding windows-ai-sandbox's verify-sandbox.sh cites.
+  # A non-integer is worse than absent: pnpm would produce Invalid Date and
+  # reject EVERY version, so no install could resolve at all.
+  if ! grep -qs '^minimum-release-age=' "$p/config/pnpm/rc"; then
+    printf 'minimum-release-age=10080\n' >> "$p/config/pnpm/rc"
+  fi
   # Seed a db.env.example so users know which keys to set if they opt into
   # the Postgres/Mongo sibling containers. We never write db.env itself —
   # user copies the example and fills in secrets. The example is a *template*

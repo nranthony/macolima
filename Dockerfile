@@ -109,10 +109,20 @@ RUN apt-get update \
 # auth-antigravity`, or just `agy`); config lives under
 # ~/.gemini/antigravity-cli/ (agy reuses the ~/.gemini home — the per-profile
 # gemini-home mount is kept, so auth persists across recreates).
+# --allow-scripts=@anthropic-ai/claude-code is REQUIRED, not cosmetic. npm 12
+# blocks lifecycle scripts by default, and the claude package fetches its
+# platform-native binary in a postinstall. Without the flag the install
+# "succeeds" and leaves /usr/bin/claude -> claude.exe, a stub whose entire body
+# is `echo "Error: claude native binary not installed."`. The CLI is then broken
+# while `command -v claude` still passes, which is why verify-sandbox.sh's
+# presence check never noticed. That was the live state in this image until
+# work/0001 A5's Gate 2 layer ran `claude --version` and the build failed.
+# Scoped to the one package: it is an allowlist, not a blanket re-enable.
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g npm@latest \
- && npm install -g @anthropic-ai/claude-code mongosh@latest pnpm@10 \
+ && npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code \
+ && npm install -g mongosh@latest pnpm@10 \
  && curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr/local/bin \
  && /usr/local/bin/agy --version \
  && apt-get clean \
@@ -165,6 +175,101 @@ RUN ARCH="$(dpkg --print-architecture)" \
  && rm -rf "/tmp/$TARBALL" /tmp/just_checksums.txt /tmp/just_checksum.line \
  && chmod 0755 /usr/local/bin/just \
  && just --version
+
+# ---------- Gate 2 (npm): publication quarantine + registry pin --------------
+# Refuse to resolve anything published in the last 7 days. A malicious release
+# of a real package is typically pulled within hours-to-days; a quarantine
+# window costs latency on genuinely new versions and buys immunity to that
+# whole class.
+#
+# Why config and not the deny list: `permissions.deny` keys on a command PREFIX,
+# so it is routed around by any wrapper (`make`, `just`, `npm run`, `uv run` —
+# all allow-listed) and does not constrain the human's interactive zsh at all.
+# An npmrc gate is invocation-path independent: it fires no matter what reached
+# the installer, and it fires for the human too.
+#
+# ORDER IS LOAD-BEARING: this MUST come after the claude/agy install above.
+# min-release-age applies to `npm install` at BUILD time as well, so writing it
+# earlier would make `@anthropic-ai/claude-code@latest` unresolvable whenever
+# the newest release is inside the quarantine window — a self-inflicted, and
+# INTERMITTENT, build break: it depends on when upstream last published, so it
+# passes today and fails next week. scripts/dockerfile-order.test.sh locks the
+# chain on anchor strings so this cannot silently reorder.
+#
+# macolima divergence from windows-ai-sandbox, and it matters. There
+# prefix=/usr, so npm's globalconfig is /usr/etc/npmrc and lives in the image.
+# Here NPM_CONFIG_PREFIX is /home/agent/.npm-global, which is **tmpfs** (see the
+# volatile list in CLAUDE.md) — so npm's default globalconfig path is wiped on
+# every container recreate and a gate written there would silently vanish.
+# NPM_CONFIG_GLOBALCONFIG therefore points npm at an image path explicitly.
+# Verified in the running image: npm honours the variable and reports the
+# values below via `npm config get`.
+#
+# Stronger here than upstream, for once: /usr/etc/npmrc is root-owned and the
+# agent runs as UID 1000 with no sudo and no_new_privs, so the agent cannot edit
+# it at all. In windows-ai-sandbox the agent is root and can.
+#
+# KNOWN GAP, deliberately not widened here: this gates **npm**, not **pnpm**.
+# pnpm reads npmrc files but its quarantine key is `minimum-release-age`
+# (minutes), not npm's `min-release-age` (days), so pnpm installs are NOT
+# covered. windows-ai-sandbox has the same gap. macolima ships pnpm@10 and the
+# workspace uses it, so this matters more here — but closing it is a scope
+# decision, not a port, and belongs in its own item.
+#
+# NOT setting ignore-scripts=true: npm 12 already blocks lifecycle scripts by
+# default, and setting both risks interacting with the CLI install above.
+ENV NPM_CONFIG_GLOBALCONFIG=/usr/etc/npmrc
+RUN mkdir -p /usr/etc \
+ && printf '%s\n' \
+      '# Managed by Dockerfile — see the Gate 2 block there before editing.' \
+      '# Quarantine: refuse to resolve anything published in the last N days.' \
+      'min-release-age=7' \
+      '# Pin resolution to the official registry rather than relying on the default.' \
+      'registry=https://registry.npmjs.org/' \
+      '# Refuse to silently rewrite version ranges — makes lockfile diffs reviewable.' \
+      'save-exact=true' \
+    > /usr/etc/npmrc \
+ && npm config get min-release-age | grep -qx 7 \
+ && npm config get save-exact | grep -qx true \
+ && claude --version
+
+# ---------- Gate 3 (Python): wheels only ------------------------------------
+# An sdist runs setup.py (or a PEP-517 backend) at INSTALL time — it is the
+# exact Python analogue of an npm lifecycle script. Blocking source builds costs
+# a small fraction of packages and buys default-deny against the next one.
+#
+# BOTH tools need configuring and they do NOT share config:
+#   uv  reads /etc/uv/uv.toml   (it reads no pip config at all)
+#   pip reads /etc/pip.conf
+#
+# Escape hatches differ, which matters when a build legitimately must happen:
+#   uv  — no per-package exemption exists. A project opts OUT wholesale with
+#         `no-build = false` in its own uv.toml / [tool.uv].
+#   pip — `no-binary = <pkg>` exempts one package while `:all:` covers the rest.
+#
+# pip's refusal message is a trap worth knowing: "Could not find a version that
+# satisfies the requirement X (from versions: none)" is indistinguishable from
+# the package not existing — i.e. it looks exactly like a typosquat miss. uv's
+# message names the real reason.
+#
+# Config-only and last in the chain: it has no build-time dependency of its own,
+# so a change here rebuilds nothing above it.
+RUN mkdir -p /etc/uv \
+ && printf '%s\n' \
+      '# Managed by Dockerfile — see the Gate 3 block there before editing.' \
+      '# Refuse to build source distributions: an sdist executes code at install' \
+      '# time, a wheel does not. Override per project with no-build = false.' \
+      'no-build = true' \
+    > /etc/uv/uv.toml \
+ && printf '%s\n' \
+      '[global]' \
+      '# Managed by Dockerfile. No extra-index-url: dependency-confusion vector.' \
+      'index-url = https://pypi.org/simple' \
+      '# Wheels only — sdists run setup.py at install time (Gate 3).' \
+      '# Exempt a single package with:  no-binary = <name>' \
+      'only-binary = :all:' \
+    > /etc/pip.conf \
+ && uv --version
 
 # ---------- non-root user ----------------------------------------------------
 # ubuntu:24.04 ships with a default `ubuntu` user at UID 1000 — remove it so
