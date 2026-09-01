@@ -885,6 +885,44 @@ exist here and were not invented). `verify-sandbox.sh` **32 passed / 0 failed /
     live allowlist. Verified live: HTTP 200, 2 tabs, 104 domain checkboxes,
     4 status metrics, zero tracebacks or deprecation warnings.
 
+13. **`just audit` — DONE 2026-09-01 (owner request).** M already had the entire
+    tier-2 audit — `scripts/audit/{audit.sh,aggregate.py,probes/*}` and
+    `stage-audit-package.sh` — and no verb to run it. Ported W's `audit)` arm:
+    stage, run inside the agent, save JSON to the profile's claude-home.
+    Staged rather than streamed (unlike `verify`) because the probes read
+    seccomp.json / allowed_domains.txt / squid.conf / claude-settings.json from
+    the staged tree; that is what temp_audit_package is for. Adapted: the
+    container path is `/home/agent/.claude/audits/`, not W's `/root/...` —
+    this agent is UID 1000. Added a jq-free summary fallback and rejection of
+    unknown flags. `stage-audit-package.sh` also had a stale closing message
+    (it still pointed at the manual verify-sandbox.sh path) and enumerated the
+    directories to re-chmod by hand, which silently stops covering any new one;
+    now `find -type d`.
+
+    **Probe coverage is at PARITY with W — I first reported otherwise and was
+    wrong.** Line counts suggested heavy drift (W's settings.py +78, proxy.py
+    +50, identity.py +35, env.py +33), and a naive scan for `"name":` literals
+    appeared to show six probes missing. Both readings were artefacts. M
+    prefixes some probe names with a severity code (`H1_connect_80_blocked`),
+    generates others at runtime (`hook_present_<matcher>`), and splits two of
+    W's into finer checks (`wildcard_entries` -> `no_vendor_wildcards` +
+    `no_other_wildcards`; `gated_blocks_default_off` -> `planning_mode_commented`).
+    Normalising for all three: every W probe has an M counterpart, M carries two
+    that W lacks (`no_orphan_uid0`, `tmp_tmpfs`), and W's only extra —
+    `wsl_driver_shim` — is WSL-specific and correctly absent. The surplus lines
+    in W are prose. Checked by probe identity, not line-by-line semantics.
+
+    NOT ported: `probes/antigravity.py` (232 lines). It audits agy's
+    `permissions.deny`, a `PreToolUse` hook registered via
+    `~/.gemini/config/hooks.json`, and an engine at
+    `/usr/local/lib/sandbox-hooks/guardrails.sh`, cross-referencing
+    `antigravity-parity.test.sh`. Verified none of those exist here: M's profile
+    has no hooks.json, the image has no /usr/local/lib/sandbox-hooks (its hook
+    is `deny-destructive.sh` under /usr/local/lib/claude-hooks), and there is no
+    parity suite. Every one of those is Phase D's payload. The probe lands with
+    them — it would otherwise report DRIFT on a subject that does not exist,
+    which is the Phase A0 binding in reverse.
+
 ## 3.6 Loose ends — found during Phase 0, none blocking
 
 Recorded here because Phase 0 surfaced them and prose asides get lost. None is

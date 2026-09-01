@@ -55,11 +55,13 @@ cp "$MACOLIMA_DIR/claude_internal_audit.md"        "$dest/claude_internal_audit.
 cp -R "$MACOLIMA_DIR/scripts/audit"                "$dest/scripts/audit"
 
 chmod -R a-w "$dest"
-chmod u+w "$dest" "$dest/proxy" "$dest/scripts" "$dest/scripts/audit" "$dest/scripts/audit/probes" "$dest/config"
+# Restore write on DIRECTORIES only (files stay read-only). Enumerating the
+# directories by hand, as this used to, silently stops covering any new one —
+# probes/ would have been missed had it been added later.
+find "$dest" -type d -exec chmod u+w {} +
 
 echo "staged audit package at:"
 echo "  host:      $dest"
 echo "  container: /workspace/temp_audit_package/"
 echo
-echo "next: attach to claude-agent-$profile and run"
-echo "  bash /workspace/temp_audit_package/scripts/verify-sandbox.sh"
+echo "next: scripts/profile.sh $profile audit      (or: just audit $profile)"

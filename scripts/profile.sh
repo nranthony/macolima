@@ -41,6 +41,9 @@
 #                   known CVEs, non-gating), --json, --strict, --quiet.
 #                   `deps --history [N]` reads back the install-window log
 #                   written by with-egress.sh.
+#   audit           tier-2 structured audit: stage the package, run ~85 probes
+#                   inside the agent, save JSON to the profile's claude-home.
+#                   Flags: --stage-only, --clean, --compact.
 #   verify          tier-1 hardening tripwire: host-side allowlist-enforcement
 #                   checks, then verify-sandbox.sh streamed into the agent.
 #                   Read-only. Exits nonzero if anything failed.
@@ -985,6 +988,58 @@ case "$CMD" in
     # deprecated in Docker 29 in favour of --reserved-space.)
     docker builder prune -f --filter until=168h
     docker compose "${COMPOSE_FILE_ARGS[@]}" up -d --force-recreate
+    ;;
+
+  audit)
+    # Tier-2 structured audit: stage the package, run the probe suite INSIDE the
+    # agent, and save the JSON on the host. Tier 1 is `verify` (fast pass/fail);
+    # this is the deep one that produces a machine-readable record.
+    #
+    # Staged rather than streamed, unlike `verify`: the probes read
+    # seccomp.json / allowed_domains.txt / squid.conf / claude-settings.json
+    # from the staged tree, so the repo's config has to be visible inside the
+    # container. That is the whole reason temp_audit_package exists.
+    flag=""
+    for a in "$@"; do
+      case "$a" in
+        --stage-only|--clean|--compact) flag="$a" ;;
+        *) fail "audit: unknown flag '$a' (valid: --stage-only --clean --compact)" ;;
+      esac
+    done
+
+    if [[ "$flag" == "--clean" ]]; then
+      exec bash "$SCRIPT_DIR/scripts/stage-audit-package.sh" "$PROFILE" --clean
+    fi
+
+    info "Staging audit package for '$PROFILE'"
+    bash "$SCRIPT_DIR/scripts/stage-audit-package.sh" "$PROFILE"
+
+    if [[ "$flag" == "--stage-only" ]]; then
+      ok "Stage complete. Run the audit with:  scripts/profile.sh $PROFILE audit"
+      exit 0
+    fi
+
+    stamp=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+    audits_host="$PROFILES_ROOT/$PROFILE/claude-home/audits"
+    mkdir -p "$audits_host"
+    json_host="$audits_host/$stamp-$PROFILE-audit.json"
+
+    info "Running audit inside $AGENT → $json_host"
+    pretty_flag=""
+    if [[ "$flag" == "--compact" ]]; then pretty_flag="--compact"; fi
+    if docker exec "$AGENT" bash /workspace/temp_audit_package/scripts/audit/audit.sh $pretty_flag > "$json_host"; then
+      ok "Audit JSON saved: $json_host"
+      # Container path, not /root/... — this agent is UID 1000 with
+      # HOME=/home/agent, and claude-home/ is bind-mounted there.
+      ok "Container path:   /home/agent/.claude/audits/$stamp-$PROFILE-audit.json"
+      if command -v jq >/dev/null 2>&1; then
+        info "Summary: $(jq -c .summary "$json_host")"
+      else
+        info "Summary: $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1]))["summary"]))' "$json_host" 2>/dev/null || echo '(install jq for a one-line summary)')"
+      fi
+    else
+      fail "Audit run failed; partial JSON at $json_host"
+    fi
     ;;
 
   verify)

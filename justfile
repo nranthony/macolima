@@ -96,6 +96,10 @@ health:
 verify profile *args:
     {{profile_sh}} {{profile}} verify {{args}}
 
+# tier-2 structured audit (~85 probes, JSON to the profile's claude-home). Accepts --stage-only / --clean / --compact
+audit profile *args:
+    {{profile_sh}} {{profile}} audit {{args}}
+
 # ---- control dashboard (host-side Streamlit, no profile arg) ----------------
 
 # launch the ops dashboard on http://127.0.0.1:8501 (Ctrl-C to stop)
