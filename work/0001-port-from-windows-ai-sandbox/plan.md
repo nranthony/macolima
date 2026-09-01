@@ -378,7 +378,8 @@ A2. **Proxy directory mount** — **DONE 2026-08-31.** `./proxy` mounted at
 A3. **`.dockerignore`** (M builds an unpruned context) — **DONE 2026-08-31,
     see §3.5 item 1 for the result.** Port W's 17 lines minus
     `host_setup/`/`win_setup/`; add `profiles`, `temp_audit_package`, `dashboard/.venv`.
-A4. **`with-egress.sh` instrumentation + `with-egress.test.sh`.** OSV pre-flight
+A4. **`with-egress.sh` instrumentation + `with-egress.test.sh`** — **DONE
+    2026-08-31, 81/82** (the 82nd needs A5; see §3.5 item 4). OSV pre-flight
     (host-side, `api.osv.dev` stays off the allowlist), `flock` serialisation,
     lockfile-hash + module-tree snapshots, Squid access.log window analysis,
     `depgate.jsonl` under `profiles/<p>/audit/`. Fix `open_section()` prose bug
@@ -393,8 +394,10 @@ A5. **Gate 2 / Gate 3 in Dockerfile** (npm `min-release-age` quarantine; pip
     inside the quarantine window — an **intermittent** break that surfaces on a
     routine refresh, not on a cold build. Get the order right the first time;
     this is not a failure you will reproduce on demand.
-A6. **`depaudit.py` + fixtures + tests**, `profile.sh <p> deps`. Stdlib-only,
-    host-side, no sandbox change.
+A6. **`depaudit.py` + fixtures + tests**, `profile.sh <p> deps` — **DONE
+    2026-08-31, 56/56.** Stdlib-only, host-side, no sandbox change. Ported with
+    `ccf27a3` folded in (the only above-anchor change to any A4/A6 file, so
+    copying from W HEAD carried it and nothing else).
 A7. **FOLDED INTO PHASE D — DECIDED 2026-08-31 (owner). Nothing ships under
     A7; it is not a phase-A item any more.** The handoff (§5.1, §3
     `e9deb82`/ADR-0008) records that W's third hook tier landed *with* the
@@ -643,7 +646,7 @@ Do not queue it as its own task — there is nothing here to edit.
    non-profile squatter); `verify-sandbox.sh` **24/0/0**; tier-2 audit **70
    probes, OK 64 / INFO 4 / N/A 1 / DRIFT 1 — identical to the Phase 0
    baseline**, same pre-existing `settings/template_diff`.
-4. **A2 — DONE 2026-08-31** (see Phase A above; the inode bug was live here
+4. **A2, A4, A6 — DONE 2026-08-31.** (see Phase A above; the inode bug was live here
    and silent). **A4+A6, then A5** remain, in that order. A4 carries
    `with-egress.test.sh` (82); A6 carries `depaudit.test.sh` (56) **and
    `ccf27a3` folded in**; A5 carries `dockerfile-order.test.sh` (8) and the
@@ -653,6 +656,44 @@ Do not queue it as its own task — there is nothing here to edit.
    new `depaudit.py` with fixtures — these are substantially larger than
    A1/A2/A3 and each must land *with* its suite (the Phase A0 binding), so
    neither is a single-sitting item like the three done so far.
+
+**A4 + A6 results (2026-08-31).**
+
+- `depaudit.test.sh` **56/56**; `with-egress.test.sh` **81/82**. The one
+  outstanding assertion locks `gate3_scan_file` byte-identical between
+  `with-egress.sh` and `verify-sandbox.sh` — the second copy arrives with **A5**.
+- **The suite paid for itself immediately.** It found a stale
+  pre-A2 allowlist path still live in `dashboard/src/lib/docker_client.py`
+  that A2's own repo-wide sweep had missed. Root cause of the miss: in this
+  environment `grep` is a shell function that silently skips `dashboard/` when
+  the target is `.` rather than an explicit directory. A1 and A2 were both
+  re-swept with explicit paths; A1 was clean, A2 was not.
+- **macOS adaptations that W could not have hit**, all recorded in-place:
+  `timeout(1)` does not exist on macOS (nor `gtimeout`) — replaced with a perl
+  `_timeout` that forks with stdin intact, verified for stdin, status
+  propagation, real expiry and success; `mktemp` with no template resolves via
+  confstr to `/var/folders/...`, so the one bare call was templated like the
+  other five; and `Path.resolve()` follows the `/tmp` → `/private/tmp` symlink,
+  which broke every `roots` assertion until the fixtures were created with
+  `cd ... && pwd -P`.
+- `date -u -d '7 days ago'` needed nothing — W already carried the BSD
+  `-v-7d` fallback.
+- **`list_denied_domains()` and `PROXY_ALLOWLIST` landed in `profile.sh`
+  early.** They are A8's, but `with-egress.test.sh` locks all three allowlist
+  parsers and all four path call sites together, so they travel with the suite
+  per the A0 binding. Neither is called yet — A8 wires them into `verify`.
+  **Do not delete them as dead code before then.**
+- **`open_section()`'s prose bug is real here and now fixed.** The old parser
+  stripped `# ` from *any* commented line inside an opened section, so a
+  single-`#` prose note inside a gated block became a bare line that squid
+  parses as a `dstdomain` entry. Demonstrated before/after. It was latent
+  rather than live — no gated block in M currently holds such a note.
+- **A live workspace finding, not this repo's:** the pre-flight reported
+  `MALFORMED engine/.npmrc (minimum-release-age=0s)` in
+  `/Volumes/DataDrive/repo/therapod/engine/` — Gate 2 switched off in that
+  repo, with nothing previously watching. Recorded in the window's audit record
+  as `rc_overrides`. Needs a decision by the workspace owner; it is not a
+  macolima defect.
 
 **Decided — no longer an open fork:**
 

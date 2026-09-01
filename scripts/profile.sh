@@ -32,6 +32,12 @@
 #   wipe            blank-slate this profile: down -v, nuke per-profile state, KEEP auth
 #                   (claude creds, claude.json, gh, git identity). Confirms first.
 #                   Flags: --dry-run (show only), --yes (skip prompt), --all-volumes (also drop DB volumes)
+#   deps            dependency posture for this profile's workspace (HOST-SIDE,
+#                   read-only; depaudit.py). Offline by default. Flags:
+#                   --osv (OSV malicious-package check), --vulns (uv audit,
+#                   known CVEs, non-gating), --json, --strict, --quiet.
+#                   `deps --history [N]` reads back the install-window log
+#                   written by with-egress.sh.
 #   list            list all existing profiles (by drive dir)
 #   exec <cmd...>   run an arbitrary command inside the agent container
 #
@@ -215,6 +221,51 @@ ensure_repo_dir() {
       Create it first:  mkdir -p '$REPO_ROOT/$PROFILE'
       Or clone repos into it before bringing the stack up."
   fi
+}
+
+# Path to the allowlist INSIDE the egress-proxy container. One spelling, in one
+# place per call site, and scripts/with-egress.test.sh asserts that all four
+# agree (squid.conf's acl, this, with-egress.sh, dashboard docker_client.py).
+# That lock is not theoretical: the dashboard carried a stale copy of the
+# pre-A2 path for the whole of work/0001 A2 and only the test found it (a
+# repo-wide grep missed it). Consumed by A8's check_allowlist_sync; declared
+# here now because the suite that locks it ports with A4.
+PROXY_ALLOWLIST="/etc/squid/host/allowed_domains.txt"
+
+# --- allowlist parsing -------------------------------------------------------
+# Which domains does the repo MEAN to deny? Every commented-out domain line
+# that is not already covered by an active wildcard parent.
+#
+# Ported from windows-ai-sandbox with work/0001 A4. It is deliberately here and
+# not in with-egress.sh: it is the third of the three parsers that read
+# proxy/allowed_domains.txt, and scripts/with-egress.test.sh extracts and locks
+# all three from the real sources so they cannot drift apart. Both failure
+# directions matter — over-matching reports a healthy proxy as permitting
+# revoked hosts, under-matching verifies nothing while printing a reassuring
+# count.
+#
+# NOTHING CALLS THIS YET. It lands now because the test suite is ported with its
+# subject (the Phase A0 binding); work/0001 A8 wires it into the `verify`
+# enforcement probe. Do not delete it as dead code before then.
+list_denied_domains() {
+  local allowlist="$1" commented active wild d
+  commented=$(sed -n 's/^#[[:space:]]\{1,\}\(\.\{0,1\}[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z][A-Za-z]\{1,\}\)[[:space:]]*$/\1/p' \
+    "$allowlist" | sed 's/^\.//' | sort -u)
+  active=$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$allowlist" \
+    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u)
+  # Active wildcard parents, dot retained: `.foo.com` -> suffix test `*.foo.com`.
+  wild=$(printf '%s\n' "$active" | grep '^\.' || true)
+
+  while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    local covered=0 w
+    while IFS= read -r w; do
+      [[ -n "$w" ]] || continue
+      [[ "$d" == *"$w" ]] && { covered=1; break; }
+    done <<< "$wild"
+    [[ "$covered" -eq 0 ]] && printf '%s\n' "$d"
+  done < <(comm -23 <(printf '%s\n' "$commented") \
+                    <(printf '%s\n' "$active" | sed 's/^\.//' | sort -u))
 }
 
 # --- per-profile subnet allocation ------------------------------------------
@@ -618,6 +669,241 @@ case "$CMD" in
     fi
     cp "$src" "$dst"
     ok "settings.json reset for '$PROFILE'. Restart claude inside the container to pick up."
+    ;;
+
+  deps)
+    # Dependency posture for the profile's workspace. Runs HOST-SIDE: depaudit is
+    # read-only and spawns nothing, and the OSV cross-check needs api.osv.dev,
+    # which is deliberately NOT in the egress allowlist — keeping it on the host
+    # means the check costs no egress surface inside any profile (plan D1/D6).
+    # Routed through profile.sh anyway, per golden rule 1: discovery of what a
+    # profile can do lives here, not in a script the user has to know about.
+    da="$SCRIPT_DIR/scripts/depaudit.py"
+    [[ -f "$da" ]] || fail "depaudit.py missing: $da"
+    command -v python3 >/dev/null 2>&1 || fail "python3 not found on the host (depaudit needs 3.11+)"
+    python3 -c 'import sys,tomllib' 2>/dev/null \
+      || fail "python3 is too old for depaudit (needs 3.11+ for tomllib): $(python3 -V 2>&1)"
+
+    # --history reads back the T22 install-window log and returns. It is a
+    # different question from posture — "what came in, and what did it reach"
+    # rather than "how is this repo configured" — and needs no workspace, so it
+    # short-circuits before the workspace check below.
+    if [[ "${1:-}" == "--history" ]]; then
+      hist="$PROFILES_ROOT/$PROFILE/audit/depgate.jsonl"
+      [[ -f "$hist" ]] || { info "No install windows recorded yet for '$PROFILE'."; \
+        info "The log is written by scripts/with-egress.sh, which per ADR-0003 is the only route a dependency can take."; exit 0; }
+      shift
+      hist_n="${1:-20}"
+      python3 - "$hist" "$hist_n" <<'PY'
+import json, sys, datetime
+
+path, want = sys.argv[1], int(sys.argv[2])
+rows = []
+for line in open(path, encoding="utf-8"):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        rows.append(json.loads(line))
+    except json.JSONDecodeError:
+        # A partial line means a run was killed mid-append. Say so; do not
+        # silently drop it, or the log looks complete when it is not.
+        rows.append(None)
+
+shown = rows[-want:]
+bad = sum(1 for r in shown if r is None)
+print(f"{len(rows)} window(s) recorded; showing last {len(shown)}\n")
+for r in shown:
+    if r is None:
+        print("  ??  <unparseable line — a run was interrupted mid-write>")
+        continue
+    when = datetime.datetime.fromtimestamp(r["ts_open"]).strftime("%Y-%m-%d %H:%M")
+    eg = r.get("egress", {})
+    denied = eg.get("denied", [])
+    add = r.get("modules_added", {}).get("count", 0)
+    rem = r.get("modules_removed", {}).get("count", 0)
+    locks = r.get("lockfiles_changed", [])
+    flag = "!" if (denied or r.get("rc")) else " "
+    print(f"{flag} {when}  {r['duration_s']:>4}s  rc={r.get('rc',0)}  "
+          f"[{','.join(r.get('sections', [])) or '-'}]  modules +{add}/-{rem}  "
+          f"lockfiles {len(locks)}")
+    print(f"     cmd: {r.get('cmd','')[:100]}")
+    if eg.get("allowed"):
+        print(f"     reached: {', '.join(eg['allowed'][:8])}"
+              + (f" (+{len(eg['allowed'])-8} more)" if len(eg["allowed"]) > 8 else ""))
+    if denied:
+        print(f"     DENIED : {', '.join(denied)}")
+    for p in r.get("preflight", []):
+        if p.get("verdict") not in ("NO-KNOWN-MAL", ""):
+            print(f"     preflight {p['verdict']}: {p['eco']}/{p['name']} — {p.get('detail','')}")
+    if locks:
+        print(f"     lockfiles: {', '.join(locks)}")
+    print()
+if bad:
+    print(f"WARNING: {bad} unparseable line(s) in {path}")
+PY
+      exit 0
+    fi
+
+    ws="$REPO_ROOT/$PROFILE"
+    [[ -d "$ws" ]] || fail "Workspace does not exist: $ws"
+
+    dep_osv=0; dep_vulns=0; dep_fmt="md"; dep_failon="warn"
+    for a in "$@"; do
+      case "$a" in
+        --osv)     dep_osv=1 ;;
+        --vulns)   dep_vulns=1 ;;
+        --json)    dep_fmt="json" ;;
+        --strict)  dep_failon="fail" ;;
+        --quiet)   dep_failon="never" ;;
+        *) fail "Unknown flag for deps: $a
+      Usage: scripts/profile.sh $PROFILE deps [--osv] [--vulns] [--json] [--strict|--quiet]
+             scripts/profile.sh $PROFILE deps --history [N]" ;;
+      esac
+    done
+
+    # --- uv audit: KNOWN-VULNERABILITY scan. Separate, labelled, NON-GATING --
+    #
+    # ADR-0002 refused `osv-scanner` ("a Go binary to avoid writing a urllib
+    # POST") and a local OSV mirror (~240k records to keep fresh). BOTH refusals
+    # were priced on COST, and that cost is now zero: `uv audit` ships in the uv
+    # this repo already installs on the host and bakes into the image, reads
+    # uv.lock directly, needs no new binary, no vendored corpus and no API key.
+    # It caches the OSV data it fetches under ~/.cache/uv/osv-v0/.
+    #
+    # WHAT DID NOT CHANGE is depaudit's report design: it reports MAL- records
+    # only, because GHSA-/PYSEC-/CVE- answer a different question, and mixing
+    # them is how a supply-chain gate becomes a CVE treadmill nobody reads. That
+    # reasoning is intact, so this section is walled off from it:
+    #   * opt-in (--vulns), never part of a bare `deps`, which stays offline;
+    #   * printed under its own heading, never merged into depaudit's counts;
+    #   * it does NOT touch dep_rc — a CVE in a transitive dependency is not the
+    #     same event as a malicious package, and must not fail the same command;
+    #   * it never gates tier-1 `verify`, which is offline by contract.
+    #
+    # HOST-SIDE ONLY, and that is load-bearing: api.osv.dev is deliberately
+    # absent from proxy/allowed_domains.txt, and ADR-0002 banked "zero new
+    # egress surface" as a consequence of its refusals. Running this inside a
+    # profile would spend exactly that. Adding osv.dev to the allowlist is not
+    # the answer to anything here.
+    #
+    # --ignore-until-fixed is what keeps such a section survivable rather than
+    # permanently red: it suppresses an ID only while no fix exists, so the
+    # finding returns by itself the day one lands — unlike a plain --ignore,
+    # which is forever. Every entry below is one ID plus the reason it is
+    # ignored; an entry with no reason is not a decision, it is a silence.
+    UV_AUDIT_IGNORE=(
+      # (empty — nothing is being suppressed today)
+    )
+    run_uv_audit() {  # <root> <label>
+      local uroot="$1" ulabel="$2" uargs=() uid
+      [[ -f "$uroot/uv.lock" ]] || { info "uv audit: $ulabel — skipped, no uv.lock (a skip is not a pass)"; return 0; }
+      command -v uv >/dev/null 2>&1 || { warn "uv audit: uv not found on the host — skipped (a skip is not a pass)"; return 0; }
+      for uid in ${UV_AUDIT_IGNORE[@]+"${UV_AUDIT_IGNORE[@]}"}; do
+        uargs+=(--ignore-until-fixed "$uid")
+      done
+      printf '\n%s\n' "---- uv audit (known vulnerabilities) — $ulabel ----"
+      printf '%s\n' "     NON-GATING and separate from depaudit's malicious-package verdict."
+      if (( ${#UV_AUDIT_IGNORE[@]} > 0 )); then
+        printf '%s\n' "     ignored-until-fixed: ${UV_AUDIT_IGNORE[*]}"
+      fi
+      # --frozen: audit what the lockfile SAYS, never re-resolve. A scan that
+      # silently relocks is reporting on a tree that does not exist yet.
+      ( cd "$uroot" && uv audit --frozen ${uargs[@]+"${uargs[@]}"} ) || true
+    }
+
+    # A profile's workspace holds MANY repos (docker-compose.yml: "the profile's
+    # repo parent folder = /workspace"). depaudit is root-scoped by design, so
+    # iterate: the workspace root, plus each repo under it that carries a
+    # manifest.
+    #
+    # Enumeration lives in depaudit's `roots` (work/0018), NOT here. What it
+    # replaced asked only "does a manifest sit at this child's root?", which
+    # silently omitted any repo whose manifest sits one level down (upstream's
+    # case there was a vendored tree holding the largest dependency surface in
+    # the workspace, missed for the whole life of the subcommand — see
+    # windows-ai-sandbox ccf27a3, ported with this). Two reasons it moved:
+    # the vendored-tree exclusion is now
+    # depaudit's own skipped(), so it cannot drift from the one the checks use;
+    # and the enumeration is testable offline in depaudit.test.sh.
+    dep_roots=""
+    dep_skipped=""
+    # Captured, not piped: an enumeration that CRASHES must not read as "no
+    # manifests here" — that is the same under-report in a different disguise.
+    dep_rows=$(python3 "$da" roots "$ws") \
+      || fail "depaudit roots failed for $ws — enumeration is not optional"
+    while IFS=$'\t' read -r dep_verdict dep_path dep_reason; do
+      case "$dep_verdict" in
+        SCAN) dep_roots="$dep_roots $dep_path" ;;
+        SKIP) dep_skipped="${dep_skipped}${dep_path#"$ws"/}|$dep_reason
+" ;;
+      esac
+    done <<< "$dep_rows"
+    [[ -n "${dep_roots// /}" ]] || { warn "No manifests found under $ws"; exit 0; }
+
+    dep_rc=0
+    dep_summary=""
+    for r in $dep_roots; do
+      rel="${r#$REPO_ROOT/}"
+      [[ "$dep_fmt" == "md" ]] && info "depaudit posture: $rel"
+      dep_out=$(python3 "$da" posture "$r" --format "$dep_fmt" --fail-on "$dep_failon") || dep_rc=1
+      printf '%s\n' "$dep_out"
+      if [[ "$dep_fmt" == "md" ]]; then
+        counts=$(printf '%s\n' "$dep_out" | grep -m1 '^| FAIL ' | tr -d '|' | tr -s ' ')
+        dep_summary="${dep_summary}${rel}|${counts}
+"
+      fi
+      if [[ "$dep_osv" -eq 1 ]]; then
+        [[ "$dep_fmt" == "md" ]] && info "depaudit OSV malicious-package check: $rel"
+        osv_out=$(python3 "$da" deps "$r" --format "$dep_fmt") || dep_rc=1
+        printf '%s\n' "$osv_out"
+        if [[ "$dep_fmt" == "md" ]]; then
+          blocked=$(printf '%s\n' "$osv_out" | grep -c '^\- \*\*\[BLOCK\]' || true)
+          [[ "${blocked:-0}" -gt 0 ]] && dep_summary="${dep_summary}${rel}|  OSV BLOCK ${blocked}
+"
+        fi
+      fi
+      # Deliberately outside the --json path: this is uv's own text output, not
+      # depaudit's schema, and splicing a foreign format into --json would make
+      # the JSON unparseable for anything consuming it.
+      if [[ "$dep_vulns" -eq 1 && "$dep_fmt" == "md" ]]; then
+        run_uv_audit "$r" "$rel"
+      fi
+    done
+
+    # A nine-repo workspace produces nine reports; without a roll-up the reader
+    # has to scroll and diff them by eye, which is how a FAIL gets missed.
+    if [[ "$dep_fmt" == "md" && -n "$dep_summary" ]]; then
+      printf '\n%s\n' "=========================================================="
+      printf '%s\n' "SUMMARY — $PROFILE workspace ($REPO_ROOT/$PROFILE)"
+      printf '%s\n' "=========================================================="
+      printf '%s' "$dep_summary" | while IFS='|' read -r name counts; do
+        [[ -z "$name" ]] && continue
+        printf '  %-32s %s\n' "$name" "$counts"
+      done
+      printf '%s\n' "----------------------------------------------------------"
+      if [[ -n "$dep_skipped" ]]; then
+        printf '%s\n' "  NOT SCANNED — a skip is not a pass:"
+        printf '%s' "$dep_skipped" | while IFS='|' read -r name reason; do
+          [[ -z "$name" ]] && continue
+          printf '  %-32s %s\n' "$name" "$reason"
+        done
+        printf '%s\n' "----------------------------------------------------------"
+      fi
+      printf '%s\n' "  scanned $(printf '%s' "$dep_roots" | wc -w) repo root(s), skipped $(printf '%s' "$dep_skipped" | grep -c . || true)."
+      printf '%s\n' "  depaudit is READ-ONLY and reports on configuration; it does"
+      printf '%s\n' "  not enforce anything. FAIL = a control that is absent, not"
+      printf '%s\n' "  a vulnerability. Fixes belong in the repo it names."
+      if [[ "$dep_vulns" -eq 1 ]]; then
+        printf '%s\n' "  uv audit ran separately above and is NOT counted here: a known"
+        printf '%s\n' "  CVE is a different question from a missing control, and from a"
+        printf '%s\n' "  malicious package. Its findings gate nothing."
+      else
+        printf '%s\n' "  Known vulnerabilities were NOT checked. Add --vulns (host-side,"
+        printf '%s\n' "  needs network) to run uv audit alongside this."
+      fi
+    fi
+    exit "$dep_rc"
     ;;
 
   wipe)

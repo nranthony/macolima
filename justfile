@@ -63,6 +63,10 @@ logs profile:
 exec profile *args:
     {{profile_sh}} {{profile}} exec {{args}}
 
+# dependency posture for a profile's workspace (host-side, read-only)
+deps profile *args:
+    {{profile_sh}} {{profile}} deps {{args}}
+
 # list all existing profiles (no profile arg)
 list:
     {{profile_sh}} list

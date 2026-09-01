@@ -1,0 +1,712 @@
+#!/usr/bin/env bash
+# =============================================================================
+# with-egress.test.sh — regression harness for the phase-3 instrumentation
+# =============================================================================
+# Covers the two PARSERS in scripts/with-egress.sh, which are the parts that can
+# be wrong while looking right:
+#
+#   extract_specs()  T18 — which package names does a command actually name?
+#   egress_hosts()   T20 — which hosts did the proxy see inside the bracket?
+#
+# Plus the third allowlist parser, which lives in profile.sh but belongs with
+# these because it reads the same file and fails the same way:
+#
+#   list_denied_domains()  — which domains does the repo mean to DENY? This
+#     feeds verify's enforcement probe, so a parser that over-matches reports a
+#     healthy proxy as permitting revoked hosts (crying wolf), and one that
+#     under-matches verifies nothing while printing a reassuring count.
+#
+# This is not incidental caution. The identical class of bug has now shipped
+# three times on this workstream: T04's dep-name extractor was line-oriented and
+# silently matched nothing on compact manifests; depaudit's lockfile parser put
+# peer-dependency suffixes into package names so 121 of 869 entries were queried
+# under names OSV cannot match and every one reported clean. A parser that
+# under-matches does not fail — it returns a confident empty answer.
+#
+# The functions are EXTRACTED FROM THE REAL SCRIPT at run time rather than
+# copied, so this cannot drift from what actually ships.
+#
+# Fully offline. No docker, no network, no profile required.
+#
+# Usage:  bash scripts/with-egress.test.sh
+# =============================================================================
+
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SRC="$HERE/with-egress.sh"
+PROFILE_SRC="$HERE/profile.sh"
+[[ -f "$SRC" ]] || { echo "missing $SRC" >&2; exit 1; }
+[[ -f "$PROFILE_SRC" ]] || { echo "missing $PROFILE_SRC" >&2; exit 1; }
+
+# Pull a top-level `name() { ... }` block out of a real script and define it
+# here. Anchored on column-0 braces, which is how both files are written.
+# Second argument is the source file; it defaults to with-egress.sh because most
+# of what this suite covers lives there, but the allowlist parsers are split
+# across two scripts and both are locked here (see the header).
+import_fn() {
+  local fn="$1" src="${2:-$SRC}" body
+  body="$(awk -v f="$fn" '
+    $0 ~ "^" f "\\(\\) \\{" { inside = 1 }
+    inside { print }
+    inside && /^\}$/ { exit }
+  ' "$src")"
+  [[ -n "$body" ]] || { echo "could not extract $fn() from $src" >&2; exit 1; }
+  eval "$body"
+}
+import_fn extract_specs
+import_fn egress_hosts
+import_fn newly_opened_domains
+import_fn scan_workspace_rc
+import_fn list_denied_domains "$PROFILE_SRC"
+import_fn open_section
+
+PASS=0; FAIL=0
+ok()   { PASS=$((PASS+1)); printf "  ok   %s\n" "$1"; }
+bad()  { FAIL=$((FAIL+1)); printf "  FAIL %s\n       want: %s\n       got : %s\n" "$1" "$2" "$3"; }
+
+# expect_specs <description> <command> <expected multiline "eco name", or "">
+expect_specs() {
+  local desc="$1" cmd="$2" want="$3" got
+  got="$(extract_specs "$cmd")"
+  if [[ "$got" == "$want" ]]; then ok "$desc"
+  else bad "$desc" "$(printf '%s' "$want" | tr '\n' '; ')" "$(printf '%s' "$got" | tr '\n' '; ')"; fi
+}
+
+printf "\n-- T18 extract_specs: explicit names ARE caught --\n"
+expect_specs "npm install one package"      'npm install lodash'            'npm lodash'
+expect_specs "npm i shorthand"              'npm i lodash'                  'npm lodash'
+expect_specs "pnpm add scoped + version"    'pnpm add @scope/pkg@1.2.3'     'npm @scope/pkg'
+expect_specs "pip install pinned"           'pip install requests==2.31.0'  'pypi requests'
+expect_specs "pip install range"            'pip install "django>=4.0"'     'pypi django'
+expect_specs "uv pip install"               'uv pip install httpx'          'pypi httpx'
+expect_specs "uv add"                       'uv add rich'                   'pypi rich'
+expect_specs "poetry add"                   'poetry add flask'              'pypi flask'
+expect_specs "cargo add"                    'cargo add serde'               'cargo serde'
+expect_specs "yarn add"                     'yarn add react'                'npm react'
+expect_specs "bun add"                      'bun add hono'                  'npm hono'
+expect_specs "multiple packages, sorted"    'npm install alpha beta'        'npm alpha
+npm beta'
+expect_specs "after a cd, && chained"       'cd /workspace/x && npm install lodash' 'npm lodash'
+expect_specs "two installs, ; separated"    'pip install one; npm add two'  'npm two
+pypi one'
+
+printf "\n-- T18 extract_specs: things that must NOT be reported --\n"
+# A lockfile install names nothing new: every version in it was already held to
+# the age gate when it was written. Reporting them would make every `npm ci`
+# emit a wall of UNKNOWNs, and a noisy check is one nobody reads (see the G10
+# rewrite).
+expect_specs "npm ci is a lockfile install"     'npm ci'                          ''
+expect_specs "bare pnpm install"                'pnpm install'                    ''
+expect_specs "pnpm install --frozen-lockfile"   'pnpm install --frozen-lockfile'  ''
+expect_specs "uv sync"                          'uv sync --frozen'                ''
+expect_specs "flags are not packages"           'pip install --upgrade --no-cache-dir' ''
+expect_specs "local path install"               'pip install -e .'                ''
+expect_specs "local relative path"              'pip install ./libs/thing'        ''
+expect_specs "extras on a local path"           'uv pip install -e ".[dev]"'      ''
+expect_specs "no install verb at all"           'python -c "import sys"'          ''
+expect_specs "unrelated command containing npm" 'echo npm is a package manager'   ''
+expect_specs "a shell variable cannot resolve"  'pip install $PKG'                ''
+expect_specs "a glob cannot resolve"            'pip install ./dist/*.whl'        ''
+
+printf "\n-- T20 egress_hosts: squid logformat parsing --\n"
+# Real lines, copied from a live egress-proxy access.log. Field 1 is
+# epoch.millis, field 4 is code/status, field 7 is the URL.
+# Explicit template + $TMPDIR, matching the five other mktemp sites in this
+# file. A bare `mktemp` resolves via confstr to /var/folders/... on macOS,
+# which is outside a restricted TMPDIR and fails there; the templated form
+# works in both. Consistency fix, not an upstream defect.
+LOG="$(mktemp "${TMPDIR:-/tmp}/wetest.XXXXXX")"; trap 'rm -f "$LOG"' EXIT
+cat > "$LOG" <<'EOF'
+1785722053.249      0 172.30.187.2 TCP_DENIED/403 3394 CONNECT example.com:443 - HIER_NONE/- text/html
+1785722086.631     60 172.30.187.2 TCP_TUNNEL/200 3875 CONNECT api.anthropic.com:443 - HIER_DIRECT/160.79.104.10 -
+1785722090.000     10 172.30.187.2 TCP_MISS/200 900 GET http://pypi.org/simple/foo/ - HIER_DIRECT/1.2.3.4 text/html
+1785722095.500     12 172.30.187.2 TCP_TUNNEL/200 100 CONNECT files.pythonhosted.org:443 - HIER_DIRECT/9.9.9.9 -
+1785722099.100      0 172.30.187.2 TCP_DENIED/403 100 CONNECT evil.example.net:443 - HIER_NONE/- text/html
+1785722100.063     12 172.30.187.2 TCP_TUNNEL/200 100 CONNECT last-fraction.example:443 - HIER_DIRECT/7.7.7.7 -
+1785799999.000      0 172.30.187.2 TCP_TUNNEL/200 100 CONNECT after-the-window.com:443 - HIER_DIRECT/8.8.8.8 -
+1785700000.000      0 172.30.187.2 TCP_TUNNEL/200 100 CONNECT before-the-window.com:443 - HIER_DIRECT/8.8.8.8 -
+EOF
+# Stub docker so egress_hosts() runs its real awk against the fixture. It calls
+# `docker exec -u proxy <proxy> awk -v s=.. -v e=.. '<prog>' <logpath>`.
+docker() {
+  local args=("$@") prog="" i
+  for (( i=0; i<${#args[@]}; i++ )); do
+    [[ "${args[$i]}" == "awk" ]] && { prog_idx=$((i+5)); break; }
+  done
+  # args: exec -u proxy <proxy> awk -v s=S -v e=E <prog> <path>
+  awk "${args[5]}" "${args[6]}" "${args[7]}" "${args[8]}" "${args[9]}" "$LOG"
+}
+PROXY="stub"
+got="$(egress_hosts 1785722053 1785722100)"
+want='allowed api.anthropic.com
+allowed files.pythonhosted.org
+allowed last-fraction.example
+allowed pypi.org
+denied evil.example.net
+denied example.com'
+if [[ "$got" == "$want" ]]; then
+  ok "hosts split allowed/denied, scheme+path+port stripped, bracket honoured"
+else
+  bad "egress_hosts" "$(printf '%s' "$want" | tr '\n' '; ')" "$(printf '%s' "$got" | tr '\n' '; ')"
+fi
+
+# REGRESSION LOCK. squid logs epoch.MILLISECONDS; `date +%s` truncates. With an
+# inclusive `$1 <= e` bound, every request in the closing fractional second is
+# dropped. Measured 2026-08-03: a successful `uv pip install six` reached
+# pypi.org at .063 past the close and the audit record read "0 hosts" — an
+# under-reporting audit log is indistinguishable from a clean run, which makes
+# it worse than no log. `last-fraction.example` is logged at 1785722100.063
+# against a bracket ending at 1785722100 and MUST appear.
+if printf '%s\n' "$got" | grep -q 'last-fraction.example'; then
+  ok "traffic in the closing fractional second is included  <-- REGRESSION LOCK"
+else
+  bad "closing fractional second dropped" "last-fraction.example present" "absent"
+fi
+
+# The bracket is the whole point: traffic from a previous or later window must
+# not be attributed to this one.
+if printf '%s\n' "$got" | grep -qE 'after-the-window|before-the-window'; then
+  bad "bracket excludes out-of-window traffic" "neither host" "one leaked in"
+else
+  ok "bracket excludes traffic before and after the window"
+fi
+
+printf "\n-- container-side allowlist path agrees everywhere --\n"
+# The path lives in FIVE places and nothing at runtime cross-checks them. Every
+# one of the consumers fails SILENTLY on a mismatch rather than erroring:
+#   profile.sh inode check  -> `stat` fails, ctr_ino is empty, check skipped forever
+#   profile.sh content diff -> degrades to a warn, drift detection goes soft-blind
+#   with-egress.sh          -> refuses every install (the whole ADR-0003 route)
+#   dashboard               -> domain count returns None, post-reload assert stops asserting
+# So a typo here is not a crash, it is a security control quietly switching off.
+ROOT="$(cd "$HERE/.." && pwd)"
+mount_target="$(grep -oE '^\s*- \./proxy:[^:]+:ro' "$ROOT/docker-compose.yml" | sed 's|.*:/|/|;s|:ro||')"
+acl_path="$(grep -oE 'dstdomain "[^"]+"' "$ROOT/proxy/squid.conf" | sed 's/.*"\(.*\)"/\1/')"
+sh_profile="$(grep -oE '^PROXY_ALLOWLIST="[^"]+"' "$ROOT/scripts/profile.sh" | sed 's/.*"\(.*\)"/\1/')"
+sh_egress="$(grep -oE '^PROXY_ALLOWLIST="[^"]+"' "$ROOT/scripts/with-egress.sh" | sed 's/.*"\(.*\)"/\1/')"
+py_dash="$(grep -oE '^PROXY_ALLOWLIST = "[^"]+"' "$ROOT/dashboard/src/lib/docker_client.py" | sed 's/.*"\(.*\)"/\1/')"
+
+for pair in "compose-mount:$mount_target" "squid.conf-acl:$acl_path" \
+            "profile.sh:$sh_profile" "with-egress.sh:$sh_egress" "dashboard:$py_dash"; do
+  if [[ -n "${pair#*:}" ]]; then ok "found ${pair%%:*} -> ${pair#*:}"
+  else bad "could not read the path from ${pair%%:*}" "a path" "empty"; fi
+done
+
+if [[ "$sh_profile" == "$sh_egress" && "$sh_egress" == "$py_dash" && "$py_dash" == "$acl_path" ]]; then
+  ok "squid.conf acl and all three code constants agree"
+else
+  bad "allowlist path disagrees across call sites" \
+      "all equal" "acl=$acl_path profile=$sh_profile egress=$sh_egress dash=$py_dash"
+fi
+
+if [[ -n "$mount_target" && "$acl_path" == "$mount_target/"* ]]; then
+  ok "the acl path lives inside the compose mount target"
+else
+  bad "acl path is not under the mount target" "$mount_target/..." "$acl_path"
+fi
+
+# A directory mount is the whole fix; a file mount reintroduces silent blindness.
+if grep -qE '^\s*- \./proxy/allowed_domains\.txt:' "$ROOT/docker-compose.yml"; then
+  bad "allowlist is bind-mounted as a FILE again" "directory mount ./proxy:...:ro" "single-file mount"
+else
+  ok "allowlist is not mounted as a single file  <-- REGRESSION LOCK"
+fi
+
+# Nothing may still reach for the pre-2026-08-03 location. Excludes this file
+# (which names the old path in the pattern above) and __pycache__ (stale .pyc
+# bytecode is not a source reference and regenerates on next import).
+stale="$(grep -rln --exclude='with-egress.test.sh' --exclude-dir='__pycache__' \
+  '/etc/squid/allowed_domains\.txt' \
+  "$ROOT/scripts" "$ROOT/dashboard" "$ROOT/docker-compose.yml" "$ROOT/proxy" 2>/dev/null || true)"
+if [[ -z "$stale" ]]; then
+  ok "no code references the old /etc/squid/allowed_domains.txt path"
+else
+  bad "stale path references remain" "none" "$(printf '%s' "$stale" | tr '\n' ' ')"
+fi
+
+# ---------------------------------------------------------------------------
+# list_denied_domains() — the enforcement probe's input set
+# ---------------------------------------------------------------------------
+# Every case below is a shape that actually occurs in proxy/allowed_domains.txt.
+# The two that matter most are the last two: they are false-FAIL generators, and
+# a false FAIL on every healthy profile is how a check becomes furniture.
+echo
+echo "list_denied_domains() — denied-set parser"
+
+DENYFIX="$(mktemp -d "${TMPDIR:-/tmp}/denyfix.XXXXXX")"
+trap 'rm -rf "$DENYFIX"' EXIT
+
+cat > "$DENYFIX/allowlist.txt" <<'EOF'
+# =============================================================================
+# Prose header. Not a domain. Mentions example.com in passing, with words.
+# =============================================================================
+api.anthropic.com
+github.com
+api.github.com
+
+# # --- Playwright browser binaries [playwright-install] ---
+# # Used by `playwright install chromium` etc.
+# cdn.playwright.dev
+# playwright.download.prss.microsoft.com
+
+# --- Quarto CLI install [quarto-install] ---
+# github.com
+# objects.githubusercontent.com
+
+# --- Python package ecosystem [pypi] ---
+# .files.pythonhosted.org
+
+# --- Wildcard-covered child ---
+.covered.example
+# child.covered.example
+EOF
+
+expect_denied() {
+  local desc="$1" want="$2" got
+  got="$(list_denied_domains "$DENYFIX/allowlist.txt" | sort | tr '\n' ' ' | sed 's/ $//')"
+  if [[ "$got" == "$want" ]]; then ok "$desc"; else bad "$desc" "$want" "$got"; fi
+}
+
+expect_denied "denied set: commented domains only, traps excluded" \
+  "cdn.playwright.dev files.pythonhosted.org objects.githubusercontent.com playwright.download.prss.microsoft.com"
+
+# Spelled out individually so a regression names the specific trap it hit.
+got_all="$(list_denied_domains "$DENYFIX/allowlist.txt")"
+for probe in "example.com:prose comment is not a domain" \
+             "Playwright:double-commented '# #' section header is not a domain" \
+             "github.com:commented under one tag but ACTIVE under another" \
+             "child.covered.example:covered by an active .wildcard parent" \
+             "api.anthropic.com:active domain is not in the denied set"; do
+  needle="${probe%%:*}"; why="${probe#*:}"
+  if printf '%s\n' "$got_all" | grep -qx "$needle"; then
+    bad "excluded: $why" "$needle absent" "$needle present"
+  else
+    ok "excluded: $why"
+  fi
+done
+
+# files.pythonhosted.org is written `# .files.pythonhosted.org` — a commented
+# wildcard. Squid would match the bare parent too, so probe it without the dot.
+if printf '%s\n' "$got_all" | grep -qx 'files.pythonhosted.org'; then
+  ok "included: commented wildcard, leading dot stripped for the probe"
+else
+  bad "included: commented wildcard, leading dot stripped" "files.pythonhosted.org" "absent"
+fi
+
+# The real file must yield a non-empty set, or the probe silently verifies
+# nothing while reporting success.
+real_count="$(list_denied_domains "$ROOT/proxy/allowed_domains.txt" | grep -c . || true)"
+if [[ "$real_count" -gt 0 ]]; then
+  ok "real allowlist yields a non-empty denied set ($real_count domains)"
+else
+  bad "real allowlist denied set" "at least 1 domain" "0 — probe would verify nothing"
+fi
+
+# github.com is the live instance of the commented-here-active-there trap.
+if list_denied_domains "$ROOT/proxy/allowed_domains.txt" | grep -qx 'github.com'; then
+  bad "real allowlist: github.com excluded" "absent (active under [git])" "present — would false-FAIL"
+else
+  ok "real allowlist: github.com excluded  <-- FALSE-FAIL LOCK"
+fi
+
+# ---------------------------------------------------------------------------
+# newly_opened_domains() — what the window just widened, i.e. what to probe
+# ---------------------------------------------------------------------------
+echo
+echo "newly_opened_domains() — window diff"
+
+cat > "$DENYFIX/before.txt" <<'EOF'
+api.anthropic.com
+github.com
+# --- Python package ecosystem [pypi] ---
+# .pypi.org
+# .files.pythonhosted.org
+EOF
+
+cat > "$DENYFIX/after.txt" <<'EOF'
+api.anthropic.com
+github.com
+# --- Python package ecosystem [pypi] ---
+.pypi.org
+.files.pythonhosted.org
+EOF
+
+expect_opened() {
+  local desc="$1" before="$2" after="$3" want="$4" got
+  got="$(newly_opened_domains "$before" "$after" | sort | tr '\n' ' ' | sed 's/ $//')"
+  if [[ "$got" == "$want" ]]; then ok "$desc"; else bad "$desc" "$want" "$got"; fi
+}
+
+expect_opened "opening [pypi] names both registry hosts" \
+  "$DENYFIX/before.txt" "$DENYFIX/after.txt" "files.pythonhosted.org pypi.org"
+
+# An already-open section must yield nothing, or every idempotent re-open would
+# probe a stale domain and could refuse a perfectly good window.
+expect_opened "idempotent re-open yields nothing to probe" \
+  "$DENYFIX/after.txt" "$DENYFIX/after.txt" ""
+
+# Direction matters: closing a section is not an opening.
+expect_opened "closing a section yields nothing (wrong direction)" \
+  "$DENYFIX/after.txt" "$DENYFIX/before.txt" ""
+
+# ---------------------------------------------------------------------------
+# open_section() — what a widening window actually uncomments
+#
+# The rule under test: only a line that is a DOMAIN and nothing else may be
+# uncommented. It used to strip `# ` from every commented line inside the block,
+# so a section's prose became allowlist entries for the life of the window —
+# and because Squid splits an ACL line on whitespace, one documentation line
+# under [grants-gov] would have become eight dstdomain values. Three of the
+# assertions below are regression locks on that.
+# ---------------------------------------------------------------------------
+echo
+echo "open_section() — only domain lines get uncommented"
+
+OSFIX="$(mktemp -d "${TMPDIR:-/tmp}/osfix.XXXXXX")"
+trap 'rm -rf "$OSFIX"' EXIT
+
+# One fixture exercising every shape that appears in the real file.
+cat > "$OSFIX/src.txt" <<'EOF'
+api.anthropic.com
+
+# --- Python package ecosystem [pypi] ---
+# Prose about the block that mentions pypi.org in passing.
+# .pypi.org
+# files.pythonhosted.org
+# api.example.org      note explaining this candidate
+# github.com + objects.example.com overlap with another tag; opening
+# this tag widens egress for the duration of the run.
+.astral.sh
+
+# --- Node.js [npm] ---
+# registry.npmjs.org
+EOF
+
+live() { grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
+
+ALLOWLIST="$OSFIX/work.txt"
+cp "$OSFIX/src.txt" "$ALLOWLIST"
+open_section pypi
+opened="$(live "$ALLOWLIST" | sort | tr '\n' ' ' | sed 's/ $//')"
+
+want=".astral.sh .pypi.org api.anthropic.com files.pythonhosted.org"
+if [[ "$opened" == "$want" ]]; then
+  ok "domain lines open; a bare and a dotted host both qualify"
+else
+  bad "domain lines open; a bare and a dotted host both qualify" "$want" "$opened"
+fi
+
+if ! live "$ALLOWLIST" | grep -q "Prose about the block"; then
+  ok "prose inside the block stays commented  <-- REGRESSION LOCK"
+else
+  bad "prose inside the block stays commented" "no prose live" "$(live "$ALLOWLIST" | grep Prose)"
+fi
+
+# The sharp case: a domain followed by an aligned note. Squid would have taken
+# `note`, `explaining`, `this` and `candidate` as four more dstdomain values.
+if ! live "$ALLOWLIST" | grep -q "api.example.org"; then
+  ok "a domain with a trailing inline comment stays closed  <-- REGRESSION LOCK"
+else
+  bad "a domain with a trailing inline comment stays closed" \
+      "api.example.org not live" "$(live "$ALLOWLIST" | grep example.org)"
+fi
+
+# Prose that BEGINS with a hostname is still prose — this line exists verbatim
+# under [quarto-install] in the real allowlist.
+if ! live "$ALLOWLIST" | grep -q "overlap with another tag"; then
+  ok "prose beginning with a hostname is not mistaken for an entry  <-- REGRESSION LOCK"
+else
+  bad "prose beginning with a hostname is not mistaken for an entry" \
+      "line not live" "$(live "$ALLOWLIST" | grep overlap)"
+fi
+
+if ! live "$ALLOWLIST" | grep -q "registry.npmjs.org"; then
+  ok "a different section is untouched"
+else
+  bad "a different section is untouched" "npm still closed" "registry.npmjs.org went live"
+fi
+
+# Idempotence: the whole point of `--with git` on an already-open block.
+cp "$ALLOWLIST" "$OSFIX/once.txt"
+open_section pypi
+if diff -q "$OSFIX/once.txt" "$ALLOWLIST" >/dev/null; then
+  ok "re-opening an already-open section changes nothing"
+else
+  bad "re-opening an already-open section changes nothing" "no diff" "$(diff "$OSFIX/once.txt" "$ALLOWLIST" | head -3)"
+fi
+
+# Block-level disable: header and prose are `# # `, domains are `# `. Opening
+# such a section must yield the domains and leave the doubly-commented prose.
+cat > "$ALLOWLIST" <<'EOF'
+# # --- Google Docs [google-workspace] ---
+# # Read/draft access during a manual session.
+# docs.google.com
+EOF
+open_section google-workspace
+if [[ "$(live "$ALLOWLIST")" == "docs.google.com" ]]; then
+  ok "a block-level-disabled section opens its domains, not its prose"
+else
+  bad "a block-level-disabled section opens its domains, not its prose" \
+      "docs.google.com" "$(live "$ALLOWLIST" | tr '\n' ' ')"
+fi
+
+# Whole-file lock against the REAL allowlist: opening any tag must never put a
+# line containing whitespace into the live set. This is the property Squid cares
+# about and the one the old rule broke for all 25 tagged sections.
+leaked=""
+for tag in $(grep -oE -e '--- .* \[[a-z-]+\] ---' "$ROOT/proxy/allowed_domains.txt" \
+             | grep -oE -e '\[[a-z-]+\]' | tr -d '[]' | sort -u); do
+  cp "$ROOT/proxy/allowed_domains.txt" "$ALLOWLIST"
+  open_section "$tag"
+  if live "$ALLOWLIST" | grep -q '[[:space:]]'; then
+    leaked="$leaked $tag"
+  fi
+done
+if [[ -z "$leaked" ]]; then
+  ok "no tag in the real allowlist can open a line containing whitespace  <-- REGRESSION LOCK"
+else
+  bad "no tag in the real allowlist can open a line containing whitespace" "none" "$leaked"
+fi
+
+# ---------------------------------------------------------------------------
+# scan_workspace_rc() — does the tree we are about to install into weaken the gate?
+# ---------------------------------------------------------------------------
+# Classes: OK / WEAKER / OFF / MALFORMED. MALFORMED is its own class rather than
+# a flavour of OFF because it fails CLOSED (pnpm computes value*60*1e3 -> NaN ->
+# Invalid Date -> every version rejected), which presents as a broken registry
+# and sends people looking in the wrong place.
+echo
+echo "scan_workspace_rc() — workspace quarantine overrides"
+
+WSFIX="$(mktemp -d "${TMPDIR:-/tmp}/wsfix.XXXXXX")"
+mkdir -p "$WSFIX"/{off,weak,strong,malformed,yamlweak,ignored/node_modules/pkg}
+printf 'minimum-release-age=0\n'       > "$WSFIX/off/.npmrc"
+printf 'minimum-release-age=60\n'      > "$WSFIX/weak/.npmrc"
+printf 'minimum-release-age=10080\n'   > "$WSFIX/strong/.npmrc"
+printf 'min-release-age=7\n'          >> "$WSFIX/strong/.npmrc"   # 7 DAYS = same window
+printf 'minimum-release-age=7d\n'      > "$WSFIX/malformed/.npmrc"
+printf 'minimumReleaseAge: 5\n'        > "$WSFIX/yamlweak/pnpm-workspace.yaml"
+printf 'minimum-release-age=0\n'       > "$WSFIX/ignored/node_modules/pkg/.npmrc"
+
+# Keyed on path AND setting: one file can carry several settings (strong/.npmrc
+# deliberately does), so a path-only lookup would return more than one class.
+ws_class() {  # <relative path> <setting> -> class, or MISSING
+  scan_workspace_rc "$WSFIX" \
+    | awk -F'\t' -v p="$1" -v s="$2" '$1==p && $2==s {print $3; f=1} END{if(!f) print "MISSING"}'
+}
+expect_class() {
+  local desc="$1" path="$2" setting="$3" want="$4" got; got="$(ws_class "$path" "$setting")"
+  if [[ "$got" == "$want" ]]; then ok "$desc"; else bad "$desc" "$want" "$got"; fi
+}
+
+expect_class "quarantine set to 0 is OFF" \
+  "off/.npmrc" "minimum-release-age=0" "OFF"
+expect_class "60 minutes is WEAKER than the 10080 baseline" \
+  "weak/.npmrc" "minimum-release-age=60" "WEAKER"
+expect_class "10080 minutes is OK" \
+  "strong/.npmrc" "minimum-release-age=10080" "OK"
+expect_class "suffixed '7d' is MALFORMED, not merely weak" \
+  "malformed/.npmrc" "minimum-release-age=7d" "MALFORMED"
+expect_class "child pnpm-workspace.yaml is scanned too" \
+  "yamlweak/pnpm-workspace.yaml" "minimumReleaseAge=5" "WEAKER"
+
+# npm counts DAYS, pnpm counts MINUTES. `min-release-age=7` and
+# `minimum-release-age=10080` are the SAME window; comparing the day-form against
+# the minute baseline would read as 7 minutes and report WEAKER — a 1440x error.
+expect_class "min-release-age=7 (DAYS) is OK, not WEAKER  <-- UNIT LOCK" \
+  "strong/.npmrc" "min-release-age=7" "OK"
+
+# node_modules holds thousands of vendored .npmrc files; scanning them would bury
+# the real finding.
+if scan_workspace_rc "$WSFIX" | grep -q node_modules; then
+  bad "node_modules is excluded" "no node_modules rows" "node_modules row present"
+else
+  ok "node_modules is excluded from the scan"
+fi
+
+# A clean tree must emit nothing at all, so the audit field stays empty rather
+# than carrying a reassuring "checked: 0 problems" that hides a scan that ran on
+# the wrong directory.
+if [[ -z "$(scan_workspace_rc "$WSFIX/strong/nonexistent" 2>/dev/null)" ]]; then
+  ok "a missing directory yields no rows (and no error)"
+else
+  bad "missing directory" "no output" "output present"
+fi
+rm -rf "$WSFIX"
+
+# ---------------------------------------------------------------------------
+# gate3_scan_file() — Gate 3 (Python wheels-only) project opt-outs
+# ---------------------------------------------------------------------------
+# Gate 2's project-level override was defended in three places; Gate 3's was
+# defended in none (work/0008 item 1). An sdist runs setup.py at INSTALL time,
+# so a workspace that opts out restores arbitrary code execution for every
+# install in the window — while the audit record still reads as a clean
+# wheels-only install. Under-reporting is the worst failure mode an audit log
+# has, because it is indistinguishable from a clean run.
+echo
+echo "gate3_scan_file() — Gate 3 project opt-outs"
+
+# The parser lives in TWO files because verify-sandbox.sh is streamed into the
+# container over stdin and can source nothing. Two hand-edited parsers over one
+# grammar drift — that is not hypothetical here, it is what the two agent deny
+# lists did. Diff them exactly, in both directions, with no exception list.
+VS_SRC="$HERE/verify-sandbox.sh"
+extract_fn_body() {  # <fn> <file>
+  awk -v f="$1" '$0 ~ "^" f "\\(\\) \\{" { inside = 1 } inside { print } inside && /^\}$/ { exit }' "$2"
+}
+g3_a="$(extract_fn_body gate3_scan_file "$SRC")"
+g3_b="$(extract_fn_body gate3_scan_file "$VS_SRC")"
+if [[ -n "$g3_a" && "$g3_a" == "$g3_b" ]]; then
+  ok "gate3_scan_file is byte-identical in with-egress.sh and verify-sandbox.sh  <-- DRIFT LOCK"
+else
+  bad "gate3_scan_file byte-identical across both scripts" "identical, non-empty" \
+      "$(diff <(printf '%s\n' "$g3_a") <(printf '%s\n' "$g3_b") | head -5 | tr '\n' '; ')"
+fi
+
+import_fn gate3_scan_file
+
+G3FIX="$(mktemp -d "${TMPDIR:-/tmp}/g3fix.XXXXXX")"
+mkdir -p "$G3FIX"/{optout,decoy,strong,uvtoml,pipnaked,pipexempt,broken,clean}
+mkdir -p "$G3FIX/vendored/.venv/lib/python3.12/site-packages/thirdparty"
+printf '[project]\nname = "o"\n\n[tool.uv]\nno-build = false\n'  > "$G3FIX/optout/pyproject.toml"
+printf '[project]\nname = "d"\n\n[tool.hatch]\nno-build = false\n\n[tool.uv]\n# no-build = false\n' \
+                                                                 > "$G3FIX/decoy/pyproject.toml"
+printf '[project]\nname = "s"\n\n[tool.uv]\nno-build = true\n'   > "$G3FIX/strong/pyproject.toml"
+printf 'no-build = false\n'                                      > "$G3FIX/uvtoml/uv.toml"
+printf '[global]\nindex-url = https://pypi.org/simple\n'         > "$G3FIX/pipnaked/pip.conf"
+printf '[global]\nonly-binary = :all:\nno-binary = torchsparse\n' > "$G3FIX/pipexempt/pip.conf"
+printf '[tool.uv\nno-build = false\n'                            > "$G3FIX/broken/pyproject.toml"
+printf '[project]\nname = "c"\n'                                 > "$G3FIX/clean/pyproject.toml"
+printf '[tool.uv]\nno-build = false\n' \
+  > "$G3FIX/vendored/.venv/lib/python3.12/site-packages/thirdparty/pyproject.toml"
+
+g3_class() {  # <fixture>/<file> <setting> -> class, or MISSING
+  gate3_scan_file "$G3FIX/$1" \
+    | awk -F'\t' -v s="$2" '$1==s {print $2; f=1} END{if(!f) print "MISSING"}'
+}
+expect_g3() {
+  local desc="$1" file="$2" setting="$3" want="$4" got; got="$(g3_class "$file" "$setting")"
+  if [[ "$got" == "$want" ]]; then ok "$desc"; else bad "$desc" "$want" "$got"; fi
+}
+
+expect_g3 "[tool.uv] no-build = false is OFF" \
+  "optout/pyproject.toml" "no-build=false" "OFF"
+expect_g3 "top-level no-build = false in uv.toml is OFF" \
+  "uvtoml/uv.toml" "no-build=false" "OFF"
+expect_g3 "no-build = true restates the default and is OK" \
+  "strong/pyproject.toml" "no-build=true" "OK"
+expect_g3 "a pip.conf with no only-binary is OFF (it REPLACES /etc/pip.conf, not merges)" \
+  "pipnaked/pip.conf" "only-binary=<unset>" "OFF"
+expect_g3 "pip no-binary=<pkg> is WEAKER, not OFF — it exempts one package, :all: covers the rest" \
+  "pipexempt/pip.conf" "no-binary=torchsparse" "WEAKER"
+expect_g3 "unparseable TOML is UNPARSED — an unknown is never a pass" \
+  "broken/pyproject.toml" "parse=TOMLDecodeError" "UNPARSED"
+
+# SECTION-SCOPE LOCK. `no-build = false` under [tool.hatch] and the same line
+# behind a `#` are both non-events. A bare line-grep reports each of them, and a
+# reported opt-out that does not exist sends someone hunting for it — the same
+# false-phantom failure X05 is locked against in depaudit.
+if [[ -z "$(gate3_scan_file "$G3FIX/decoy/pyproject.toml")" ]]; then
+  ok "no-build=false under [tool.hatch] / behind a # emits nothing  <-- SECTION-SCOPE LOCK"
+else
+  bad "decoy no-build emits nothing" "no output" "$(gate3_scan_file "$G3FIX/decoy/pyproject.toml" | tr '\n' '; ')"
+fi
+
+# A project that declares no opinion inherits the image default, which is the
+# wanted state. A row there would fire on every healthy repo, and a
+# permanently-firing check is furniture (the G10/N03 lesson).
+if [[ -z "$(gate3_scan_file "$G3FIX/clean/pyproject.toml")" ]]; then
+  ok "a pyproject.toml that declares no policy emits nothing"
+else
+  bad "clean pyproject emits nothing" "no output" "present"
+fi
+
+# scan_workspace_rc must carry the Gate 3 rows with a path prefix, in the same
+# three-column shape the audit record's rc_overrides already parses.
+if scan_workspace_rc "$G3FIX" \
+     | awk -F'\t' '$1=="optout/pyproject.toml" && $2=="no-build=false" && $3=="OFF"{f=1} END{exit !f}'; then
+  ok "scan_workspace_rc emits Gate 3 rows in the path/setting/class shape"
+else
+  bad "scan_workspace_rc Gate 3 row" "optout/pyproject.toml no-build=false OFF" \
+      "$(scan_workspace_rc "$G3FIX" | tr '\n' '; ')"
+fi
+
+# Every .venv carries hundreds of vendored pyproject.toml files. Scanning them
+# buries the real finding under third-party noise that the workspace does not
+# install from — the same reason node_modules is pruned above.
+if scan_workspace_rc "$G3FIX" | grep -qE 'site-packages|\.venv'; then
+  bad "site-packages is excluded" "no .venv/site-packages rows" "vendored row present"
+else
+  ok "a vendored pyproject.toml inside .venv/site-packages is excluded from the scan"
+fi
+rm -rf "$G3FIX"
+
+# ---------------------------------------------------------------------------
+# T24 — the Python age gate and its escape hatch
+# ---------------------------------------------------------------------------
+echo
+echo "T24 — UV_EXCLUDE_NEWER window + --allow-fresh"
+
+import_fn scan_uv_exclude_newer
+
+T24FIX="$(mktemp -d "${TMPDIR:-/tmp}/t24.XXXXXX")"
+mkdir -p "$T24FIX"/{pinned,uvtoml,unpinned}
+mkdir -p "$T24FIX/vendored/.venv/lib/python3.12/site-packages/thirdparty"
+printf '[project]\nname = "p"\n\n[tool.uv]\nexclude-newer = "2026-01-01T00:00:00Z"\n' \
+  > "$T24FIX/pinned/pyproject.toml"
+printf 'exclude-newer = "2026-02-02T00:00:00Z"\n' > "$T24FIX/uvtoml/uv.toml"
+printf '[project]\nname = "u"\n'                  > "$T24FIX/unpinned/pyproject.toml"
+printf '[tool.uv]\nexclude-newer = "2020-01-01T00:00:00Z"\n' \
+  > "$T24FIX/vendored/.venv/lib/python3.12/site-packages/thirdparty/pyproject.toml"
+
+pins="$(scan_uv_exclude_newer "$T24FIX")"
+# The project's own pin is READ but never obeyed: env beats [tool.uv] in uv's
+# precedence, so a stricter project pin is loosened to the injected window. That
+# is a deliberate trade (deferring to the project file would let any workspace
+# disable the gate by pinning a future date) and the audit record is where it
+# stays visible — so the scan must actually find it.
+if printf '%s\n' "$pins" \
+     | awk -F'\t' '$1=="pinned/pyproject.toml" && $2=="exclude-newer=2026-01-01T00:00:00Z"{f=1} END{exit !f}'; then
+  ok "a project [tool.uv] exclude-newer is read into the audit record"
+else
+  bad "project exclude-newer found" "pinned/pyproject.toml exclude-newer=2026-01-01T00:00:00Z" \
+      "$(printf '%s' "$pins" | tr '\n' '; ')"
+fi
+if printf '%s\n' "$pins" | grep -q '^uvtoml/uv.toml'; then
+  ok "a top-level uv.toml exclude-newer is read too"
+else
+  bad "uv.toml exclude-newer found" "uvtoml/uv.toml row" "$(printf '%s' "$pins" | tr '\n' '; ')"
+fi
+if printf '%s\n' "$pins" | grep -qE 'unpinned|site-packages|\.venv'; then
+  bad "only real project pins are reported" "no unpinned/vendored rows" \
+      "$(printf '%s' "$pins" | tr '\n' '; ')"
+else
+  ok "a project with no pin, and a vendored one inside .venv, produce no rows"
+fi
+# REGRESSION LOCK, and it bit for real on 2026-08-24. The scan runs inside a
+# script with `set -euo pipefail`, and a `[[ -n "$val" ]] && printf` as the last
+# command of the loop body returns 1 whenever the final file carries no pin — so
+# the function exited 1, the command substitution failed, and the whole run died
+# BEFORE the window opened. The unit assertions above all passed, because
+# import_fn eval's the body into a shell with no `set -e`. Exercise it the way
+# the script does.
+if ( set -euo pipefail; scan_uv_exclude_newer "$T24FIX/unpinned" >/dev/null ); then
+  ok "scan_uv_exclude_newer returns 0 on a tree with no pins, under set -e  <-- REGRESSION LOCK"
+else
+  bad "scan_uv_exclude_newer under set -e" "exit 0 on a pin-less tree" "non-zero exit"
+fi
+rm -rf "$T24FIX"
+
+# The escape hatch must be UNUSABLE without a reason. A bare --allow-fresh would
+# make the gate switchable with no trace of why, which is precisely the state
+# this gate exists to end — and an unexplained exemption outlives the reason for
+# it (N11, one gate over). This exits before any docker call, so it is offline.
+af_out="$("$SRC" someprofile --allow-fresh 2>&1)"; af_rc=$?
+if (( af_rc != 0 )) && [[ "$af_out" == *reason* ]]; then
+  ok "--allow-fresh with no reason is refused, naming the reason  <-- ESCAPE-HATCH LOCK"
+else
+  bad "--allow-fresh requires a reason" "non-zero exit naming 'reason'" "rc=$af_rc out=$af_out"
+fi
+
+printf "\n  %d passed, %d failed\n" "$PASS" "$FAIL"
+[[ "$FAIL" -eq 0 ]]
