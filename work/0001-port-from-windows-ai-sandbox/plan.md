@@ -345,9 +345,36 @@ A1. **Subnet allocator** — **DONE 2026-08-31, see §3.5 item 3.**
     (`set -e` + command-substitution; missing `mkdir -p`). Update CLAUDE.md
     invariant "change all four locations together" and `docs/compose-network-ipam.md`.
     Full `down` + rebuild per running profile.
-A2. **Proxy directory mount.** Mount `./proxy` as a directory, squid reads
-    `/etc/squid/host/allowed_domains.txt`. Fixes single-file inode staleness on
-    edit. Update `docs/squid-internals.md`, dashboard writer, `verify-sandbox.sh`.
+A2. **Proxy directory mount** — **DONE 2026-08-31.** `./proxy` mounted at
+    `/etc/squid/host/`; squid reads `/etc/squid/host/allowed_domains.txt`.
+
+    **The bug was reproduced here before the fix, and it is worse than "stale
+    edits".** Renaming a replacement file over the host allowlist (what git
+    checkout/merge, vim and `sed -i` all do) left the container unable to see
+    the file *at all*, and `squid -k reconfigure` logged
+    `ERROR: Can not open file` + `WARNING: empty ACL` while **exiting 0**. The
+    documented zero-downtime reload reports success on a config it could not
+    read. Both directions exist: that shape fails **closed** (empty dstdomain
+    matches nothing, egress dies), W's two incidents failed **open** (stale
+    inode still holding the older, more permissive list). Either way the repo
+    allowlist was advisory, not authoritative.
+
+    **Why it hid:** the dashboard writer opens with `"w"` — truncate in place,
+    inode preserved — so the most frequent editor never tripped it.
+
+    Only two places spell the in-container path (`squid.conf` ACL + the compose
+    mount); no script or probe needed changing — `with-egress.sh`,
+    `stage-audit-package.sh` and `audit/probes/proxy.py` all use host-side or
+    staged paths. The plan's "update the dashboard writer / verify-sandbox.sh"
+    turned out to be unnecessary.
+
+    Verified post-fix: host file replaced → container sees it immediately,
+    `reconfigure` clean, `/etc/squid` still has `errorpage.css` + `conf.d`
+    (sub-path mount, not overmounted), allowlisted egress 404-through-tunnel,
+    denied domain still 403. `verify-sandbox.sh` **24/0/0**; tier-2 audit
+    **70 probes, 64/4/1/1 — identical to baseline**.
+    Added a standing caveat to `docs/squid-internals.md` §Hot reload: a
+    `reconfigure` exit 0 is not evidence the allowlist was read.
 A3. **`.dockerignore`** (M builds an unpruned context) — **DONE 2026-08-31,
     see §3.5 item 1 for the result.** Port W's 17 lines minus
     `host_setup/`/`win_setup/`; add `profiles`, `temp_audit_package`, `dashboard/.venv`.
@@ -616,9 +643,16 @@ Do not queue it as its own task — there is nothing here to edit.
    non-profile squatter); `verify-sandbox.sh` **24/0/0**; tier-2 audit **70
    probes, OK 64 / INFO 4 / N/A 1 / DRIFT 1 — identical to the Phase 0
    baseline**, same pre-existing `settings/template_diff`.
-4. **A2, A4+A6, A5** in that order. A4 carries `with-egress.test.sh` (82); A6
-   carries `depaudit.test.sh` (56) **and `ccf27a3` folded in**; A5 carries
-   `dockerfile-order.test.sh` (8) and the load-bearing layer order.
+4. **A2 — DONE 2026-08-31** (see Phase A above; the inode bug was live here
+   and silent). **A4+A6, then A5** remain, in that order. A4 carries
+   `with-egress.test.sh` (82); A6 carries `depaudit.test.sh` (56) **and
+   `ccf27a3` folded in**; A5 carries `dockerfile-order.test.sh` (8) and the
+   load-bearing layer order.
+
+   **Scope note, measured:** A4 is `with-egress.sh` 188 → 1040 lines and A6 is a
+   new `depaudit.py` with fixtures — these are substantially larger than
+   A1/A2/A3 and each must land *with* its suite (the Phase A0 binding), so
+   neither is a single-sitting item like the three done so far.
 
 **Decided — no longer an open fork:**
 

@@ -49,3 +49,58 @@ Tmpfs-backed `proxy:proxy 0640` — forensic trail of every request, resets on `
 ## Hot reload
 
 Allowlist changes — preferred path is `docker exec egress-proxy-<p> squid -k reconfigure` (zero-downtime; squid validates the new config and keeps the old one running if it has a syntax error). The dashboard (`dashboard/`) and `scripts/with-egress.sh` both use this. Fall back to `COMPOSE_PROJECT_NAME=macolima-<p> PROFILE=<p> docker compose restart egress-proxy` only when the container is unhealthy.
+
+**Caveat — `reconfigure` exit 0 is not proof the allowlist was read.** It
+validates *syntax*, not that the ACL file was reachable: an unreadable
+`allowed_domains.txt` logs `ERROR: Can not open file` + `WARNING: empty ACL` and
+**still exits 0**. Check the log output, not the exit code. The directory mount
+below removes the usual cause; this caveat remains because the exit code is
+still not a reliable signal on its own.
+
+## Allowlist is a DIRECTORY mount, not a file mount (work/0001 A2)
+
+`proxy/` is mounted at `/etc/squid/host/`, and `squid.conf` reads the allowlist
+from `/etc/squid/host/allowed_domains.txt`. This is load-bearing, not tidiness.
+
+**The failure it prevents.** A single-file bind mount resolves to an inode
+**once**, at container start. Anything that replaces the host file rather than
+truncating it in place — `git checkout`/`merge`/`pull`/`stash`, `vim`, `sed -i`
+— leaves the container pinned to the old, orphaned inode. From then on the
+container cannot see host edits at all, and the repo's allowlist is **advisory,
+not authoritative**: tightening it in git has no effect on the running proxy.
+
+**It is silent, which is the dangerous part.** Reproduced here 2026-08-31
+before the fix, by renaming a new file over the old one:
+
+```
+ERROR: Can not open file /etc/squid/allowed_domains.txt for reading
+WARNING: empty ACL: acl allowed_domains dstdomain "/etc/squid/allowed_domains.txt"
+```
+
+…and `squid -k reconfigure` **still exited 0**. The documented reload procedure
+reports success while the proxy is running on a config it could not read.
+
+**Both failure directions are possible, and one is much worse:**
+
+| Shape | Result |
+|---|---|
+| Mount breaks entirely (rename, as reproduced here) | empty `dstdomain` ACL matches nothing → **fails closed**, all egress dies. Loud, but only once someone tries to use it. |
+| Stale inode still holds the older file (W's two incidents) | proxy keeps enforcing the **older, more permissive** allowlist → **fails open**. A domain you gated in git is still tunnelling. |
+
+**Why it stayed hidden here:** the dashboard writer opens the file with `"w"` —
+truncate in place, inode preserved — so the most frequent editor of the
+allowlist never trips it. Git operations, which are rarer and more
+consequential, do.
+
+**Rules.** Mount at a **sub-path**; never overmount `/etc/squid` wholesale, the
+image keeps `errorpage.css` and `conf.d/` there. If you change the in-container
+path, change the mount target in `docker-compose.yml` in the same commit — they
+are the only two places that spell it.
+
+**Verification that the mount is live** (not a stale inode): edit the host file
+by replacement, then read it back from inside the container without restarting.
+
+```sh
+{ cat proxy/allowed_domains.txt; echo "# probe"; } > /tmp/ad && mv /tmp/ad proxy/allowed_domains.txt
+docker exec egress-proxy-<p> grep -c '^# probe' /etc/squid/host/allowed_domains.txt   # must be 1
+```

@@ -349,7 +349,9 @@ Run from a fresh checkout:
    `docker ps` reality.
 5. Allowlist page: toggle a domain → save → message reports
    per-profile `(N domains)` count → in-container
-   `grep -cvE '^\s*(#|$)' /etc/squid/allowed_domains.txt` matches.
+   `grep -cvE '^\s*(#|$)' /etc/squid/host/allowed_domains.txt` matches.
+   (Path moved from `/etc/squid/` in work/0001 A2 — the allowlist is now a
+   directory mount at `/etc/squid/host/`.)
 6. Stale-bind-mount recovery: edit `proxy/allowed_domains.txt`
    externally (e.g. `mv … …`) while a profile is up so virtiofs
    loses the inode → click Save & Reload → page surfaces

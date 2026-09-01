@@ -250,8 +250,33 @@ services:
       - /var/log/squid:size=64m,uid=0,gid=13,mode=0775
       - /run:size=8m
     volumes:
+      # squid.conf stays a FILE mount: a change to it needs a restart to be
+      # parsed anyway, so the snapshot semantics below are harmless for it.
       - ./proxy/squid.conf:/etc/squid/squid.conf:ro
-      - ./proxy/allowed_domains.txt:/etc/squid/allowed_domains.txt:ro
+      # The allowlist is mounted as a DIRECTORY, deliberately (work/0001 A2).
+      # A single-file bind mount resolves to an inode ONCE, at container start.
+      # Anything that REPLACES the host file rather than truncating it in place
+      # — git checkout/merge/pull/stash, vim, sed -i — leaves the container
+      # pinned to the old, orphaned inode and blind to every later host edit.
+      # A directory mount resolves the path on each open(), so the container
+      # always reads current bytes.
+      #
+      # Reproduced on this host 2026-08-31 before the fix, and the failure is
+      # SILENT: after a rename the container could not see the file at all, and
+      # `squid -k reconfigure` still **exited 0** while logging "empty ACL:
+      # acl allowed_domains". An empty dstdomain ACL matches nothing, so that
+      # particular shape fails closed (all egress dies). W's own two incidents
+      # failed OPEN instead — their stale inode still held the older, more
+      # permissive allowlist, so tightening the repo silently did nothing.
+      # Either way the repo file was ADVISORY, not authoritative.
+      #
+      # Note the dashboard writer opens with "w" (truncate in place, inode
+      # preserved), which is why the most frequent editor of this file never
+      # tripped it and the bug stayed hidden.
+      #
+      # Mount at a SUB-PATH. Never overmount /etc/squid wholesale — the image
+      # keeps errorpage.css and conf.d/ there.
+      - ./proxy:/etc/squid/host:ro
     cap_drop:
       - ALL
     cap_add:
