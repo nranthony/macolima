@@ -526,6 +526,66 @@ afterwards cannot show what Phase 0 moved.
 seccomp applies at container start and the hook engine is baked into the image,
 so a policy-only `converge` carries neither.
 
+## 3.5 Next — the ordered queue
+
+Phase 0 is done (`a623808`). This section is the running "what now", so it is
+the thing to update as items land. Everything below is at-or-below the anchor
+unless flagged.
+
+**A note on `mapfile`.** §1.1 records the five bash-4 sites as a hard blocker,
+and they are — but **they are not a standalone first step, and cannot be.**
+Neither `scripts/webfetch.test.sh` nor `scripts/private-names-check.sh` exists
+in this repo yet; they arrive with C2 and B respectively. The rewrite is an
+adaptation applied *at the moment each file ports*, per the Phase A0 binding.
+Do not queue it as its own task — there is nothing here to edit.
+
+**No-VM, can start immediately:**
+
+1. **A3 — `.dockerignore`.** Absent here entirely; we build an unpruned context.
+   ~17 lines from W minus `host_setup/`/`win_setup/`, plus `profiles`,
+   `temp_audit_package`, `dashboard/.venv`. Smallest real item in the plan.
+2. **B1–B3 — repo process.** `AGENTS.md`/`ARCHITECTURE.md` split, `docs/adr/`
+   + `docs/incoming/`, archive the two `MACOLIMA_in-transit_*.md` files and the
+   stale audit artifacts, port `sibling-repo-relationship.md` with the framing
+   flipped, replace `vscode-leakage.md` with W's `vscode-integration-security.md`.
+   No runtime risk. B also carries `private-names-check.sh` (+ its 2 `mapfile`
+   sites) — our CLAUDE.md and README have the same client-name exposure W wrote
+   that check for.
+
+**Needs the VM, highest value:**
+
+3. **A1 — subnet allocator.** The safest real port: W's handoff §4 is verified
+   byte-identical to their live allocator. Changes a CLAUDE.md invariant
+   ("change all four locations together") and `docs/compose-network-ipam.md`.
+   Needs a full `down` + rebuild per profile, not `--force-recreate`.
+4. **A2, A4+A6, A5** in that order. A4 carries `with-egress.test.sh` (82); A6
+   carries `depaudit.test.sh` (56) **and `ccf27a3` folded in**; A5 carries
+   `dockerfile-order.test.sh` (8) and the load-bearing layer order.
+
+**Decide before Phase A starts, not mid-way:**
+
+5. **A7's fork.** Port the Claude-only hook rules now and rewrite them in
+   Phase D, or fold A7 into D and port the two-dialect engine once. See A7.
+   This is a real decision with a cost either way; it should not be discovered
+   halfway through A.
+
+**Sequence late:**
+
+6. **Phase D.** Portable, but not fully verifiable while the `agy` sign-in
+   question is punted (§4, item 5). Do not schedule it as if it can close.
+
+## 3.6 Loose ends — found during Phase 0, none blocking
+
+Recorded here because Phase 0 surfaced them and prose asides get lost. None is
+this work item's scope; each needs its own item.
+
+| Finding | Detail | State |
+|---|---|---|
+| `settings/template_diff` DRIFT | the one non-OK probe in both the pre- and post-Phase-0 audit; live profile settings differ from the repo template on `hooks`, `permissions`, `agentPushNotifEnabled`, `skipAutoPermissionPrompt`, `skipWorkflowUsageWarning` | pre-existing, unexplained — **worth understanding before Phase C3 makes skill/template seeding converge** |
+| 10 HIGH CVEs | `brace-expansion` (×2 trees), `ip-address`, npm `tar`, `golang.org/x/mod` — npm/go dependency CVEs, not OS packages | pre-existing, untouched by Phase 0 |
+| `.trivyignore.yaml` staleness | five entries `expired_at: 2026-07-21`, ~6 weeks past | triage or re-date; they add noise to every future trivy comparison |
+| `temp_audit_package/` | staged into `/Volumes/DataDrive/repo/therapod/` by `stage-audit-package.sh`; that workspace is not a git repo | left in place deliberately; it is the sanctioned output path and A3 adds it to `.dockerignore` |
+
 ## 4. What goes back to W
 
 W's `work/0022` exits on our confirmation and `work/0021` is **parked** behind
