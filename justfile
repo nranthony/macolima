@@ -13,10 +13,11 @@
 #   just verify work        ->  scripts/setup.sh   work --verify
 #   just setup work --name "W" --email w@x
 #
-# Exceptions (no profile arg): `list`, and the `colima-*` VM-lifecycle recipes
+# Exceptions (no profile arg): `list`; the `colima-*` VM-lifecycle recipes
 # below — Colima is shared across all profiles, so those front the VM scripts
-# (scripts/start.sh, scripts/stop.sh), not profile.sh/setup.sh. Still thin
-# pass-throughs; still no `docker compose`.
+# (scripts/start.sh, scripts/stop.sh), not profile.sh/setup.sh; and the
+# `test-*` recipes, which run host-side offline suites that take no profile and
+# need no VM. All still thin pass-throughs; still no `docker compose`.
 # =============================================================================
 
 profile_sh := justfile_directory() / "scripts" / "profile.sh"
@@ -55,6 +56,10 @@ build profile *args:
 attach profile:
     {{profile_sh}} {{profile}} attach
 
+# all containers in this profile's compose project, any state (running + stopped)
+status profile *args:
+    {{profile_sh}} {{profile}} status {{args}}
+
 # tail container logs
 logs profile:
     {{profile_sh}} {{profile}} logs
@@ -70,6 +75,26 @@ deps profile *args:
 # list all existing profiles (no profile arg)
 list:
     {{profile_sh}} list
+
+# ---- offline test suites (no profile arg, no docker, no network) ------------
+# These run on the host with the VM down. They are the only thing standing
+# between a silently-inverted check and a green-looking sandbox, so they need a
+# front door — before this recipe existed the four suites could only be run by
+# remembering four paths, which is how a suite goes quietly red.
+#
+# `just` aborts the recipe on the first failing line, so a red suite stops the
+# run and names itself. Run one directly if you want the rest to continue.
+
+# every offline suite (179 assertions across four files)
+test-offline:
+    bash {{justfile_directory()}}/config/hooks/deny-destructive.test.sh
+    bash {{justfile_directory()}}/scripts/depaudit.test.sh
+    bash {{justfile_directory()}}/scripts/with-egress.test.sh
+    bash {{justfile_directory()}}/scripts/dockerfile-order.test.sh
+
+# just the Dockerfile layer-order chain (also included in test-offline)
+test-dockerfile:
+    bash {{justfile_directory()}}/scripts/dockerfile-order.test.sh
 
 # ---- Colima VM lifecycle (shared across profiles — no profile arg) ----------
 
@@ -94,6 +119,10 @@ auth profile:
 # `gh auth login` inside the container
 auth-github profile:
     {{profile_sh}} {{profile}} auth-github
+
+# `agy` (Antigravity CLI) inside the container — interactive console sign-in
+auth-antigravity profile:
+    {{profile_sh}} {{profile}} auth-antigravity
 
 # ---- state management (profile.sh) ------------------------------------------
 
