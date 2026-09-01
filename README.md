@@ -174,8 +174,9 @@ source ~/.zshrc
 
 # 2. Start Colima — MUST use this wrapper. A bare `colima start` after a
 #    previous `colima delete` will come up with 2 CPU / 2 GB / no mounts
-#    and break stack bring-up. The wrapper encodes 6 CPU / 10 GB / 80 GB
-#    + virtiofs mounts of /Volumes/DataDrive/repo and .claude-colima.
+#    and break stack bring-up. The wrapper encodes the CPU/memory/disk
+#    flags + virtiofs mounts of /Volumes/DataDrive/repo and .claude-colima.
+#    The values live in scripts/colima-up.sh — see there to change them.
 scripts/colima-up.sh
 
 # 3. (Optional) Refresh the base image digest pin in Dockerfile. The
@@ -192,7 +193,7 @@ sed -i '' "s|ubuntu:24.04@sha256:[a-f0-9]*|ubuntu:24.04@$DIGEST|" Dockerfile
 PROFILE=_build docker compose build claude-agent
 ```
 
-> **After a `colima delete`, always re-run `scripts/colima-up.sh`** — mount paths (`/Volumes/DataDrive/repo`, `/Volumes/DataDrive/.claude-colima`) and resource flags (`--cpu 6 --memory 10 --disk 80 --mount-type virtiofs`) are **not** persisted across a delete. Symptoms of a bare restart: `range of CPUs is from 0.01 to 2.00` on `up`, or `not a directory: Are you trying to mount a directory onto a file` on `rebuild`. See `CLAUDE.md` → "Colima VM delete wipes mount + resource config".
+> **After a `colima delete`, always re-run `scripts/colima-up.sh`** — mount paths (`/Volumes/DataDrive/repo`, `/Volumes/DataDrive/.claude-colima`) and resource flags (`--cpu`/`--memory`/`--disk`/`--mount-type virtiofs`, whose values live in `scripts/colima-up.sh`) are **not** persisted across a delete. Symptoms of a bare restart: `range of CPUs is from 0.01 to 2.00` on `up`, or `not a directory: Are you trying to mount a directory onto a file` on `rebuild`. See `CLAUDE.md` → "Colima VM delete wipes mount + resource config".
 
 ## Using profiles
 
@@ -264,7 +265,9 @@ scripts/profile.sh list
 #   work                up     /Volumes/DataDrive/repo/work
 ```
 
-Each profile gets its own 8g memory / 4 CPU envelope and its own Squid proxy. Three concurrent profiles ≈ 24g of headroom needed in Colima's VM.
+Each profile gets its own memory/CPU envelope and its own Squid proxy. From `docker-compose.yml`: agent `3g`/`4 cpus`, plus `512m` each for postgres, mongo and egress-proxy — so **~4.0g per profile without mongo, ~4.5g with it**. Two concurrent profiles want ~12g in the VM and three ~16g, including headroom for the VM itself. The VM's own size is set in `scripts/colima-up.sh`.
+
+> Earlier revisions of this line claimed "8g / 4 CPU per profile" and "≈24g for three", which overstated it by roughly double — the agent's `mem_limit` is 3g, not 8g.
 
 ## Databases (optional)
 
