@@ -45,9 +45,11 @@ Agent-side workflow: `git push|clone|fetch|pull` are denied, but local branch op
 1. CPU limit error on container start (`range of CPUs is from 0.01 to 2.00`) — compose asks for `cpus: 4`, fresh VM has 2.
 2. Bind-mount error (`error mounting "...squid.conf" ... not a directory`) — `/Volumes/DataDrive` virtiofs mount is gone, Docker auto-creates the missing source as a directory and tries to mount that dir onto a file in the Squid image.
 
-Fix: **always use `scripts/colima-up.sh` after a delete**, never bare `colima start`. The wrapper encodes the required flags (`--cpu 6 --memory 8 --disk 128 --mount-type virtiofs --mount /Volumes/DataDrive/repo:w --mount /Volumes/DataDrive/.claude-colima:w`). Those persist into `colima.yaml` so subsequent stop/start cycles without flags work — until the next delete.
+Fix: **always use `scripts/colima-up.sh` after a delete**, never bare `colima start`. The wrapper encodes the required flags — `--cpu`/`--memory`/`--disk`, `--mount-type virtiofs`, and the two `--mount` paths — with the values and their rationale in the script itself. Those persist into `colima.yaml` so subsequent stop/start cycles without flags work — until the next delete.
 
 **Do not restate those numbers anywhere else.** `scripts/colima-up.sh` is the source of truth and carries the sizing rationale; this line and the README both drifted from it (claiming 10 GB / 80 GB against the script's 6 GB / 128 GB and a running VM at 8 GB), which meant following the documented recovery would have silently resized the VM.
+
+Prose is not the only thing that drifts from the script: `colima start --memory N` rewrites the generated `colima.yaml` without touching the repo, so the live VM and the declared values diverge with nothing to notice. `scripts/start.sh` (`check_sizing_drift`) compares the two on every VM start and warns — it does not fail, because the undeclared live VM is not wrong, merely unrecorded. Reconcile by editing the script, or by re-applying the declared values with `colima stop && colima start --cpu N --memory N --disk N`. Note the asymmetry: `--disk` grows in place, but shrinking it needs a full `colima delete`, which destroys the `postgres-data`/`mongo-data` named volumes (see the persistence map in `CLAUDE.md` — DB rows are one of the three irrecoverable things).
 
 Sanity-check mounts after a VM start:
 

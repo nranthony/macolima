@@ -24,6 +24,20 @@ DRIVE="/Volumes/DataDrive"
 # concurrent profiles want ~12 GB and three ~16 GB. Raise --memory here if you
 # intend to run profiles side by side, then `colima delete && scripts/colima-up.sh`
 # (or `colima stop && colima start --memory N` to change an existing VM).
+#
+# --memory is deliberately NOT raised past 8 on a 16 GB host. Under vmType vz the
+# guest's footprint climbs toward its ceiling and is not handed back to macOS, so
+# the number behaves more like a reservation than a cap; 8 leaves room for the
+# host, editors and a browser. Run two profiles one at a time rather than sizing
+# the VM for both.
+#
+# --disk is sparse: the backing files under $COLIMA_HOME/_lima live on the
+# DataDrive (hundreds of GB free, unlike the ~37 GB internal disk), and consume
+# only what is written. Generous is close to free, so this is set well above what
+# a rebuild actually needs. Two asymmetries justify the headroom:
+#   - growing is live (`colima start --disk N`); shrinking needs a full delete;
+#   - the sparse file is a one-way ratchet — `docker system prune` frees space
+#     inside the VM, but the host-side file never shrinks back.
 echo "[INFO] Starting Colima with mounts from $DRIVE ..."
 colima start \
   --vm-type vz \
@@ -31,7 +45,7 @@ colima start \
   --mount-type virtiofs \
   --cpu 6 \
   --memory 8 \
-  --disk 128 \
+  --disk 200 \
   --mount "$DRIVE/repo:w" \
   --mount "$DRIVE/.claude-colima:w"
 
