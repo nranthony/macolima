@@ -3,7 +3,8 @@
 **Status:** Planned 2026-08-23 from a read-only comparison run on Linux.
 **Re-validated and re-anchored 2026-08-31** (§0.1), then **re-measured on the
 macOS host the same day** (§0.1a) — which is where §0.1's numbers were found to
-have been taken at W HEAD rather than at the anchor. **Still not started.**
+have been taken at W HEAD rather than at the anchor. **Phase 0 executed and
+green 2026-08-31 (`a623808`); Phases A-E not started.**
 Execution requires the macOS/Colima host — every step below that touches the
 image or compose needs `scripts/profile.sh build` + `<p> rebuild` and a `--verify`.
 
@@ -32,8 +33,12 @@ in W alongside this file** (locally:
 It is the executable form of this plan: counted `/root`
 substitutions, the five bash-4 sites, per-phase mechanics, and the questions
 only this host can answer. This plan stays the strategy; that document is the
-procedure. **Not yet read on this host** — do that before Phase A. Its own
-counts predate the anchor correction in §0.1a; spot-check any it reports against
+procedure. **Read in full on this host 2026-08-31 and fully consumed** — the
+earlier "not yet read" note here was stale, written before the Phase 0 session.
+Every section of it is reflected below: its §2 table → §0.1 (corrected by
+§0.1a), §1.1/§1.2 → §1.1, §3 → §0.1 tail + §0.2, §4 → Phase A0, §5.0-5.4 →
+Phases 0/A/C/D/E, §8 → §4. **Nothing in it is outstanding.** Its own counts
+predate the anchor correction in §0.1a; spot-check any it reports against
 `git show eda42dd:<path>` rather than against W's working tree.
 
 ---
@@ -312,7 +317,7 @@ inverted or drifted silently.
 | `with-egress.test.sh` | 82 | A4 |
 | `depaudit.test.sh` | 56 | A6 (+ `ccf27a3`) |
 | `dockerfile-order.test.sh` | 8 | A5 |
-| `deny-destructive.test.sh` | 207 | A7 / D |
+| `deny-destructive.test.sh` | 207 | D (A7 folded in) |
 | `webfetch.test.sh` | 90 | C2 — **fix 3 `mapfile` sites** |
 | `vendor-tools.test.sh` | 65 | C1 |
 | `agent-policy.test.sh` | 53 | D |
@@ -361,13 +366,13 @@ A5. **Gate 2 / Gate 3 in Dockerfile** (npm `min-release-age` quarantine; pip
     this is not a failure you will reproduce on demand.
 A6. **`depaudit.py` + fixtures + tests**, `profile.sh <p> deps`. Stdlib-only,
     host-side, no sandbox change.
-A7. **SUPERSEDED as scoped — do not do the Claude-dialect-only version.**
-    The handoff (§5.1, §3 `e9deb82`/ADR-0008) records that W's third hook tier
-    landed *with* the dialect branching already in it. Splitting the tier from
-    the dialect means writing an engine we then rewrite in Phase D. **Fold A7
-    into Phase D and port the two-dialect engine once**, or accept knowingly
-    that A7 is throwaway. Original text kept below for the rule list, which is
-    still what we want:
+A7. **FOLDED INTO PHASE D — DECIDED 2026-08-31 (owner). Nothing ships under
+    A7; it is not a phase-A item any more.** The handoff (§5.1, §3
+    `e9deb82`/ADR-0008) records that W's third hook tier landed *with* the
+    dialect branching already in it, so splitting the tier from the dialect
+    means writing an engine we then rewrite in Phase D. The two-dialect engine
+    is ported **once**, in D. The rule list below is not cancelled — it moves
+    to D and ships in the same change as the engine:
 
     Hook rules into `config/hooks/deny-destructive.sh`:
     `rm-recursive`, `git-hook-tamper`, `cred-read`, `manifest-dep-add`,
@@ -376,6 +381,15 @@ A7. **SUPERSEDED as scoped — do not do the Claude-dialect-only version.**
     `verify-sandbox.sh` probe. `claude-settings.json`: add `ask` tier, `env`
     autoupdater kill, fetch-and-run installer denies, `Read` denies for
     credential stores (paths under `/home/agent`).
+
+    **The cost this accepts, stated so it is not rediscovered later.** Phase A
+    no longer improves the hook at all, and D is the phase least able to close
+    (§3.5 item 6: the `agy` sign-in is punted, so D can be *ported* but not
+    fully *verified*). The Claude-side rules above are therefore deferred behind
+    an unverifiable phase — that was the trade, taken knowingly against writing
+    a throwaway engine. **If they become urgent before D is schedulable, the
+    reopening move is to ship the rule list against the existing
+    single-dialect hook as an explicit stopgap — not to un-fold A7.**
 A8. **Ops verbs.** `profile.sh <p> verify | audit [--stage-only]` (stage + run +
     save JSON), `trivy-scan.sh` `emit()` JSON persistence, `docker-gc.sh`,
     `code-attach.sh`. Matching `justfile` recipes (thin pass-throughs; `just --list`).
@@ -448,7 +462,11 @@ C2a. **`common/agent-notice.md` — delete the GPU block, do not adapt it.**
 C3. Make skill seeding converge, not create-only (`profile.sh:151-158`) —
     ADR-0005 applies verbatim. Port `profile-skills.test.sh`.
 
-### Phase D — multi-agent policy (**UNBLOCKED 2026-08-24**)
+### Phase D — multi-agent policy + the hook rules (**UNBLOCKED 2026-08-24**)
+
+**Carries A7 — folded in 2026-08-31.** D is now the only phase that touches the
+hook: A7's rule list, its `claude-settings.json` changes and its
+`verify-sandbox.sh` probe extension all ship here, with the engine.
 
 W's 0011 merged on 2026-08-24 (`a9c9b6c`, ADR-0007), so the hold is lifted.
 Port 0010 + 0011 **as one unit**; porting 0010 alone
@@ -460,7 +478,7 @@ for agy, second name `/usr/local/lib/sandbox-hooks/guardrails.sh` — add to
 ADR-0006, `converge_agent_policy` + `just converge <p>`, removal of
 `reset-settings`-style verbs. All `/root/.gemini` → `/home/agent/.gemini`.
 Verify in a *built* image (W's own recorded caveat). opencode (0009) stays out
-until W unparks it.
+until W unparks it. Plus everything listed under A7.
 
 **Four asymmetries that look like inconsistencies and are not** (handoff §5.3).
 Each one is a hole if "tidied" into symmetry — read this before touching the
@@ -562,17 +580,20 @@ Do not queue it as its own task — there is nothing here to edit.
    carries `depaudit.test.sh` (56) **and `ccf27a3` folded in**; A5 carries
    `dockerfile-order.test.sh` (8) and the load-bearing layer order.
 
-**Decide before Phase A starts, not mid-way:**
+**Decided — no longer an open fork:**
 
-5. **A7's fork.** Port the Claude-only hook rules now and rewrite them in
-   Phase D, or fold A7 into D and port the two-dialect engine once. See A7.
-   This is a real decision with a cost either way; it should not be discovered
-   halfway through A.
+5. **A7 — RESOLVED 2026-08-31 (owner): folded into Phase D.** Port the
+   two-dialect engine once; **nothing hook-related ships in Phase A.** See A7
+   for the cost this accepts and the stopgap if it has to be reopened.
 
 **Sequence late:**
 
-6. **Phase D.** Portable, but not fully verifiable while the `agy` sign-in
-   question is punted (§4, item 5). Do not schedule it as if it can close.
+6. **Phase D — now carries A7 as well.** Portable, but not fully verifiable
+   while the `agy` sign-in question is punted (§4, item 5). Do not schedule it
+   as if it can close. Folding A7 in raised this phase's value without touching
+   its blocker, which has a consequence worth naming: **the punted `agy`
+   sign-in is now the gate on the Claude-side hook rules too.** If D stalls,
+   that sign-in is the thing to un-punt first.
 
 ## 3.6 Loose ends — found during Phase 0, none blocking
 
@@ -625,3 +646,8 @@ it, so this is blocking work on their side, not a courtesy. Report:
 6. **Phase 0 is applied and green** — see the Phase 0 result table. Report the
    audit deltas (none), and **every omission with its reason** — their §9 says a
    silent omission costs them a second comparison run.
+7. **A7 is folded into Phase D** (owner decision 2026-08-31), taking their §5.1
+   advice. The consequence they need: the Claude-side hook rules will not appear
+   in our Phase A at all, and D's verification is gated behind the punted `agy`
+   sign-in (item 5). So **`work/0021`'s hook-immutability row will not resolve
+   on our side as early as their §9 assumes** — it now waits on Phase D.
