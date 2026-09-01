@@ -743,6 +743,18 @@ exist here and were not invented). `verify-sandbox.sh` **32 passed / 0 failed /
    sign-in is now the gate on the Claude-side hook rules too.** If D stalls,
    that sign-in is the thing to un-punt first.
 
+7. **`just health` — DONE 2026-09-01 (owner request), out of queue order.** The
+   one Gap-3 recipe that did not have to wait for its subject: it *reports* on
+   what is already there rather than adding a verb, so nothing in A8/C1/D gates
+   it. Ported from W `justfile:92` + `profile.sh:1189` and adapted where M
+   differs — container names (`claude-agent-` vs `ai-sandbox-`, and postgres is
+   `<p>-postgres-sandbox`, prefixed, not suffixed), and the expected-DB source:
+   W reads a persisted `compose-profiles` file written by its `db` verb, which M
+   has no equivalent of, so M derives it from the `depends_on` greps in
+   `docker-compose.<p>.yml` — the same source `up`'s COMPOSE_PROFILES
+   auto-activation uses, mirrored verbatim so the two cannot disagree. The rest
+   of Gap 3 still lands with its subject.
+
 ## 3.6 Loose ends — found during Phase 0, none blocking
 
 Recorded here because Phase 0 surfaced them and prose asides get lost. None is

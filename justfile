@@ -13,7 +13,7 @@
 #   just verify work        ->  scripts/setup.sh   work --verify
 #   just setup work --name "W" --email w@x
 #
-# Exceptions (no profile arg): `list`; the `colima-*` VM-lifecycle recipes
+# Exceptions (no profile arg): `list` and `health`; the `colima-*` VM-lifecycle recipes
 # below — Colima is shared across all profiles, so those front the VM scripts
 # (scripts/start.sh, scripts/stop.sh), not profile.sh/setup.sh; and the
 # `test-*` recipes, which run host-side offline suites that take no profile and
@@ -75,6 +75,10 @@ deps profile *args:
 # list all existing profiles (no profile arg)
 list:
     {{profile_sh}} list
+
+# cross-profile health: flag any profile whose agent/proxy/DB aren't all up together (no profile arg)
+health:
+    {{profile_sh}} health
 
 # ---- offline test suites (no profile arg, no docker, no network) ------------
 # These run on the host with the VM down. They are the only thing standing

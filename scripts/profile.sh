@@ -39,6 +39,9 @@
 #                   `deps --history [N]` reads back the install-window log
 #                   written by with-egress.sh.
 #   list            list all existing profiles (by drive dir)
+#   health          cross-profile consistency check (no profile arg): flags any
+#                   profile whose agent / proxy / declared DB siblings aren't all
+#                   up together. Read-only; exits 1 if any profile is DEGRADED.
 #   exec <cmd...>   run an arbitrary command inside the agent container
 #
 # Optional flags (accepted by up / recreate / rebuild):
@@ -82,7 +85,7 @@ usage() {
 # --- arg parsing ------------------------------------------------------------
 [[ $# -ge 1 ]] || usage
 
-# `list` is the only command that doesn't need a profile arg
+# `list` and `health` are the commands that don't need a profile arg
 if [[ "$1" == "list" ]]; then
   if [[ ! -d "$PROFILES_ROOT" ]]; then
     echo "(no profiles yet — try: scripts/profile.sh <name> up)"
@@ -101,6 +104,166 @@ if [[ "$1" == "list" ]]; then
     printf '  %-20s %-6s %s\n' "$name" "$status" "$repo_dir"
   done
   exit 0
+fi
+
+# --- `health` — cross-profile consistency check (no profile arg) -------------
+# Read-only; never starts or stops anything. For EVERY known profile (state dir
+# OR live container) it checks the containers that MUST run together:
+#   agent  claude-agent-<p>          proxy  egress-proxy-<p>
+#   + whichever DB siblings the profile declares:
+#          <p>-postgres-sandbox      mongo-<p>
+# Those four names are asymmetric (two suffixed, one prefixed, one infixed)
+# because they are `container_name:` literals in docker-compose.yml, not a
+# pattern — read them from there, never guess.
+#
+# A profile with NOTHING running is intentionally down (OK). A profile with SOME
+# containers up but an expected sibling missing or exited is DEGRADED and gets a
+# fix hint: that is the proxy-exited shape (every egress call fails with
+# ECONNREFUSED …:3128 and looks like a network/auth bug) and the stale-DB shape.
+# Orphan DBs — a DB up while its agent is down — are flagged too.
+# Exits 1 if any profile is DEGRADED, so it doubles as a pre-flight tripwire.
+if [[ "${1:-}" == "health" ]]; then
+  shopt -s nullglob
+  C_G=$'\033[0;32m'; C_R=$'\033[0;31m'; C_Y=$'\033[1;33m'; C_D=$'\033[0;90m'; C_0=$'\033[0m'
+
+  # One snapshot of every container's name + coarse state (running/exited/...).
+  snapshot="$(docker ps -a --format '{{.Names}}'$'\t''{{.State}}' 2>/dev/null || true)"
+  docker_up=1
+  if ! docker info >/dev/null 2>&1; then docker_up=0; fi
+
+  cstate() { awk -F '\t' -v n="$1" '$1==n{print $2; f=1} END{if(!f) print "absent"}' <<<"$snapshot"; }
+  slab()   { case "$1" in running) printf 'up';; absent) printf -- '-';; *) printf '%s' "$1";; esac; }
+
+  # Profiles = state dirs UNION profiles implied by any existing container, so an
+  # orphan container under a wiped or never-created profile still surfaces. The
+  # postgres arm is an exact SUFFIX match: a host-side `<p>-postgres-host` next
+  # to the sandbox's `<p>-postgres-sandbox` must not be claimed as ours.
+  profiles="$(
+    { for d in "$PROFILES_ROOT"/*/; do
+        if [[ -d "$d" ]]; then basename "$d"; fi
+      done
+      printf '%s\n' "$snapshot" | awk -F '\t' '{print $1}' \
+        | sed -n -E -e 's/^(claude-agent|egress-proxy|mongo)-(.+)$/\2/p' \
+                    -e 's/^(.+)-postgres-sandbox$/\1/p'
+    } | sort -u
+  )"
+  if [[ -z "$profiles" ]]; then
+    if (( ! docker_up )); then
+      echo "(no profiles on disk, and the Docker daemon is unreachable — is the VM up? 'just colima-up')"
+    else
+      echo "(no profiles and no sandbox containers found)"
+    fi
+    exit 0
+  fi
+  if (( ! docker_up )); then
+    warn "Docker daemon unreachable — every container reads as absent below."
+    warn "Start the VM first ('just colima-up'), or this is a report about nothing."
+  fi
+
+  printf "${C_D}Host state: %s   |   up=running, exited/created/…=present-not-running, -=absent${C_0}\n\n" "$PROFILES_ROOT"
+  printf '\033[1m%-18s %-8s %-8s %-22s %s\033[0m\n' PROFILE AGENT PROXY DB VERDICT
+  flags=()
+  degraded=0
+  while IFS= read -r p; do
+    if [[ -z "$p" ]]; then continue; fi
+    a_s=$(cstate "claude-agent-$p");     x_s=$(cstate "egress-proxy-$p")
+    g_s=$(cstate "$p-postgres-sandbox"); m_s=$(cstate "mongo-$p")
+
+    # Which DBs SHOULD be up is derived from the same source `up` uses: the
+    # per-profile overlay's depends_on references, which drive the
+    # COMPOSE_PROFILES auto-activation further down this file. Mirrored
+    # verbatim — including its habit of matching `depends_on: [postgres]`
+    # inside a comment — because health must agree with what `up` will
+    # actually start, not with what a stricter parser thinks it should.
+    # (M has no persisted compose-profiles file; the overlay IS the record.)
+    overlay="$SCRIPT_DIR/docker-compose.$p.yml"
+    exp_pg=0; exp_mongo=0
+    if [[ -f "$overlay" ]]; then
+      if grep -qE 'depends_on:.*postgres|depends_on:\s*\[.*postgres' "$overlay" 2>/dev/null; then exp_pg=1; fi
+      if grep -qE 'depends_on:.*mongo|depends_on:\s*\[.*mongo' "$overlay" 2>/dev/null; then exp_mongo=1; fi
+    fi
+
+    a_run=0; if [[ "$a_s" == running ]]; then a_run=1; fi
+    x_run=0; if [[ "$x_s" == running ]]; then x_run=1; fi
+    g_run=0; if [[ "$g_s" == running ]]; then g_run=1; fi
+    m_run=0; if [[ "$m_s" == running ]]; then m_run=1; fi
+    active=$(( a_run || x_run || g_run || m_run ))
+
+    # DB cell: show each expected DB's state; mark unexpected-but-running with '!'.
+    parts=()
+    if (( exp_pg ));               then parts+=("pg:$(slab "$g_s")"); fi
+    if (( exp_mongo ));            then parts+=("mongo:$(slab "$m_s")"); fi
+    if (( ! exp_pg && g_run ));    then parts+=("pg:up!"); fi
+    if (( ! exp_mongo && m_run )); then parts+=("mongo:up!"); fi
+    if (( ${#parts[@]} == 0 )); then db_cell='-'; else db_cell="${parts[*]}"; fi
+
+    if (( ! active )); then
+      verdict="down"; color="$C_D"
+      # Fully down is fine, but note any stopped leftovers worth cleaning.
+      for pair in "claude-agent-$p=$a_s" "egress-proxy-$p=$x_s" "$p-postgres-sandbox=$g_s" "mongo-$p=$m_s"; do
+        nm="${pair%=*}"; st="${pair##*=}"
+        case "$st" in
+          absent|running) ;;
+          *) flags+=("WARN  $p: leftover $nm ($st) — 'scripts/profile.sh $p down' to clean") ;;
+        esac
+      done
+    else
+      probs=()
+      if (( ! a_run )); then
+        probs+=("agent claude-agent-$p is $(slab "$a_s") (expected running) — scripts/profile.sh $p up")
+      fi
+      if (( ! x_run )); then
+        probs+=("egress-proxy-$p is $(slab "$x_s") — egress DOWN (ECONNREFUSED …:3128 on auth/network) — scripts/profile.sh $p up  (quick: docker start egress-proxy-$p)")
+      fi
+      if (( exp_pg && ! g_run )); then
+        probs+=("$p-postgres-sandbox is $(slab "$g_s") but docker-compose.$p.yml declares depends_on: postgres — scripts/profile.sh $p up")
+      fi
+      if (( exp_mongo && ! m_run )); then
+        probs+=("mongo-$p is $(slab "$m_s") but docker-compose.$p.yml declares depends_on: mongo — scripts/profile.sh $p up")
+      fi
+      # Orphan DBs: running but not declared by the overlay. Harmless while the
+      # agent is up (likely a one-shot COMPOSE_PROFILES=…); a stale hazard once
+      # the agent is down, because nothing will ever tear it down.
+      if (( ! exp_pg && g_run )); then
+        if (( a_run )); then
+          flags+=("WARN  $p: $p-postgres-sandbox up but docker-compose.$p.yml declares no depends_on: postgres (one-shot COMPOSE_PROFILES? add it to the overlay to persist)")
+        else
+          probs+=("$p-postgres-sandbox running but agent is down — orphan/stale DB — scripts/profile.sh $p down  (or 'up' to finish coming up)")
+        fi
+      fi
+      if (( ! exp_mongo && m_run )); then
+        if (( a_run )); then
+          flags+=("WARN  $p: mongo-$p up but docker-compose.$p.yml declares no depends_on: mongo (one-shot COMPOSE_PROFILES? add it to the overlay to persist)")
+        else
+          probs+=("mongo-$p running but agent is down — orphan/stale DB — scripts/profile.sh $p down  (or 'up' to finish coming up)")
+        fi
+      fi
+      if (( ${#probs[@]} == 0 )); then
+        verdict="OK"; color="$C_G"
+      else
+        verdict="DEGRADED"; color="$C_R"; degraded=1
+        for pr in "${probs[@]}"; do flags+=("FAIL  $p: $pr"); done
+      fi
+    fi
+
+    printf "%-18s %-8s %-8s %-22s ${color}%s${C_0}\n" \
+      "$p" "$(slab "$a_s")" "$(slab "$x_s")" "$db_cell" "$verdict"
+  done <<< "$profiles"
+
+  if (( ${#flags[@]} )); then
+    echo
+    printf '\033[1mflags:\033[0m\n'
+    for fl in "${flags[@]}"; do
+      case "$fl" in
+        FAIL*) printf "  ${C_R}%s${C_0}\n" "$fl" ;;
+        WARN*) printf "  ${C_Y}%s${C_0}\n" "$fl" ;;
+        *)     printf '  %s\n' "$fl" ;;
+      esac
+    done
+  else
+    echo; ok "all profiles consistent (each fully up, or fully down)"
+  fi
+  exit $(( degraded ))
 fi
 
 [[ $# -ge 2 ]] || usage
