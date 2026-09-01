@@ -82,7 +82,7 @@ Before committing:
 - [ ] Compose change touching subnet / `ipv4_address` / `extra_hosts` / `dns:` / `internal:`? Plan a full `down` + `rebuild`, not just `--force-recreate` (see `docs/compose-network-ipam.md`).
 - [ ] Compose change? Run `PROFILE=_test docker compose config` to validate YAML interpolation.
 - [ ] Added/renamed/removed a command in `profile.sh` or `setup.sh` (or a VM verb in `start.sh`/`stop.sh` fronted by a `colima-*` recipe)? Update the matching `justfile` recipe (it's a pass-through, no logic) and re-run `just --list` to confirm it parses.
-- [ ] Dockerfile / `.zshrc` / `.p10k.zsh` change? Need rebuild: `scripts/profile.sh build`, then `scripts/profile.sh <p> rebuild` per running profile. Add `--no-cache` (force every layer to re-run; refetch claude-code / npm / apt) or `--pull` (re-check the base digest) when a cached layer is masking the change — both accepted by `build`/`rebuild` only.
+- [ ] Dockerfile / `.zshrc` / `.p10k.zsh` change? Need rebuild: `scripts/profile.sh build`, then `scripts/profile.sh <p> rebuild` per running profile. Add `--no-cache` (force every layer to re-run; refetch claude-code / npm / apt) or `--pull` (re-check the base digest) when a cached layer is masking the change — both accepted by `build`/`rebuild` only. For a CLI version bump alone, prefer `scripts/profile.sh build --refresh-ai` (or `--claude-version=X.Y.Z`, which implies it): it busts only the AI-CLI tail layer, ~21s against ~100s for a full rebuild. Those two flags are `build`-only. **`build` takes NO profile arg** — the image is shared by every profile.
 
 Routine debug commands moved to `docs/debug-recipes.md`. Accepted CVEs/misconfigs in `.trivyignore.yaml` with dated `expired_at` fields.
 

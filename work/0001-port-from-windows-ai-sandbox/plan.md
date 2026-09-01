@@ -755,6 +755,26 @@ exist here and were not invented). `verify-sandbox.sh` **32 passed / 0 failed /
    auto-activation uses, mirrored verbatim so the two cannot disagree. The rest
    of Gap 3 still lands with its subject.
 
+8. **`just build` — global, plus the AI-CLI refresh layer — DONE 2026-09-01
+   (owner request).** Three findings, ascending severity.
+   (a) `build` required a profile arg it did not use, while `CLAUDE.md:85`,
+   `README` (x4) and three docs all spelled it `scripts/profile.sh build` with
+   no arg — that exact documented command exited with the usage screen. Now
+   global (`PROFILE=_build` satisfies compose's `${PROFILE:?}` guard), with both
+   wrong spellings failing loudly rather than drifting apart again.
+   (b) `--refresh-ai` / `--claude-version=` could not have worked here: M had no
+   `ARG AI_CLI_REFRESH`, so `--build-arg` would have been silently dropped, and
+   the claude/agy install was fused into the NodeSource RUN — busting it would
+   have invalidated uv, gh, just and both gates. Split into its own layer, placed
+   after `just` and before Gate 2, which is the only window available: Gate 2's
+   `min-release-age` applies at build time, so any claude install after it is
+   unresolvable whenever the newest release sits inside the quarantine window.
+   `dockerfile-order.test.sh` now locks the refresh ARG into that chain too — an
+   ARG only invalidates layers *after* it, so an ARG that drifts below its own
+   RUN makes `--refresh-ai` a silent no-op.
+   (c) **The post-build cache prune was negating the whole optimisation** — §4
+   item 8. It is W's line too, unchanged.
+
 ## 3.6 Loose ends — found during Phase 0, none blocking
 
 Recorded here because Phase 0 surfaced them and prose asides get lost. None is
@@ -811,3 +831,18 @@ it, so this is blocking work on their side, not a courtesy. Report:
    in our Phase A at all, and D's verification is gated behind the punted `agy`
    sign-in (item 5). So **`work/0021`'s hook-immutability row will not resolve
    on our side as early as their §9 assumes** — it now waits on Phase D.
+
+8. **Their post-build `docker builder prune -f --keep-storage=4g` defeats their
+   own `--refresh-ai`.** `--keep-storage` sets how much cache may REMAIN, and
+   4 GB is smaller than the image's own build cache (~8.4 GB here), so every
+   build evicts several GB of least-recently-used entries — precisely the apt /
+   base-OS / Node layers the refresh layer exists to preserve. Measured on the
+   Mac, unambiguously: `--refresh-ai` took **22s** against a warm cache, then
+   **97s with ZERO cached layers** on the very next invocation, apt refetching
+   every index; a third run repeated 97s. Replacing the size cap with
+   `--filter until=168h` gave **21s / 21s / 21s, 6 cached layers each time**. An
+   age filter cannot evict a layer the current image is still built on; a size
+   cap tuned below the image's own footprint always will. Their image is larger
+   than M's (CUDA, ComfyUI), so their eviction is likely worse, and the symptom
+   reads as "the cache was just cold today". `--keep-storage` is also deprecated
+   in Docker 29 in favour of `--reserved-space`.

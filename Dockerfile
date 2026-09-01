@@ -13,6 +13,10 @@
 FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
 
 LABEL description="Hardened sandbox for Claude Code on Colima/macOS"
+# Scopes `docker image prune` to images WE built — see IMAGE_PRUNE_FILTER
+# in scripts/profile.sh for why an unfiltered daemon-wide prune is unsafe
+# on a shared Colima daemon.
+LABEL sandbox.image=macolima
 
 # ---------- system packages --------------------------------------------------
 # tini: PID 1 signal handling.
@@ -84,7 +88,7 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# ---------- Node.js + Claude Code + Antigravity (agy) ------------------------
+# ---------- Node.js (runtime + npm-global tooling) ---------------------------
 # Upgrade bundled npm first — NodeSource ships an older npm whose own
 # vendored deps (cross-spawn, glob, minimatch, tar) accumulate CVEs between
 # NodeSource publishes. Pulling latest npm before installing global packages
@@ -99,32 +103,10 @@ RUN apt-get update \
 # ensure_state seeds manage-package-manager-versions=false into the
 # per-profile ~/.config/pnpm/rc. Pins stay honored on host/CI.
 #
-# agy: Google's Antigravity CLI (replaces the former Gemini CLI). Native
-# binary to /usr/local/bin via --dir, NOT the installer default ~/.local/bin
-# (noexec tmpfs at runtime — see docker-compose.yml — so a binary there can't
-# run or survive a recreate). The installer sha512-verifies the payload
-# against its signed manifest. This step runs on the host network, bypassing
-# Squid; RUNTIME auth/API hosts are gated in proxy/allowed_domains.txt under
-# [antigravity]. Sign in at the container console (`scripts/profile.sh <p>
-# auth-antigravity`, or just `agy`); config lives under
-# ~/.gemini/antigravity-cli/ (agy reuses the ~/.gemini home — the per-profile
-# gemini-home mount is kept, so auth persists across recreates).
-# --allow-scripts=@anthropic-ai/claude-code is REQUIRED, not cosmetic. npm 12
-# blocks lifecycle scripts by default, and the claude package fetches its
-# platform-native binary in a postinstall. Without the flag the install
-# "succeeds" and leaves /usr/bin/claude -> claude.exe, a stub whose entire body
-# is `echo "Error: claude native binary not installed."`. The CLI is then broken
-# while `command -v claude` still passes, which is why verify-sandbox.sh's
-# presence check never noticed. That was the live state in this image until
-# work/0001 A5's Gate 2 layer ran `claude --version` and the build failed.
-# Scoped to the one package: it is an allowlist, not a blanket re-enable.
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g npm@latest \
- && npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code \
  && npm install -g mongosh@latest pnpm@10 \
- && curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr/local/bin \
- && /usr/local/bin/agy --version \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -175,6 +157,47 @@ RUN ARCH="$(dpkg --print-architecture)" \
  && rm -rf "/tmp/$TARBALL" /tmp/just_checksums.txt /tmp/just_checksum.line \
  && chmod 0755 /usr/local/bin/just \
  && just --version
+
+# ---------- AI CLI refresh layer (Claude Code + Antigravity agy) -------------
+# Deliberately the LAST heavy build step, and split out of the Node layer above
+# on purpose: bumping either CLI must rebuild only this tail, not apt/Playwright/
+# Node/uv/gh/just. Routine version bumps go from a multi-minute rebuild to a
+# seconds-long tail rebuild:
+#   scripts/profile.sh build --refresh-ai            # latest of BOTH CLIs
+#   scripts/profile.sh build --claude-version=1.2.3  # pin claude (implies refresh)
+# AI_CLI_REFRESH is a cache-buster token — those flags pass a fresh value so this
+# RUN re-executes and pulls upstream. Untouched, it stays cached.
+#
+# It cannot move any later: Gate 2 below writes min-release-age, which applies to
+# `npm install` at BUILD time too, so any claude install after it becomes
+# unresolvable whenever the newest release is inside the quarantine window.
+# scripts/dockerfile-order.test.sh locks that ordering.
+#
+# agy: Google's Antigravity CLI (replaces the former Gemini CLI). Native
+# binary to /usr/local/bin via --dir, NOT the installer default ~/.local/bin
+# (noexec tmpfs at runtime — see docker-compose.yml — so a binary there can't
+# run or survive a recreate). The installer sha512-verifies the payload
+# against its signed manifest. This step runs on the host network, bypassing
+# Squid; RUNTIME auth/API hosts are gated in proxy/allowed_domains.txt under
+# [antigravity]. Sign in at the container console (`scripts/profile.sh <p>
+# auth-antigravity`, or just `agy`); config lives under
+# ~/.gemini/antigravity-cli/ (agy reuses the ~/.gemini home — the per-profile
+# gemini-home mount is kept, so auth persists across recreates).
+# --allow-scripts=@anthropic-ai/claude-code is REQUIRED, not cosmetic. npm 12
+# blocks lifecycle scripts by default, and the claude package fetches its
+# platform-native binary in a postinstall. Without the flag the install
+# "succeeds" and leaves /usr/bin/claude -> claude.exe, a stub whose entire body
+# is `echo "Error: claude native binary not installed."`. The CLI is then broken
+# while `command -v claude` still passes, which is why verify-sandbox.sh's
+# presence check never noticed. That was the live state in this image until
+# work/0001 A5's Gate 2 layer ran `claude --version` and the build failed.
+# Scoped to the one package: it is an allowlist, not a blanket re-enable.
+ARG AI_CLI_REFRESH=0
+ARG CLAUDE_VERSION=latest
+RUN npm install -g --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
+ && curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr/local/bin \
+ && claude --version \
+ && /usr/local/bin/agy --version
 
 # ---------- Gate 2 (npm): publication quarantine + registry pin --------------
 # Refuse to resolve anything published in the last 7 days. A malicious release

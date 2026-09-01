@@ -13,7 +13,8 @@
 #   just verify work        ->  scripts/setup.sh   work --verify
 #   just setup work --name "W" --email w@x
 #
-# Exceptions (no profile arg): `list` and `health`; the `colima-*` VM-lifecycle recipes
+# Exceptions (no profile arg): `list`, `health` and `build` (the image is shared);
+# the `colima-*` VM-lifecycle recipes
 # below — Colima is shared across all profiles, so those front the VM scripts
 # (scripts/start.sh, scripts/stop.sh), not profile.sh/setup.sh; and the
 # `test-*` recipes, which run host-side offline suites that take no profile and
@@ -48,9 +49,10 @@ recreate profile *args:
 rebuild profile *args:
     {{profile_sh}} {{profile}} rebuild {{args}}
 
-# force-rebuild the shared image (profile arg required but unused). Accepts --no-cache / --pull
-build profile *args:
-    {{profile_sh}} {{profile}} build {{args}}
+# force-rebuild the shared image (no profile arg — it's shared).
+# Accepts --no-cache / --pull / --refresh-ai / --claude-version=X.Y.Z
+build *args:
+    {{profile_sh}} build {{args}}
 
 # shell into the agent container (zsh as the agent user)
 attach profile:

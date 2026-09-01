@@ -17,7 +17,10 @@
 #   status          all containers in this profile's compose project, any state
 #                   (running + stopped), by project label — robust to
 #                   compose-profile gating. Accepts extra `docker ps` flags.
-#   build           force-rebuild the image (shared across all profiles)
+#   build           force-rebuild the shared image (NO profile arg — the image is
+#                   shared by every profile). Flags: --no-cache, --pull,
+#                   --refresh-ai (rebuild just the Claude Code + agy tail layer),
+#                   --claude-version=X.Y.Z (pin claude; implies --refresh-ai).
 #   recreate        force-recreate this profile's containers (no image rebuild — picks up
 #                   compose / seccomp / proxy / mount changes). Equivalent to
 #                   `setup.sh <p> --recreate` (which is the flag-style alias).
@@ -67,6 +70,15 @@ PROFILES_ROOT="$DRIVE/.claude-colima/profiles"
 REPO_ROOT="$DRIVE/repo"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Scopes the post-build image prune to images WE built (LABEL in Dockerfile).
+# An unfiltered `docker image prune` is daemon-wide, and this Colima daemon is
+# shared with the user's own projects (e.g. macolima-therapod-pipeline-api) as
+# well as the digest-pinned postgres/mongo/squid pulls. Anything of theirs that
+# is untagged at the moment a build finishes would be reaped as collateral, and
+# a re-pull of the pinned DB/proxy images costs ~1 GB. Nothing on this daemon is
+# dangling right now, so this is a guard, not a fire.
+IMAGE_PRUNE_FILTER=(--filter label=sandbox.image=macolima)
+
 info()  { printf '\033[0;36m[INFO]\033[0m  %s\n' "$*"; }
 ok()    { printf '\033[0;32m[ OK ]\033[0m  %s\n' "$*"; }
 warn()  { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
@@ -85,7 +97,7 @@ usage() {
 # --- arg parsing ------------------------------------------------------------
 [[ $# -ge 1 ]] || usage
 
-# `list` and `health` are the commands that don't need a profile arg
+# `list`, `health` and `build` are the commands that don't need a profile arg
 if [[ "$1" == "list" ]]; then
   if [[ ! -d "$PROFILES_ROOT" ]]; then
     echo "(no profiles yet — try: scripts/profile.sh <name> up)"
@@ -264,6 +276,53 @@ if [[ "${1:-}" == "health" ]]; then
     echo; ok "all profiles consistent (each fully up, or fully down)"
   fi
   exit $(( degraded ))
+fi
+
+# --- global `build` (no profile needed) --------------------------------------
+# The image is SHARED by every profile, so building it was never a per-profile
+# operation. CLAUDE.md, README (x4) and three docs have always spelled it
+# `scripts/profile.sh build` with no profile arg — only the code disagreed, and
+# that exact command exited with the usage screen.
+#
+# PROFILE=_build satisfies docker-compose.yml's ${PROFILE:?} guard, which exists
+# to stop a bare `docker compose` running against an unset project. A build
+# creates no network and no container, so the value is inert.
+if [[ "${1:-}" == "build" ]]; then
+  build_flags=()
+  for a in "${@:2}"; do
+    case "$a" in
+      --no-cache|--pull) build_flags+=("$a") ;;
+      # Bust ONLY the AI-CLI refresh layer (Claude Code + agy), so a version bump
+      # rebuilds the tail rather than the whole image. A changing token forces
+      # the `ARG AI_CLI_REFRESH` RUN to re-execute and pull upstream.
+      --refresh-ai)
+        build_flags+=(--build-arg "AI_CLI_REFRESH=$(date +%s)") ;;
+      # Pin Claude Code to a specific npm version (implies --refresh-ai).
+      --claude-version=*)
+        build_flags+=(--build-arg "CLAUDE_VERSION=${a#*=}" \
+                      --build-arg "AI_CLI_REFRESH=$(date +%s)") ;;
+      -*) fail "build: unknown flag '$a' (valid: --no-cache --pull --refresh-ai --claude-version=X.Y.Z)" ;;
+      *)  fail "build: unexpected arg '$a' — build takes NO profile (the image is shared).
+        For one profile's containers:  scripts/profile.sh $a rebuild
+        To roll a profile onto a freshly built image:  scripts/profile.sh $a recreate" ;;
+    esac
+  done
+  info "Building macolima:latest${build_flags[*]:+ (${build_flags[*]})} (shared image across all profiles)"
+  cd "$SCRIPT_DIR"
+  PROFILE=_build docker compose build "${build_flags[@]+"${build_flags[@]}"}" claude-agent
+  info "Pruning dangling images and build cache to reclaim inodes"
+  docker image prune -f "${IMAGE_PRUNE_FILTER[@]}"
+  # Prune build cache by AGE, not by a size cap. `--keep-storage=4g` (what this
+  # was, and what windows-ai-sandbox still uses) reserves LESS than this image's
+  # own build cache needs (~8.4 GB), so every build evicted ~4 GB of the
+  # least-recently-used entries — which are the apt / Playwright / Node base
+  # layers. That silently negated --refresh-ai. Measured on this host: 22s with a
+  # warm cache, then 97s on the very next --refresh-ai with ZERO cached layers,
+  # the apt layer refetching every index from scratch. An age filter never evicts
+  # a layer the current image is still built on. (--keep-storage is also
+  # deprecated in Docker 29 in favour of --reserved-space.)
+  docker builder prune -f --filter until=168h
+  exit 0
 fi
 
 [[ $# -ge 2 ]] || usage
@@ -667,13 +726,14 @@ case "$CMD" in
     ;;
 
   build)
-    parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
-    [[ $# -eq 0 ]] || fail "build: unexpected arg(s) '$*' (valid flags: --no-cache --pull)"
-    info "Building macolima:latest${BUILD_FLAGS[*]:+ (${BUILD_FLAGS[*]})} (shared image across all profiles)"
-    docker compose build "${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"}" claude-agent
-    info "Pruning dangling images and build cache to reclaim inodes"
-    docker image prune -f
-    docker builder prune -f --keep-storage=4g
+    # Reachable only as `profile.sh <p> build`. The image is shared, so a
+    # profile-scoped build was always a fiction: it built the same image and
+    # ignored the profile. Redirect rather than silently accept, so the two
+    # spellings can't drift back apart.
+    fail "build takes NO profile — the image is shared by every profile.
+        Build it:                       scripts/profile.sh build $*
+        Then roll '$PROFILE' onto it:   scripts/profile.sh $PROFILE recreate
+        Or do both for one profile:     scripts/profile.sh $PROFILE rebuild $*"
     ;;
 
   recreate)
@@ -699,8 +759,17 @@ case "$CMD" in
     info "Rebuilding image + recreating profile '$PROFILE'${BUILD_FLAGS[*]:+ (${BUILD_FLAGS[*]})}"
     docker compose "${COMPOSE_FILE_ARGS[@]}" build "${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"}" claude-agent
     info "Pruning dangling images and build cache to reclaim inodes"
-    docker image prune -f
-    docker builder prune -f --keep-storage=4g
+    docker image prune -f "${IMAGE_PRUNE_FILTER[@]}"
+    # Prune build cache by AGE, not by a size cap. `--keep-storage=4g` (what this
+    # was, and what windows-ai-sandbox still uses) reserves LESS than this image's
+    # own build cache needs (~8.4 GB), so every build evicted ~4 GB of the
+    # least-recently-used entries — which are the apt / Playwright / Node base
+    # layers. That silently negated --refresh-ai. Measured on this host: 22s with a
+    # warm cache, then 97s on the very next --refresh-ai with ZERO cached layers,
+    # the apt layer refetching every index from scratch. An age filter never evicts
+    # a layer the current image is still built on. (--keep-storage is also
+    # deprecated in Docker 29 in favour of --reserved-space.)
+    docker builder prune -f --filter until=168h
     docker compose "${COMPOSE_FILE_ARGS[@]}" up -d --force-recreate
     ;;
 

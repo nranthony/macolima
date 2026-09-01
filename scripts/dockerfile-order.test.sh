@@ -5,10 +5,10 @@
 # Four separate comments in the Dockerfile each claim a position, and together
 # they form one chain that must hold:
 #
-#   claude/agy install  <  npmrc (Gate 2)  <  uv+pip (Gate 3)
+#   AI_CLI_REFRESH ARG  <  claude/agy install  <  npmrc (Gate 2)  <  uv+pip (Gate 3)
 #
-# (windows-ai-sandbox also chains `beads` and an AI-CLI refresh ARG ahead of
-# these; macolima ports neither, so its chain is the tail of theirs.)
+# (windows-ai-sandbox also chains `beads` ahead of these; macolima deliberately
+# does not port it, so its chain is the tail of theirs.)
 #
 # Why each link matters:
 #
@@ -44,12 +44,18 @@ ok()  { PASS=$((PASS+1)); printf "  ok   %s\n" "$1"; }
 bad() { FAIL=$((FAIL+1)); printf "  FAIL %s\n       %s\n" "$1" "$2"; }
 
 # The chain, in required order. Each entry is "label|anchor string".
-# macolima chain. Two of windows-ai-sandbox's six anchors do not exist here and
-# are NOT placeholders to be restored: `beads` was deliberately not ported (a
-# work/0001 §1 judgement call, default no) and there is no ARG AI_CLI_REFRESH
-# cache-buster tail in this Dockerfile. The load-bearing link — Gate 2 AFTER the
-# claude/agy install — is fully preserved, and it is the one that breaks builds.
+# macolima chain. One of windows-ai-sandbox's six anchors does not exist here and
+# is NOT a placeholder to be restored: `beads` was deliberately not ported (a
+# work/0001 §1 judgement call, default no). The load-bearing link — Gate 2 AFTER
+# the claude/agy install — is fully preserved, and it is the one that breaks
+# builds.
+#
+# The AI_CLI_REFRESH ARG must stay immediately ahead of the install it busts: an
+# ARG only invalidates the cache for layers AFTER it, so an ARG that drifts below
+# its RUN makes --refresh-ai silently stop refreshing — a no-op that looks like
+# it worked, which is the worst failure shape available here.
 ANCHORS=(
+  "AI-CLI refresh ARG|ARG AI_CLI_REFRESH"
   "claude/agy install|npm install -g --allow-scripts=@anthropic-ai/claude-code"
   "Gate 2 npmrc write|> /usr/etc/npmrc"
   "Gate 3 uv write|> /etc/uv/uv.toml"

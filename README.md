@@ -253,7 +253,9 @@ Idempotent: `setup.sh` detects if Claude or gh is already authenticated and skip
 | `scripts/profile.sh <p> rebuild` | build image + recreate `<p>` (use after Dockerfile changes) |
 | `scripts/profile.sh <p> wipe` | blank-slate the profile, **preserve** Claude / Gemini / gh / git auth + `db.env` (use `--all-volumes` to also drop DB data) |
 | `scripts/profile.sh <p> exec <cmd>` | run arbitrary command in the container |
-| `scripts/profile.sh build` | rebuild the shared image only |
+| `scripts/profile.sh build` | rebuild the shared image only (no profile arg — it is shared) |
+| `scripts/profile.sh build --refresh-ai` | bump Claude Code + agy to latest, rebuilding only that tail layer (~21s, vs ~100s for a full build) |
+| `scripts/profile.sh build --claude-version=X.Y.Z` | pin Claude Code to a version (implies `--refresh-ai`) |
 
 ### Running multiple profiles at once
 
