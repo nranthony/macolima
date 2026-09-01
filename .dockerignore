@@ -1,0 +1,56 @@
+# Build-context pruning. Ported from windows-ai-sandbox (work/0001 A3).
+#
+# The Dockerfile COPYs exactly three paths, all under config/ (.zshrc,
+# .p10k.zsh, hooks/deny-destructive.sh). Everything else in this repo is
+# context that gets tarred and shipped to the Colima VM on every build for
+# nothing — 312M sent to deliver ~130K.
+#
+# Two things to know before editing:
+#   1. .dockerignore does NOT inherit .gitignore. Anything that must stay out
+#      of a build layer has to be repeated here even if git already ignores it.
+#   2. A bare `*.md` matches root-level files ONLY — `*` does not cross `/`.
+#      Nested markdown needs its directory listed (docs/, work/ below).
+#
+# This is a denylist, so its failure mode is silent under-pruning. If you add a
+# large directory to the repo, add it here too. And if a future COPY needs a
+# path listed below, remove that line rather than working around it — a missing
+# COPY source fails the build loudly, which is the good outcome.
+
+# --- VCS and repo metadata ---
+.git
+.gitignore
+.dockerignore
+
+# --- Prose and assets: nothing is COPYed from any of these ---
+*.md
+docs/
+work/
+images/
+
+# --- Editor / OS / agent-session state ---
+.vscode/
+.claude/
+**/.DS_Store
+
+# --- Secrets: must never enter a build layer, even an unreferenced one ---
+.env
+.env.*
+**/secrets.env
+
+# --- The dashboard's venv: 307M of the 312M context, i.e. nearly all of it ---
+dashboard/.venv
+
+# --- Runtime-only inputs. Compose and the daemon read these from the HOST
+#     path at container start (bind mounts, and security_opt for seccomp),
+#     never from the build context, so pruning them cannot affect the sandbox.
+proxy/
+seccomp.json
+docker-compose.yml
+docker-compose.*.yml
+
+# --- Host-side tooling: runs on the Mac or via docker exec, never in a layer ---
+scripts/
+
+# --- Generated / external state that can appear here but never builds ---
+profiles/
+temp_audit_package/

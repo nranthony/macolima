@@ -347,7 +347,8 @@ A1. **Subnet allocator.** Consume W's `docs/handoff-to-macolima-subnet-allocator
 A2. **Proxy directory mount.** Mount `./proxy` as a directory, squid reads
     `/etc/squid/host/allowed_domains.txt`. Fixes single-file inode staleness on
     edit. Update `docs/squid-internals.md`, dashboard writer, `verify-sandbox.sh`.
-A3. **`.dockerignore`** (M builds an unpruned context). Port W's 17 lines minus
+A3. **`.dockerignore`** (M builds an unpruned context) — **DONE 2026-08-31,
+    see §3.5 item 1 for the result.** Port W's 17 lines minus
     `host_setup/`/`win_setup/`; add `profiles`, `temp_audit_package`, `dashboard/.venv`.
 A4. **`with-egress.sh` instrumentation + `with-egress.test.sh`.** OSV pre-flight
     (host-side, `api.osv.dev` stays off the allowlist), `flock` serialisation,
@@ -559,9 +560,23 @@ Do not queue it as its own task — there is nothing here to edit.
 
 **No-VM, can start immediately:**
 
-1. **A3 — `.dockerignore`.** Absent here entirely; we build an unpruned context.
-   ~17 lines from W minus `host_setup/`/`win_setup/`, plus `profiles`,
-   `temp_audit_package`, `dashboard/.venv`. Smallest real item in the plan.
+1. **A3 — `.dockerignore` — DONE 2026-08-31.** Build context **308 MB → 0.4 MB**.
+
+   **`dashboard/.venv` alone was 307 MB of it.** This plan listed it third in a
+   trailing "plus" clause, which understated it badly: every other entry
+   combined is worth under 1 MB. If a future item sizes a context change, weigh
+   the venv first.
+
+   Two things checked rather than assumed: the Dockerfile's three `COPY`
+   sources (all under `config/`) survive the ruleset, and W's `proxy/`,
+   `seccomp.json`, `docker-compose.yml` and `scripts/` entries are safe here
+   for the same reason they are safe there — compose and the daemon read those
+   from the **host path** at container start (bind mounts, `security_opt`),
+   never from the build context.
+
+   **Not yet exercised by a real build** — Colima is down. `docker compose
+   config` and `just --list` are green; the first `scripts/profile.sh build`
+   confirms it end to end. Nothing else in the queue depends on that.
 2. **B1–B3 — repo process.** `AGENTS.md`/`ARCHITECTURE.md` split, `docs/adr/`
    + `docs/incoming/`, archive the two `MACOLIMA_in-transit_*.md` files and the
    stale audit artifacts, port `sibling-repo-relationship.md` with the framing
