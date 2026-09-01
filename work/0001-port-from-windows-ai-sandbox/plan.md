@@ -789,6 +789,24 @@ exist here and were not invented). `verify-sandbox.sh` **32 passed / 0 failed /
    `workspaceFolder` key in the attached-container config file, so the folder
    must be named in the URI to win.
 
+10. **`just dashboard` — DONE 2026-09-01 (owner request).** M already had the
+    whole dashboard (`dashboard/`, venv, `.streamlit/config.toml` byte-identical
+    to W's); only the recipe was missing. Not ported verbatim: W's is a shebang
+    recipe with the logic inline (`cd`, `source .venv/bin/activate`, `streamlit
+    run`), which contradicts this repo's stated justfile invariant — "it is NOT
+    canonical and holds NO logic". Logic went into `scripts/dashboard.sh`; the
+    recipe is a pass-through like every other. That move paid for itself: the
+    script can carry guards a shebang recipe would not have had, and one of them
+    is security-relevant. Streamlit resolves `.streamlit/config.toml` relative to
+    `$PWD`, and that file is the sole thing pinning the bind address to
+    127.0.0.1 — verified directly, `streamlit config show` reports
+    `address = "127.0.0.1"` from `dashboard/` and `Default: (unset)` from the
+    repo root. So the `cd` is load-bearing and the script now refuses to start
+    when the config file is absent, rather than falling back to Streamlit's
+    default of binding every interface for a console that can rewrite the proxy
+    allowlist and restart containers. `source activate` is also dropped: the
+    venv's own shebang already selects the interpreter.
+
 ## 3.6 Loose ends — found during Phase 0, none blocking
 
 Recorded here because Phase 0 surfaced them and prose asides get lost. None is

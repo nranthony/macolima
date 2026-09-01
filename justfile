@@ -13,7 +13,8 @@
 #   just verify work        ->  scripts/setup.sh   work --verify
 #   just setup work --name "W" --email w@x
 #
-# Exceptions (no profile arg): `list`, `health` and `build` (the image is shared);
+# Exceptions (no profile arg): `list`, `health`, `build` (the image is shared) and
+# `dashboard` (host-side ops console);
 # the `colima-*` VM-lifecycle recipes
 # below — Colima is shared across all profiles, so those front the VM scripts
 # (scripts/start.sh, scripts/stop.sh), not profile.sh/setup.sh; and the
@@ -26,6 +27,7 @@
 profile_sh := justfile_directory() / "scripts" / "profile.sh"
 setup_sh   := justfile_directory() / "scripts" / "setup.sh"
 code_sh    := justfile_directory() / "scripts" / "code-attach.sh"
+dash_sh    := justfile_directory() / "scripts" / "dashboard.sh"
 
 # default: banner + recipe list (a bare `just` lists, never runs a recipe).
 _default:
@@ -88,6 +90,12 @@ list:
 # cross-profile health: flag any profile whose agent/proxy/DB aren't all up together (no profile arg)
 health:
     {{profile_sh}} health
+
+# ---- control dashboard (host-side Streamlit, no profile arg) ----------------
+
+# launch the ops dashboard on http://127.0.0.1:8501 (Ctrl-C to stop)
+dashboard *args:
+    {{dash_sh}} {{args}}
 
 # ---- offline test suites (no profile arg, no docker, no network) ------------
 # These run on the host with the VM down. They are the only thing standing

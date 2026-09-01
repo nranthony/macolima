@@ -470,11 +470,25 @@ that toggles blocks/domains in `proxy/allowed_domains.txt` and restarts
 `egress-proxy` for **every running profile** in one click (no manual
 `squid -k reconfigure`).
 
+First run, to build the venv (needs [uv](https://github.com/astral-sh/uv)):
+
 ```bash
-cd dashboard
-uv venv && uv pip install -e .
-uv run streamlit run src/app.py     # → http://127.0.0.1:8501
+cd dashboard && uv venv && uv pip install -e .
 ```
+
+After that, from anywhere in the repo:
+
+```bash
+just dashboard        # → http://127.0.0.1:8501, Ctrl-C to stop
+```
+
+`just dashboard` fronts `scripts/dashboard.sh`, which `cd`s into `dashboard/`
+before launching. That is load-bearing, not tidiness: Streamlit reads its config
+from `$PWD/.streamlit/config.toml`, and that file is what pins the bind address
+to `127.0.0.1`. Started from any other directory the pin is simply not found and
+Streamlit falls back to its default of binding every interface — putting a
+console that can rewrite the proxy allowlist and restart containers on your LAN.
+The script refuses to start if that config file is missing.
 
 Today the allowlist editor is its only feature; lifecycle, logs, and verify stay
 on the CLI. See `dashboard/README.md`.

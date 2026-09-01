@@ -17,12 +17,21 @@ uv pip install -e .
 ## Run
 
 ```bash
-cd dashboard
+just dashboard        # from anywhere in the repo
+```
+
+or equivalently, from this directory:
+
+```bash
 uv run streamlit run src/app.py
 ```
 
 Bind address is pinned to `127.0.0.1` via `.streamlit/config.toml` — open
-<http://127.0.0.1:8501> in your browser.
+<http://127.0.0.1:8501> in your browser. Streamlit reads that file relative to
+the **current working directory**, so both forms above start from `dashboard/`
+on purpose. `scripts/dashboard.sh` (what `just dashboard` runs) does the `cd`
+for you and refuses to start if the config file is missing, rather than silently
+falling back to Streamlit's default of binding every interface.
 
 ## Features
 
