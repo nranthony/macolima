@@ -24,7 +24,20 @@ REQUIRED_HOOKS = [
 
 # These three keys are documented user-customization fields seeded after
 # first `up` and intentionally not template-mirrored. Strip before diffing.
-USER_CUSTOMIZATION_KEYS = {"theme", "model", "effortLevel"}
+# Keys Claude Code writes for itself at runtime. Comparing them against the
+# template makes template_diff fire on every profile that has ever been used,
+# and a check that always fires is one people learn to skim past — which is
+# exactly what happened here: template_diff sat as "pre-existing, unexplained
+# DRIFT" from Phase 0 until it was finally read in full on 2026-09-01, at which
+# point four of its five differing keys turned out to be this and _-annotations.
+# Add a key here only when the AGENT owns it; anything the sandbox owns must
+# keep failing loudly.
+USER_CUSTOMIZATION_KEYS = {
+    "theme", "model", "effortLevel",
+    "agentPushNotifEnabled",       # notification preference
+    "skipAutoPermissionPrompt",    # UI dismissal state
+    "skipWorkflowUsageWarning",    # UI dismissal state
+}
 
 # Required permissions.deny set — covers audits H1 and L7 tightening.
 # Categories are display-only; verification is per-entry membership.
@@ -145,20 +158,59 @@ def run():
     if os.path.isfile(TEMPLATE):
         try:
             template = json.load(open(TEMPLATE))
-            live_filtered = {
+
+            def _strip_annotations(o):
+                """Drop '_'-prefixed annotation keys at every depth.
+
+                The template documents itself inline — `hooks._comment`,
+                `permissions._read_deny_note` and friends. Claude Code does not
+                write those through to the live settings.json, so comparing raw
+                objects reports `hooks` as DRIFT when the PreToolUse wiring is
+                byte-identical. No agent writes a '_'-prefixed key, so removing
+                them cannot hide real drift. windows-ai-sandbox's host-side
+                check_agent_policy_sync strips them for the same reason.
+                """
+                if isinstance(o, dict):
+                    return {k: _strip_annotations(v) for k, v in o.items()
+                            if not k.startswith("_")}
+                if isinstance(o, list):
+                    return [_strip_annotations(v) for v in o]
+                return o
+
+            template = _strip_annotations(template)
+            live_filtered = _strip_annotations({
                 k: v for k, v in live.items()
                 if k not in USER_CUSTOMIZATION_KEYS
-            }
+            })
             ok = (json.dumps(live_filtered, sort_keys=True) ==
                   json.dumps(template, sort_keys=True))
             details = {"identical_after_strip": ok,
-                       "stripped_keys": sorted(USER_CUSTOMIZATION_KEYS)}
+                       "stripped_keys": sorted(USER_CUSTOMIZATION_KEYS),
+                       "annotations_stripped": True}
             if not ok:
                 diff_keys = set()
                 for k in set(live_filtered.keys()) | set(template.keys()):
                     if live_filtered.get(k) != template.get(k):
                         diff_keys.add(k)
                 details["differing_top_level_keys"] = sorted(diff_keys)
+                # Name the actual delta, not just the key. "permissions differs"
+                # sent the last reader to diff two 70-entry lists by hand.
+                for k in sorted(diff_keys):
+                    lv, tv = live_filtered.get(k), template.get(k)
+                    if isinstance(lv, dict) and isinstance(tv, dict):
+                        for sub in sorted(set(lv) | set(tv)):
+                            a, b = lv.get(sub), tv.get(sub)
+                            if a == b:
+                                continue
+                            if isinstance(a, list) and isinstance(b, list):
+                                details[f"{k}.{sub}"] = {
+                                    "live_only": sorted(set(map(str, a)) - set(map(str, b)))[:10],
+                                    "template_only": sorted(set(map(str, b)) - set(map(str, a)))[:10],
+                                }
+                            else:
+                                details[f"{k}.{sub}"] = {"live": a, "template": b}
+                    elif not isinstance(lv, (dict, list)):
+                        details[k] = {"live": lv, "template": tv}
             out.append(_check("template_diff", ok, **details))
         except Exception as e:
             out.append({
