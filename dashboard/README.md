@@ -33,6 +33,31 @@ on purpose. `scripts/dashboard.sh` (what `just dashboard` runs) does the `cd`
 for you and refuses to start if the config file is missing, rather than silently
 falling back to Streamlit's default of binding every interface.
 
+## Layout
+
+```
+src/app.py                      two tabs, no logic
+src/lib/status_view.py          Status tab — Colima VM, profiles, squid health
+src/lib/proxy_allowlist_view.py Proxy Allowlist tab — the editor
+src/lib/proxy_categories.py     purpose grouping + accent colours for block tags
+src/lib/config_io.py            allowed_domains.txt parse/serialise
+src/lib/docker_client.py        Colima socket resolution, reload/recreate proxies
+tests/                          `just test-dashboard`
+```
+
+## Tests
+
+```bash
+just test-dashboard
+```
+
+Locks the parser against the live `proxy/allowed_domains.txt`: read→write must
+be byte-identical, no domain may be parsed outside a block or inherit a tag
+across a section divider, every block tag must map to a category, `add_domain`
+must inherit the block's comment state (adding to a commented-out block must not
+silently open egress), and `app.py` must render without exceptions. Anything
+that writes runs against a copy.
+
 ## Features
 
 - **Proxy allowlist editor** — toggle blocks/domains in

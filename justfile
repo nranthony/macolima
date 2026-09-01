@@ -102,6 +102,10 @@ verify profile *args:
 dashboard *args:
     {{dash_sh}} {{args}}
 
+# dashboard parser + render regression suite (needs dashboard/.venv; no docker required)
+test-dashboard:
+    {{justfile_directory()}}/dashboard/.venv/bin/python {{justfile_directory()}}/dashboard/tests/test_allowlist_roundtrip.py
+
 # ---- offline test suites (no profile arg, no docker, no network) ------------
 # These run on the host with the VM down. They are the only thing standing
 # between a silently-inverted check and a green-looking sandbox, so they need a

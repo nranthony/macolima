@@ -850,6 +850,41 @@ exist here and were not invented). `verify-sandbox.sh` **32 passed / 0 failed /
     `AGENT_POLICY_DESCRIPTORS` and the `converge` verb, both Phase D. It lands
     with them, per the same binding as everything else.
 
+12. **Dashboard brought up to W's structure — DONE 2026-09-01 (owner request).**
+    Two findings before any porting. First, `.gitignore`'s unanchored `lib/`
+    (stock Python template, meant for build output) matched
+    `dashboard/src/lib/`, so `config_io.py` and `docker_client.py` — half the
+    dashboard, including the Colima socket resolution — had NEVER been
+    committed, silently, because git says nothing about ignored paths. Fixed
+    and committed separately. Second, M's UI was still on Streamlit's
+    deprecated `use_container_width`.
+
+    Ported: `lib/__init__.py`, `lib/proxy_categories.py`, `lib/status_view.py`,
+    `lib/proxy_allowlist_view.py`, and a tabs shell in `app.py`;
+    `src/pages/04_proxy_allowlist.py` deleted.
+
+    NOT taken wholesale, in three places:
+    (a) **W's `ConfigIO.add_domain` dropped M's comment-state inheritance.**
+    Theirs always adds a domain LIVE; M's inherits the block's current state, so
+    adding a host to a commented-out block (e.g. planning-mode `[pypi]`) does not
+    silently open egress. M's kept, now locked by a test. **Report to W.**
+    (b) W's `CATEGORY_TAGS` names blender/pytorch/nvidia/numerai/kaggle/clickup —
+    none of which exist here — and misses `github-raw`, `paperbridge`,
+    `oa-publishers`, `wearables`, `archive`, which do. Taken verbatim it would
+    have dumped 5 of M's 14 blocks into "Other". Rebuilt from M's live tags.
+    (c) M's parser was KEPT rather than replaced with W's rewrite: M's
+    round-trips the live file byte-for-byte, so swapping a working parser for
+    robustness against hypothetical input is the wrong trade. The latent hazard
+    (it recognises a bare dotted token as a domain anywhere — the open_section()
+    prose-bug shape from A4) is covered by a test instead.
+
+    `dashboard/tests/test_allowlist_roundtrip.py` + `just test-dashboard`:
+    7 checks — byte-identical round-trip, no orphan domains, no tag bleed across
+    dividers, full category coverage, the add_domain egress lock, a clean
+    `AppTest` render, and a final assertion that the test did not modify the
+    live allowlist. Verified live: HTTP 200, 2 tabs, 104 domain checkboxes,
+    4 status metrics, zero tracebacks or deprecation warnings.
+
 ## 3.6 Loose ends — found during Phase 0, none blocking
 
 Recorded here because Phase 0 surfaced them and prose asides get lost. None is
