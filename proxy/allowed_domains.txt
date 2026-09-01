@@ -117,8 +117,8 @@ developers.google.com
 # below; widen only on observed need. Note: raw.githubusercontent.com lives
 # in the persistent [github-raw] block, not here — adds to the surface
 # regardless of whether this planning block is open.
-# github.com
-# api.github.com
+github.com
+api.github.com
 # codeload.github.com
 # objects.githubusercontent.com
 # gist.githubusercontent.com
