@@ -217,9 +217,107 @@ ensure_repo_dir() {
   fi
 }
 
+# --- per-profile subnet allocation ------------------------------------------
+# Ported verbatim from windows-ai-sandbox docs/handoff-to-macolima-subnet-allocator.md
+# §4 (work/0001 A1). Deliberately written in the bash-3.2 portable subset —
+# /usr/bin/env bash on this host is 3.2.57, so: no associative arrays, no
+# `xargs -r` (BSD xargs runs the command once on empty input), `cksum` not
+# `md5sum` (macOS has no md5sum), and `if ...; then continue; fi` rather than
+# `[[ ... ]] && continue`.
+#
+# That last one is not style. Under `set -euo pipefail` (line 54) a standalone
+# `[[ test ]] && continue` whose test is FALSE returns nonzero and trips set -e,
+# aborting the subshell before the function's printf — so the function silently
+# returns an empty string with no error. That only bites once the helper is
+# called via command substitution, which is exactly how sibling_octets is used.
+# `X || continue` is safe; `X && continue` is the hazard.
+#
+# "Used octet" sets are carried as space-padded strings (" 0 65 187 ") tested
+# with a case glob — the 3.2-safe equivalent of an assoc-array membership test.
+
+# Deterministic first-choice octet (0-255) from the profile name. Stable across
+# wipes; cksum is POSIX and identical-output on Linux + macOS.
+octet_start() { printf '%s' "$1" | cksum | awk '{print $1 % 256}'; }
+
+# Collect octets already claimed by OTHER profiles' subnet-octet files into a
+# space-padded string.
+sibling_octets() {
+  local d name o out=" "
+  for d in "$PROFILES_ROOT"/*/; do
+    if [[ ! -d "$d" ]]; then continue; fi           # literal glob when no profiles
+    name="$(basename "$d")"
+    if [[ "$name" == "$PROFILE" ]]; then continue; fi
+    if [[ ! -f "$d/subnet-octet" ]]; then continue; fi
+    if ! read -r o < "$d/subnet-octet"; then continue; fi
+    if [[ "$o" =~ ^[0-9]+$ ]]; then out="$out$o "; fi
+  done
+  printf '%s' "$out"
+}
+
+# First free octet at/after the name-hash start that is NOT in $1 (a space-padded
+# "used" string). Echoes the octet, or empty if the /24 space is exhausted.
+first_free_octet() {
+  local used="$1" start i c
+  start="$(octet_start "$PROFILE")"
+  for (( i=0; i<256; i++ )); do
+    c=$(( (start + i) % 256 ))
+    case "$used" in *" $c "*) continue ;; esac
+    printf '%s' "$c"; return
+  done
+}
+
+# Cheap path (no docker calls): reuse persisted octet, or assign one from the
+# name hash, skipping octets other profiles' files already claim. Exports
+# SANDBOX_OCTET. Called for EVERY command so down/status/logs see the same
+# subnet the network was created with.
+ensure_subnet_octet() {
+  local f="$PROFILES_ROOT/$PROFILE/subnet-octet" want
+  if [[ -f "$f" ]] && read -r want < "$f" \
+     && [[ "$want" =~ ^[0-9]+$ ]] && (( want <= 255 )); then
+    export SANDBOX_OCTET="$want"; return
+  fi
+  want="$(first_free_octet "$(sibling_octets)")"
+  [[ -n "$want" ]] || fail "no free /24 in 172.30.0.0/16 (256-profile max)"
+  mkdir -p "$(dirname "$f")"
+  printf '%s\n' "$want" > "$f"
+  export SANDBOX_OCTET="$want"
+}
+
+# Pool check. Call right before a network-creating `compose up`: if our /24 is
+# already held by ANOTHER docker network (a non-profile project, or a stale
+# net), bump to the next free octet and rewrite the file. Skips our own
+# sandbox-internal so recreate doesn't flag itself.
+ensure_octet_free() {
+  local own="${COMPOSE_PROJECT_NAME}_sandbox-internal" net sub want taken
+  taken="$(sibling_octets)"
+  while read -r net sub; do
+    if [[ "$net" == "$own" ]]; then continue; fi
+    if [[ "$sub" =~ ^172\.30\.([0-9]+)\.0/ ]]; then taken="$taken${BASH_REMATCH[1]} "; fi
+  done < <(docker network ls -q 2>/dev/null \
+            | while read -r id; do
+                docker network inspect "$id" \
+                  --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null || true
+              done \
+            | awk '{for (i=2;i<=NF;i++) print $1, $i}')
+  case "$taken" in
+    *" ${SANDBOX_OCTET} "*) ;;          # our /24 is occupied — fall through
+    *)                      return ;;   # free — keep current assignment
+  esac
+  want="$(first_free_octet "$taken")"
+  if [[ -z "$want" ]]; then fail "no free /24 in 172.30.0.0/16 (pool check)"; fi
+  mkdir -p "$PROFILES_ROOT/$PROFILE"
+  printf '%s\n' "$want" > "$PROFILES_ROOT/$PROFILE/subnet-octet"
+  warn "172.30.${SANDBOX_OCTET}.0/24 already in use; reassigned '$PROFILE' to 172.30.${want}.0/24"
+  export SANDBOX_OCTET="$want"
+}
+
 # --- compose wrapper --------------------------------------------------------
 export PROFILE
 export COMPOSE_PROJECT_NAME="macolima-$PROFILE"
+# Must run for every command, not just the network-creating ones: `down`,
+# `status` and `logs` all need the same SANDBOX_OCTET the network was created
+# with. Cheap — a single file read once the octet is assigned.
+ensure_subnet_octet
 cd "$SCRIPT_DIR"
 
 AGENT="claude-agent-$PROFILE"
@@ -285,7 +383,8 @@ case "$CMD" in
       fail "up: ${BUILD_FLAGS[*]} only applies to build/rebuild (up does not rebuild the image)"
     ensure_repo_dir
     ensure_state
-    info "Bringing up profile '$PROFILE' (project: $COMPOSE_PROJECT_NAME)"
+    ensure_octet_free
+    info "Bringing up profile '$PROFILE' (project: $COMPOSE_PROJECT_NAME, subnet: 172.30.${SANDBOX_OCTET}.0/24)"
     docker compose "${COMPOSE_FILE_ARGS[@]}" up -d "$@"
     ok "Stack up. Attach with:  scripts/profile.sh $PROFILE attach"
     ;;
@@ -358,6 +457,7 @@ case "$CMD" in
       fail "recreate: ${BUILD_FLAGS[*]} only applies to build/rebuild (recreate does not rebuild the image)"
     ensure_repo_dir
     ensure_state
+    ensure_octet_free
     info "Force-recreating profile '$PROFILE' (no image rebuild)"
     docker compose "${COMPOSE_FILE_ARGS[@]}" up -d --force-recreate "$@"
     ok "Recreated. Attach with:  scripts/profile.sh $PROFILE attach"
@@ -367,6 +467,7 @@ case "$CMD" in
     parse_flags "$@"; set -- "${ARGS[@]+"${ARGS[@]}"}"
     ensure_repo_dir
     ensure_state
+    ensure_octet_free
     info "Rebuilding image + recreating profile '$PROFILE'${BUILD_FLAGS[*]:+ (${BUILD_FLAGS[*]})}"
     docker compose "${COMPOSE_FILE_ARGS[@]}" build "${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"}" claude-agent
     info "Pruning dangling images and build cache to reclaim inodes"

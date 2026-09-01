@@ -156,8 +156,17 @@ if [[ -n "$ACTION" ]]; then
       ;;
     recreate)
       step "Force-recreating profile '$PROFILE'"
-      "$PROFILE_SH" "$PROFILE" up >/dev/null  # ensures state dirs exist
-      docker compose up -d --force-recreate
+      # Delegate to profile.sh rather than calling `docker compose` here.
+      # profile.sh owns the per-profile SANDBOX_OCTET allocation (work/0001 A1);
+      # a direct compose call from this script would fall back to the `:-0`
+      # default and try to move sandbox-internal to 172.30.0.0/24 underneath
+      # running containers. `recreate` also does the ensure_repo_dir +
+      # ensure_state work the old `up >/dev/null` line was there for.
+      #
+      # The other compose calls in this block (restart / down / ps) are
+      # network-neutral — they act on the project by label and never create or
+      # re-address a network — so the `:-0` default is harmless for them.
+      "$PROFILE_SH" "$PROFILE" recreate
       ok "Recreated."
       exit 0
       ;;

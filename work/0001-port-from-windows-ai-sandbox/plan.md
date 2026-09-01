@@ -332,7 +332,8 @@ carries its suite in the same change. The "Lands with" column is the binding.
 
 ### Phase A — stable, independent, platform-neutral (first PR)
 
-A1. **Subnet allocator.** Consume W's `docs/handoff-to-macolima-subnet-allocator.md`
+A1. **Subnet allocator** — **DONE 2026-08-31, see §3.5 item 3.**
+    Consume W's `docs/handoff-to-macolima-subnet-allocator.md`
     §4 verbatim — **verified 2026-08-31 as byte-identical to W's live allocator**
     (57 code lines, comments ignored), so it is current despite being written
     2026-06-09. At `eda42dd` that code is **`profile.sh:~1030-1083`** — three
@@ -587,10 +588,34 @@ Do not queue it as its own task — there is nothing here to edit.
 
 **Needs the VM, highest value:**
 
-3. **A1 — subnet allocator.** The safest real port: W's handoff §4 is verified
-   byte-identical to their live allocator. Changes a CLAUDE.md invariant
-   ("change all four locations together") and `docs/compose-network-ipam.md`.
-   Needs a full `down` + rebuild per profile, not `--force-recreate`.
+3. **A1 — subnet allocator — DONE 2026-08-31.** W's handoff §4 consumed
+   verbatim into `profile.sh`; compose parameterized on `${SANDBOX_OCTET:-0}`
+   at all 7 sites (subnet + 3 `ipv4_address` + 3 `extra_hosts`).
+
+   **The collision was confirmed real before fixing it**, not assumed:
+   `docker network create --subnet 172.30.0.0/24` against the live profile
+   returns exactly W's predicted *"Pool overlaps with other one on this address
+   space"*. Docker's IPAM pool is global to the engine — the old compose
+   comment claiming distinct `COMPOSE_PROJECT_NAME`s prevented collision was
+   simply wrong, and is now corrected in place.
+
+   `therapod` was **pre-seeded to octet 0** (handoff §8) so it stayed on the
+   subnet it was already running; its name hash is 245, so without the seed the
+   only live profile would have moved for no benefit. Post-change network state
+   is identical to the pre-change baseline on every axis: subnet, all three
+   container IPs, `/etc/hosts`, allowlisted egress, proxy-denied egress, DNS
+   sinkhole, `postgres:5432`.
+
+   `setup.sh --recreate` now delegates to `profile.sh recreate` — it was the
+   one direct-`docker compose` site that creates a network, and would have
+   fallen back to `:-0` and tried to move the network under running containers.
+   `restart`/`down`/`ps` are network-neutral and stay as they are.
+
+   Verified: allocator unit-tested under bash 3.2 (persisted reuse, fresh
+   allocation avoiding a sibling, pool-check bump off both a live profile and a
+   non-profile squatter); `verify-sandbox.sh` **24/0/0**; tier-2 audit **70
+   probes, OK 64 / INFO 4 / N/A 1 / DRIFT 1 — identical to the Phase 0
+   baseline**, same pre-existing `settings/template_diff`.
 4. **A2, A4+A6, A5** in that order. A4 carries `with-egress.test.sh` (82); A6
    carries `depaudit.test.sh` (56) **and `ccf27a3` folded in**; A5 carries
    `dockerfile-order.test.sh` (8) and the load-bearing layer order.

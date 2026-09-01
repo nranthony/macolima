@@ -95,9 +95,9 @@ services:
     dns:
       - 127.0.0.1
     extra_hosts:
-      - "egress-proxy:172.30.0.10"
-      - "postgres:172.30.0.20"
-      - "mongo:172.30.0.30"
+      - "egress-proxy:172.30.${SANDBOX_OCTET:-0}.10"
+      - "postgres:172.30.${SANDBOX_OCTET:-0}.20"
+      - "mongo:172.30.${SANDBOX_OCTET:-0}.30"
     env_file:
       # Optional DB creds — only present for profiles that opted into the
       # postgres/mongo sibling containers. required: false so profiles
@@ -151,7 +151,7 @@ services:
       sandbox-internal:
         # Fixed IP so claude-agent's extra_hosts entry resolves it without
         # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
-        ipv4_address: 172.30.0.20
+        ipv4_address: 172.30.${SANDBOX_OCTET:-0}.20
     # Uncomment to expose to host GUI tools (TablePlus, DBeaver, psql on mac).
     # Loopback-only — do not bind 0.0.0.0.
     # ports:
@@ -201,7 +201,7 @@ services:
       sandbox-internal:
         # Fixed IP so claude-agent's extra_hosts entry resolves it without
         # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
-        ipv4_address: 172.30.0.30
+        ipv4_address: 172.30.${SANDBOX_OCTET:-0}.30
     # Uncomment to expose to host GUI tools (Compass, mongosh on mac).
     # ports:
     #   - "127.0.0.1:27017:27017"
@@ -265,7 +265,7 @@ services:
       sandbox-internal:
         # Fixed IP so claude-agent's extra_hosts entry resolves it without
         # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
-        ipv4_address: 172.30.0.10
+        ipv4_address: 172.30.${SANDBOX_OCTET:-0}.10
       sandbox-external:
     restart: "no"
 
@@ -276,14 +276,30 @@ networks:
     # Static subnet so we can pin egress-proxy/postgres/mongo to known IPs
     # and feed them to claude-agent via extra_hosts. Required to make the
     # `dns: [127.0.0.1]` sinkhole on claude-agent workable — without static
-    # IPs we'd have no reliable way to pre-populate /etc/hosts. The /24 lives
-    # in Docker's typical private range and is per-profile (each profile gets
-    # its own bridge under its own COMPOSE_PROJECT_NAME), so no subnet collision
-    # between profiles. If 172.30.0.0/24 conflicts with a host network you use,
-    # change it here and update the extra_hosts / ipv4_address entries above.
+    # IPs we'd have no reliable way to pre-populate /etc/hosts.
+    #
+    # The third octet is allocated PER PROFILE by profile.sh
+    # (ensure_subnet_octet / ensure_octet_free) and persisted in
+    # <profiles>/<profile>/subnet-octet. A previous version of this comment
+    # claimed distinct COMPOSE_PROJECT_NAMEs meant "no subnet collision between
+    # profiles" — that was wrong. Docker's IPAM pool is GLOBAL to the engine,
+    # so two profiles both asking for 172.30.0.0/24 fail the second `up` with
+    # "Pool overlaps with other one on this address space". Parameterizing the
+    # octet is what actually makes profiles concurrent.
+    #
+    # SANDBOX_OCTET drives the subnet, the three ipv4_address pins and the
+    # three extra_hosts entries from ONE variable, on purpose: DNS is sinkholed
+    # to 127.0.0.1, so extra_hosts is the agent's only name-resolution path. If
+    # the pins and the hosts entries ever disagreed, the agent would dial a dead
+    # IP — proxy mismatch kills all egress, DB mismatch is connection-refused.
+    # Deriving both from one variable makes that class of drift impossible.
+    #
+    # The `:-0` default preserves the legacy 172.30.0.0/24 for direct
+    # `docker compose` calls that never create a network (PROFILE=_test config,
+    # restart, ps, down).
     ipam:
       config:
-        - subnet: 172.30.0.0/24
+        - subnet: 172.30.${SANDBOX_OCTET:-0}.0/24
   sandbox-external:
     driver: bridge
 
