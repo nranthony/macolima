@@ -74,6 +74,14 @@ daily-cloudcode-pa.googleapis.com
 # Code Assist sign-in/eligibility companions (tier-2 probe REQUIRED_DOMAINS
 # in the sibling repo — audit reported DRIFT while these were absent):
 codeassist.google.com
+# Profile avatar served after sign-in. Google rotates across lh3-lh6; only lh3
+# has been observed in practice (windows-ai-sandbox), so the rest stay
+# commented as named spares rather than a `.googleusercontent.com` wildcard —
+# that parent also serves arbitrary user content.
+lh3.googleusercontent.com
+# lh4.googleusercontent.com
+# lh5.googleusercontent.com
+# lh6.googleusercontent.com
 developers.google.com
 # Candidates also embedded in the `agy` binary — uncomment if startup/auth/run
 # hits a TCP_DENIED (verify against Squid access.log on first authed run; kept
@@ -114,6 +122,8 @@ developers.google.com
 # codeload.github.com
 # objects.githubusercontent.com
 # gist.githubusercontent.com
+# `gh release download` / GitHub Releases asset host.
+# release-assets.githubusercontent.com
 # github.io
 # # --- Python package ecosystem [pypi] ---
 # .pypi.org
@@ -139,6 +149,7 @@ developers.google.com
 # Chromium binary is on disk after that and no further CDN traffic is
 # needed for crawls themselves.
 # cdn.playwright.dev
+# playwright.download.prss.microsoft.com
 # playwright.azureedge.net
 # playwright-akamaized.net
 
@@ -175,6 +186,7 @@ www.medrxiv.org
 chemrxiv.org
 doi.org
 www.zotero.org
+api.zotero.org
 
 # --- Open-access publisher destinations for doi.org redirects [oa-publishers] ---
 # doi.org returns 302 to a publisher. These cover OA publishers most likely to
