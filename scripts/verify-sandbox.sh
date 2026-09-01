@@ -3,8 +3,15 @@
 # verify-sandbox.sh — run INSIDE the container to confirm hardening is active
 # =============================================================================
 # Usage (from host):
+#   scripts/profile.sh <p> verify      # or: just verify <p>
+# That streams THIS file into the agent over stdin — nothing is copied into
+# /workspace, so there is no staged copy to go stale — and runs two host-side
+# allowlist-enforcement checks first that cannot live in here (this script runs
+# inside the agent, which can see neither the repo nor the proxy container).
+#
+# Also runnable from a staged copy, which is how the tier-2 audit gets it there:
+#   scripts/stage-audit-package.sh <p>
 #   scripts/profile.sh <p> exec bash /workspace/temp_audit_package/scripts/verify-sandbox.sh
-# (Stage the audit package first: scripts/stage-audit-package.sh <p>)
 # =============================================================================
 set -uo pipefail
 
@@ -115,6 +122,13 @@ PY
 )
 if [[ "$code" == "403" || "$code" == "400" ]]; then
   pass "Squid denies CONNECT on non-443 ports (got HTTP $code)"
+elif [[ "$code" == "000" ]]; then
+  # 000 is the probe's own sentinel for "no status line came back" — i.e. the
+  # proxy was unreachable, not permissive. Reporting that as "Squid ALLOWED
+  # CONNECT to port 80" is a false verdict on the loudest possible check, and
+  # it fires exactly when the proxy is down, which is when someone is already
+  # worried. A probe-infrastructure failure must never read as a policy verdict.
+  warn "could not reach the proxy to test CONNECT on port 80 — the port-80 hole was NOT verified (is egress-proxy running?)"
 else
   fail "Squid allowed CONNECT to port 80 (HTTP $code) — add 'http_access deny CONNECT !SSL_ports' to squid.conf"
 fi

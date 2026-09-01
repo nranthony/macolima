@@ -41,6 +41,9 @@
 #                   known CVEs, non-gating), --json, --strict, --quiet.
 #                   `deps --history [N]` reads back the install-window log
 #                   written by with-egress.sh.
+#   verify          tier-1 hardening tripwire: host-side allowlist-enforcement
+#                   checks, then verify-sandbox.sh streamed into the agent.
+#                   Read-only. Exits nonzero if anything failed.
 #   list            list all existing profiles (by drive dir)
 #   health          cross-profile consistency check (no profile arg): flags any
 #                   profile whose agent / proxy / declared DB siblings aren't all
@@ -480,9 +483,10 @@ PROXY_ALLOWLIST="/etc/squid/host/allowed_domains.txt"
 # revoked hosts, under-matching verifies nothing while printing a reassuring
 # count.
 #
-# NOTHING CALLS THIS YET. It lands now because the test suite is ported with its
-# subject (the Phase A0 binding); work/0001 A8 wires it into the `verify`
-# enforcement probe. Do not delete it as dead code before then.
+# Consumed by check_allowlist_sync's enforcement probe (below), which is the
+# `verify` verb's host-side half. It landed ahead of that caller because the
+# test suite that locks all three parsers ported with its own subject (the
+# Phase A0 binding).
 list_denied_domains() {
   local allowlist="$1" commented active wild d
   commented=$(sed -n 's/^#[[:space:]]\{1,\}\(\.\{0,1\}[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z][A-Za-z]\{1,\}\)[[:space:]]*$/\1/p' \
@@ -502,6 +506,216 @@ list_denied_domains() {
     [[ "$covered" -eq 0 ]] && printf '%s\n' "$d"
   done < <(comm -23 <(printf '%s\n' "$commented") \
                     <(printf '%s\n' "$active" | sed 's/^\.//' | sort -u))
+}
+
+# --- tier-1 hardening verification, host side --------------------------------
+# `verify` streams scripts/verify-sandbox.sh into the AGENT container. Two
+# checks CANNOT live in that script: it runs inside the agent, which can see
+# neither this repo (the sandbox repo is not bind-mounted into /workspace) nor
+# the proxy container. Anything comparing host state against the proxy has to
+# run here.
+
+# macOS has no timeout(1). Byte-identical to the helper in with-egress.sh —
+# duplicated rather than sourced because both scripts are self-contained by
+# design; keep them in step if either changes.
+_timeout() {  # <seconds> <cmd> [args...]
+  local secs="$1"; shift
+  perl -e '
+    my $secs = shift @ARGV;
+    my $pid  = fork();
+    die "fork: $!" unless defined $pid;
+    if ($pid == 0) { exec @ARGV or exit 127; }
+    $SIG{ALRM} = sub { kill "TERM", $pid; };
+    alarm $secs;
+    waitpid($pid, 0);
+    my $st = $?;
+    alarm 0;
+    exit($st & 127 ? 128 + ($st & 127) : $st >> 8);
+  ' "$secs" "$@"
+}
+
+# Allow-direction canary for the enforcement probe. Must be a domain the repo
+# keeps permanently uncommented — it is the one host the probe expects squid NOT
+# to deny, which catches "the proxy is enforcing some other list entirely", a
+# case the deny sweep cannot see. Unlike the deny sweep, this costs one real
+# upstream connect per verify.
+ALLOWLIST_CANARY="api.anthropic.com"
+
+# check_allowlist_sync — is the proxy ENFORCING the repo's allowlist?
+#
+# Two independent staleness modes, and a naive file comparison catches only one:
+#
+#   Mode B — inode swap. An atomic-replace edit (vim, sed -i, git checkout, the
+#     Edit tool) gives the host file a NEW inode; a single-FILE bind mount stays
+#     on the OLD one and can never see another update. `squid -k reconfigure`
+#     does NOT fix this and does not report failure — it exits 0 having applied
+#     nothing. Caught by the inode comparison below.
+#
+#   Mode A — edited in place but never reloaded. The container's file is
+#     byte-identical to the repo's, so any diff is clean, but squid parsed the
+#     allowlist into memory at startup and is still enforcing the OLD set. This
+#     is INVISIBLE to file comparison and no timestamp settles it. Squid is
+#     asked directly instead.
+#
+# The deny sweep makes no outbound request: squid answers 403 from its parsed
+# config before touching DNS or an upstream, so this still works with egress
+# down. Only the single allowed canary opens a real connection. An extra domain
+# in the container is the dangerous direction — a host the repo revoked but the
+# proxy still permits — so that is a hard FAIL, not a warning.
+check_allowlist_sync() {
+  local proxy="egress-proxy-$PROFILE"
+  local allowlist="$SCRIPT_DIR/proxy/allowed_domains.txt"
+  local rc=0
+
+  if [[ ! -f "$allowlist" ]]; then warn "allowlist missing: $allowlist"; return 0; fi
+  # Running, not merely present: `docker inspect` succeeds for a STOPPED
+  # container, so the bare existence check (what windows-ai-sandbox uses) falls
+  # through to the exec below and reports "could not read the allowlist inside
+  # the proxy — this profile may predate the directory mount", which points at
+  # entirely the wrong thing when the real answer is "the proxy is stopped".
+  if [[ "$(docker inspect -f '{{.State.Running}}' "$proxy" 2>/dev/null || echo false)" != "true" ]]; then
+    info "allowlist sync: $proxy is not running — allowlist enforcement NOT verified"
+    return 0
+  fi
+
+  local host_doms ctr_doms delta
+  host_doms=$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$allowlist" | sort)
+  if ! ctr_doms=$(docker exec "$proxy" sh -c \
+      "grep -vE '^[[:space:]]*#|^[[:space:]]*\$' $PROXY_ALLOWLIST | sort" 2>/dev/null); then
+    warn "allowlist sync: could not read $PROXY_ALLOWLIST inside $proxy — if this profile predates the directory mount, recreate it with 'scripts/profile.sh $PROFILE up'"
+    HOST_WARNS=$(( ${HOST_WARNS:-0} + 1 )); return 0
+  fi
+
+  if [[ "$host_doms" == "$ctr_doms" ]]; then
+    ok "allowlist in sync with $proxy ($(printf '%s\n' "$host_doms" | grep -c . || true) domains)"
+  else
+    delta=$(diff <(printf '%s\n' "$host_doms") <(printf '%s\n' "$ctr_doms") | grep '^[<>]' | head -10 || true)
+    printf '\033[0;31m[FAIL]\033[0m  allowlist DRIFT — %s is not serving this repo'"'"'s allowlist\n' "$proxy" >&2
+    printf '%s\n' "$delta" | sed 's/^>/        proxy permits (repo does NOT):/; s/^</        repo has (proxy lacks):     /' >&2
+    printf '        fix: docker restart %s   (or `squid -k reconfigure`, which is\n' "$proxy" >&2
+    printf '        trustworthy again under the directory mount — it can no longer\n' >&2
+    printf '        silently re-read a stale copy)\n' >&2
+    rc=1
+    HOST_FAILS=$(( ${HOST_FAILS:-0} + 1 ))
+  fi
+
+  # REGRESSION LOCK — asserts the MOUNT SHAPE, not inode identity.
+  #
+  # windows-ai-sandbox compares the host file's inode against the container's.
+  # That works where a bind mount passes straight through one Linux filesystem.
+  # It CANNOT work here: the file crosses macOS -> virtiofs -> the Colima VM ->
+  # the Docker bind, and virtiofs assigns its own inode numbers. Measured on this
+  # host: macOS inode 3551456, while the VM and the container both report 7.
+  # Ported verbatim the check FAILS 100% of the time against a perfectly healthy
+  # proxy, and a permanently-firing tripwire is furniture.
+  #
+  # What it is FOR is still real. A single-FILE bind mount pins an inode at
+  # container start, so a host-side atomic replace (git checkout/merge/pull, an
+  # editor save, sed -i, mktemp+mv) leaves the container on the old, deleted
+  # inode — blind to every later host write, with `squid -k reconfigure`
+  # re-reading the stale copy and exiting 0. The content diff above cannot catch
+  # that alone: when only comment lines change, the stripped domain lists still
+  # match and it reports "in sync" while the proxy is blind.
+  #
+  # So assert the invariant directly: /etc/squid/host must be a bind of the
+  # proxy DIRECTORY. Platform-independent, cannot false-positive, and it names
+  # the exact thing docker-compose.yml must not lose.
+  local mnt_src
+  mnt_src=$(docker inspect "$proxy" --format \
+    '{{range .Mounts}}{{if eq .Destination "/etc/squid/host"}}{{.Source}}{{end}}{{end}}' \
+    2>/dev/null || echo "")
+  if [[ -z "$mnt_src" ]]; then
+    printf '\033[0;31m[FAIL]\033[0m  %s has no directory mount at /etc/squid/host — the allowlist\n' "$proxy" >&2
+    printf '        is not being served from a directory. If docker-compose.yml was\n' >&2
+    printf '        reverted to a single-FILE bind mount of allowed_domains.txt, the\n' >&2
+    printf '        proxy goes silently blind to host edits after any atomic replace.\n' >&2
+    printf '        fix: restore the `./proxy:/etc/squid/host:ro` mount, then scripts/profile.sh %s up\n' "$PROFILE" >&2
+    rc=1
+    HOST_FAILS=$(( ${HOST_FAILS:-0} + 1 ))
+  elif [[ "$mnt_src" != "$SCRIPT_DIR/proxy" ]]; then
+    warn "/etc/squid/host in $proxy is mounted from $mnt_src, not $SCRIPT_DIR/proxy — this proxy is serving another checkout's allowlist"
+    HOST_WARNS=$(( ${HOST_WARNS:-0} + 1 ))
+  else
+    ok "allowlist served from a DIRECTORY mount ($mnt_src) — path re-resolves on every open, so host edits land immediately"
+  fi
+
+  # Mode A, DECISIVE — ask squid what it is actually enforcing.
+  #
+  # Open a CONNECT to squid's own port from inside the proxy container and read
+  # the status line. 403 means the in-memory ACL denies the host — answered from
+  # squid's parsed config BEFORE any DNS or upstream connect, so the deny
+  # direction costs no egress and works with the internet down.
+  #
+  # Only the deny direction is swept, because that is the dangerous one and it
+  # is free. One allowed canary is probed to catch "squid is enforcing some
+  # other list entirely".
+  local denied probe_out n_denied
+  denied=$(list_denied_domains "$allowlist")
+  n_denied=$(printf '%s\n' "$denied" | grep -c . || true)
+
+  if [[ -e "$PROFILES_ROOT/.egress-widened-$PROFILE" ]]; then
+    info "enforcement probe skipped — a with-egress window is open for $PROFILE"
+  elif [[ "$n_denied" -eq 0 ]]; then
+    info "enforcement probe skipped — no commented-out domains to test"
+  else
+    # One exec for the whole sweep. Per-domain read timeout so a wedged squid
+    # cannot stall verify; the outer _timeout caps the worst case regardless.
+    probe_out=$(printf '%s\n%s\n' "$denied" "$ALLOWLIST_CANARY" \
+      | _timeout 90 docker exec -i "$proxy" bash -c '
+          while IFS= read -r d; do
+            [ -n "$d" ] || continue
+            code=TIMEOUT
+            if exec 3<>/dev/tcp/127.0.0.1/3128 2>/dev/null; then
+              printf "CONNECT %s:443 HTTP/1.1\r\nHost: %s:443\r\n\r\n" "$d" "$d" >&3
+              read -t 3 -r _proto code _rest <&3 || code=TIMEOUT
+              exec 3<&- 3>&-
+            else
+              code=NOCONNECT
+            fi
+            printf "%s %s\n" "$d" "$code"
+          done' 2>/dev/null) || probe_out=""
+
+    if [[ -z "$probe_out" ]]; then
+      warn "enforcement probe could not run against $proxy — squid's in-memory allowlist was NOT verified (the file checks above still passed)"
+      HOST_WARNS=$(( ${HOST_WARNS:-0} + 1 ))
+    else
+      local permitted odd unreachable canary_code
+      canary_code=$(printf '%s\n' "$probe_out" | awk -v c="$ALLOWLIST_CANARY" '$1==c {print $2}' | tail -1)
+      permitted=$(printf '%s\n' "$probe_out" | awk -v c="$ALLOWLIST_CANARY" '$1!=c && $2=="200" {print $1}')
+      odd=$(printf '%s\n' "$probe_out" | awk -v c="$ALLOWLIST_CANARY" '$1!=c && $2!="200" && $2!="403" {print $1" ("$2")"}')
+      unreachable=$(printf '%s\n' "$odd" | grep -cE '\((TIMEOUT|NOCONNECT)\)$' || true)
+
+      if [[ -n "$permitted" ]]; then
+        printf '\033[0;31m[FAIL]\033[0m  %s PERMITS a domain this repo denies — it is enforcing a stale allowlist\n' "$proxy" >&2
+        printf '%s\n' "$permitted" | sed 's/^/        proxy tunnels (repo has it commented out): /' >&2
+        printf '        fix: docker restart %s   (or `squid -k reconfigure`)\n' "$proxy" >&2
+        rc=1
+        HOST_FAILS=$(( ${HOST_FAILS:-0} + 1 ))
+      fi
+
+      # Anything that is neither 403 nor 200 means the ACL let the request
+      # through and something later failed (503 = allowed, upstream
+      # unreachable). Kept a WARN until observed in the wild, because a
+      # probe-infrastructure failure must never read as an enforcement verdict.
+      if [[ -n "$odd" && "$unreachable" -eq 0 ]]; then
+        warn "enforcement probe: unexpected status from $proxy — $(printf '%s' "$odd" | tr '\n' ' ')"
+        HOST_WARNS=$(( ${HOST_WARNS:-0} + 1 ))
+      elif [[ "$unreachable" -gt 0 ]]; then
+        warn "enforcement probe: $unreachable of $n_denied domains unprobeable (squid slow or busy) — those were not verified"
+        HOST_WARNS=$(( ${HOST_WARNS:-0} + 1 ))
+      fi
+
+      if [[ "$canary_code" == "403" ]]; then
+        warn "enforcement probe: $proxy denies $ALLOWLIST_CANARY, which this repo allows — it may be enforcing a different or empty allowlist"
+        HOST_WARNS=$(( ${HOST_WARNS:-0} + 1 ))
+      fi
+
+      if [[ -z "$permitted" && -z "$odd" ]]; then
+        ok "allowlist ENFORCED by $proxy ($n_denied denied domains verified 403, $ALLOWLIST_CANARY reachable)"
+      fi
+    fi
+  fi
+  return "$rc"
 }
 
 # --- per-profile subnet allocation ------------------------------------------
@@ -771,6 +985,36 @@ case "$CMD" in
     # deprecated in Docker 29 in favour of --reserved-space.)
     docker builder prune -f --filter until=168h
     docker compose "${COMPOSE_FILE_ARGS[@]}" up -d --force-recreate
+    ;;
+
+  verify)
+    src="$SCRIPT_DIR/scripts/verify-sandbox.sh"
+    [[ -f "$src" ]] || fail "verify-sandbox.sh missing: $src"
+
+    # Host-side half first — see check_allowlist_sync's header for why these
+    # cannot live inside the streamed script.
+    verify_rc=0
+    HOST_WARNS=0; HOST_FAILS=0
+    check_allowlist_sync || verify_rc=1
+
+    info "Running verify-sandbox.sh inside $AGENT (streamed via stdin)"
+    # Streamed, NOT staged: no file has to be copied into /workspace first, so
+    # verify leaves no trace in the profile's workspace and cannot run a stale
+    # staged copy. (verify-sandbox.sh's own header documents the older
+    # stage-audit-package.sh path; that remains how the tier-2 audit works.)
+    #
+    # NOT `exec` — the host-side result above still has to affect the exit code.
+    docker exec -i "$AGENT" bash -s -- "$@" < "$src" || verify_rc=1
+
+    # The tally printed by the streamed script is the CONTAINER's, and it cannot
+    # count the host-side checks, which ran here before the stream. Without this
+    # line a run prints a loud host-side FAIL and then "0 failed", and the
+    # summary is what gets read.
+    if (( HOST_WARNS > 0 || HOST_FAILS > 0 )); then
+      printf '\033[1;33m== host-side (not in the tally above): %d failed | %d warning(s) ==\033[0m\n' \
+        "$HOST_FAILS" "$HOST_WARNS" >&2
+    fi
+    exit "$verify_rc"
     ;;
 
   exec)

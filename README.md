@@ -52,6 +52,7 @@ commands under "Using profiles").
 | See profile container state (running + stopped) | `scripts/profile.sh <p> status` |
 | List all profiles + up/down state | `scripts/profile.sh list` |
 | Verify auth / mounts / git identity | `scripts/setup.sh <p> --verify` |
+| Verify the hardening is actually ENFORCED | `scripts/profile.sh <p> verify` |
 | Blank-slate a profile but **keep** auth | `scripts/profile.sh <p> wipe` |
 | Rebuild the shared image only | `scripts/profile.sh build` |
 
@@ -71,7 +72,8 @@ just up <p>              # = scripts/profile.sh <p> up
 just attach <p>          # = scripts/profile.sh <p> attach
 just recreate <p>        # = scripts/profile.sh <p> recreate
 just rebuild <p>         # = scripts/profile.sh <p> rebuild
-just verify <p>          # = scripts/setup.sh   <p> --verify
+just verify <p>          # = scripts/profile.sh <p> verify   (hardening tripwire)
+just setup-verify <p>    # = scripts/setup.sh   <p> --verify (onboarding sanity)
 just setup <p> --name "Your Name" --email you@x   # = scripts/setup.sh <p> ...
 just list                # = scripts/profile.sh list
 ```

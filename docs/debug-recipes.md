@@ -18,6 +18,7 @@ the two in sync if you edit either.
 | See profile container state (running + stopped) | `scripts/profile.sh <p> status` |
 | List all profiles + up/down state | `scripts/profile.sh list` |
 | Verify auth / mounts / git identity | `scripts/setup.sh <p> --verify` |
+| Verify the hardening is ENFORCED (tier 1) | `scripts/profile.sh <p> verify` |
 | Blank-slate a profile but **keep** auth | `scripts/profile.sh <p> wipe` |
 | Rebuild the shared image only | `scripts/profile.sh build` |
 
@@ -68,6 +69,8 @@ docker exec -u proxy egress-proxy-<p> tail -f /var/log/squid/access.log
 # Inside-container hardening sweep — stage the audit package first so the
 # script is available inside the container (it's not in /workspace otherwise)
 scripts/stage-audit-package.sh <p>
+scripts/profile.sh <p> verify    # streams verify-sandbox.sh in; no staging needed
+# or, from a staged copy (what the tier-2 audit uses):
 scripts/profile.sh <p> exec bash /workspace/temp_audit_package/scripts/verify-sandbox.sh
 
 # Trivy scan (host-side, requires `brew install trivy`) — config + secret + image

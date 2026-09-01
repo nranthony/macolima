@@ -807,6 +807,49 @@ exist here and were not invented). `verify-sandbox.sh` **32 passed / 0 failed /
     allowlist and restart containers. `source activate` is also dropped: the
     venv's own shebang already selects the interpreter.
 
+11. **`just verify` — the real tier-1 tripwire — DONE 2026-09-01 (owner
+    request).** M's `verify` ran `setup.sh --verify`: onboarding sanity (auth,
+    git identity, db.env perms). The actual hardening tripwire,
+    `scripts/verify-sandbox.sh` (ported in A5), had NO verb at all — its header
+    told you to stage an audit package and exec a path by hand. Ported W's
+    `profile.sh verify`: stream the script into the agent over stdin, so nothing
+    is copied into /workspace and no staged copy can go stale, and run the
+    host-side allowlist checks first. `just verify` is now the hardening check;
+    the old behaviour is `just setup-verify`, matching W's naming.
+
+    `check_allowlist_sync` ported with its enforcement probe, which finally
+    consumes `PROXY_ALLOWLIST` + `list_denied_domains()` (landed in A4 marked
+    "nothing calls this yet"). Proven on this host, not assumed: commenting out
+    `doi.org` without reloading squid left the file comparison reporting
+    **"in sync (35 domains)"** and the in-container suite reporting **33 passed,
+    0 failed** — both blind — while the probe reported
+    `PERMITS a domain this repo denies: doi.org` and exited 1. That is Mode A,
+    invisible to any file comparison, which is the whole reason the probe exists.
+
+    Three M-specific corrections, each verified:
+    (a) **W's inode-identity check cannot work on Colima and fails 100% of the
+    time.** The file crosses macOS -> virtiofs -> VM -> Docker bind, and virtiofs
+    renumbers: measured macOS inode 3551456, VM and container both **7**.
+    Replaced with a direct assertion of the invariant it was proxying for —
+    `/etc/squid/host` must be a bind of the proxy DIRECTORY — which is
+    platform-independent and cannot false-positive. **Report to W:** their check
+    is sound on Linux/WSL2 but would need this treatment for any virtiofs host.
+    (b) W skips the allowlist check when `docker inspect` fails, which succeeds
+    for a STOPPED container — so a stopped proxy fell through to the exec and
+    produced "could not read the allowlist … this profile may predate the
+    directory mount", pointing at the wrong cause. Now keyed on
+    `.State.Running`.
+    (c) With the proxy down, verify-sandbox.sh reported **FAIL "Squid allowed
+    CONNECT to port 80 (HTTP 000)"**. 000 is the probe's own sentinel for "no
+    status line came back" — unreachable, not permissive. A probe-infrastructure
+    failure was reading as a policy verdict, on the loudest check in the suite,
+    firing exactly when someone is already worried. Now a WARN naming what was
+    not verified. **Report to W** — same code.
+
+    NOT ported: `check_agent_policy_sync`. It depends on
+    `AGENT_POLICY_DESCRIPTORS` and the `converge` verb, both Phase D. It lands
+    with them, per the same binding as everything else.
+
 ## 3.6 Loose ends — found during Phase 0, none blocking
 
 Recorded here because Phase 0 surfaced them and prose asides get lost. None is

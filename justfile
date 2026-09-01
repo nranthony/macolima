@@ -10,7 +10,8 @@
 # Profile is the FIRST positional arg to every recipe, mirroring the scripts:
 #   just up work            ->  scripts/profile.sh work up
 #   just attach work        ->  scripts/profile.sh work attach
-#   just verify work        ->  scripts/setup.sh   work --verify
+#   just verify work        ->  scripts/profile.sh work verify
+#   just setup-verify work  ->  scripts/setup.sh   work --verify
 #   just setup work --name "W" --email w@x
 #
 # Exceptions (no profile arg): `list`, `health`, `build` (the image is shared) and
@@ -90,6 +91,10 @@ list:
 # cross-profile health: flag any profile whose agent/proxy/DB aren't all up together (no profile arg)
 health:
     {{profile_sh}} health
+
+# tier-1 hardening tripwire: allowlist enforcement (host) + verify-sandbox.sh (in-container)
+verify profile *args:
+    {{profile_sh}} {{profile}} verify {{args}}
 
 # ---- control dashboard (host-side Streamlit, no profile arg) ----------------
 
@@ -174,8 +179,8 @@ reset-skills profile:
 setup profile *args:
     {{setup_sh}} {{profile}} {{args}}
 
-# sanity checks (auth status, mounts, git config) and exit
-verify profile:
+# onboarding sanity block (auth status, mounts, git config) and exit
+setup-verify profile:
     {{setup_sh}} {{profile}} --verify
 
 # docker compose restart (via setup.sh lifecycle flag)
