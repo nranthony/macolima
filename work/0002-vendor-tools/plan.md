@@ -138,9 +138,9 @@ Gate 3 (`no-build = true`) is not an obstacle: a wheel is never built. W
 verified the install needs no network (zero deps) in a `--network none`
 container.
 
-`dockerfile-order.test.sh` gains a fifth anchor. Its header currently states M
-has no `beads` and no AI-refresh ARG; the second half is already stale
-(`0141a0f`) and must be corrected in the same commit.
+`dockerfile-order.test.sh` gains a fifth anchor (the wheel `COPY`/install), and
+its header note — which currently names `beads` as W's one unported anchor —
+gains the wheel layer as a deliberate M addition rather than a W import.
 
 ### V5 — convergence (D1)
 Port `converge_skills` **verbatim**. W wrote it bash-3.2-clean *specifically so
