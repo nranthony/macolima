@@ -433,15 +433,38 @@ ensure_state() {
   # shell — set those in your shell rc (~/.zshrc.local etc) and they apply to
   # every profile. Silent no-op if either var is unset or a [user] section
   # already exists; never overwrites an existing identity.
-  if [[ -n "${GIT_USER_NAME:-}" ]] && [[ -n "${GIT_USER_EMAIL:-}" ]]; then
-    if [[ ! -f "$p/config/git/config" ]] || \
-       ! grep -qE '^\[user\]' "$p/config/git/config"; then
+  if [[ ! -f "$p/config/git/config" ]] || ! grep -qE '^\[user\]' "$p/config/git/config"; then
+    if [[ -n "${GIT_USER_NAME:-}" ]] && [[ -n "${GIT_USER_EMAIL:-}" ]]; then
       {
         printf '[user]\n\tname = %s\n\temail = %s\n' \
           "$GIT_USER_NAME" "$GIT_USER_EMAIL"
-        [[ -f "$p/config/git/config" ]] && cat "$p/config/git/config"
-      } > "$p/config/git/config.new" \
-        && mv "$p/config/git/config.new" "$p/config/git/config"
+        # `if`, NOT `[[ -f ... ]] && cat`. A trailing && whose test fails makes
+        # the whole { } group exit 1, and the `&& mv` that used to follow this
+        # group then never ran — so on a BRAND-NEW profile, the one case this
+        # seeding exists for, the identity was written to config.new and never
+        # moved into place. Silently: the caller only checked the mv. Same
+        # bash-3.2 hazard this file already documents for `X && continue` in
+        # the subnet allocator; it bit twice, in two different shapes.
+        if [[ -f "$p/config/git/config" ]]; then cat "$p/config/git/config"; fi
+      } > "$p/config/git/config.new"
+      if mv "$p/config/git/config.new" "$p/config/git/config"; then
+        ok "seeded git identity: $GIT_USER_NAME <$GIT_USER_EMAIL>"
+      else
+        rm -f "$p/config/git/config.new"
+        warn "could not write $p/config/git/config — git identity NOT seeded"
+      fi
+    else
+      # SAY SO. This used to be a silent no-op, and silence is what made it a
+      # support incident on 2026-09-02: two profiles created that morning got
+      # no identity, and the agent inside one of them reported the gitconfig
+      # had "vanished" — it had never existed for that profile, while the
+      # older profile's copy sat intact and made the loss look like a
+      # regression. An unconfigured state that stands down quietly is
+      # indistinguishable from a working one until something is blocked.
+      warn "profile '$PROFILE' has NO git commit identity — commits from the agent will fail."
+      warn "  fix now:    scripts/setup.sh $PROFILE --name 'Your Name' --email 'you@example.com'"
+      warn "  fix always: export GIT_USER_NAME / GIT_USER_EMAIL in your shell rc,"
+      warn "              then every future profile self-seeds on first 'up'."
     fi
   fi
 
