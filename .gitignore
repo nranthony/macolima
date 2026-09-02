@@ -219,3 +219,9 @@ docker-compose.override.yml
 .env
 .env.*
 .DS_Store
+
+# Local pointer to the depot channel (work/0002 V1). Machine-specific, never
+# committed: the channel lives outside this repo and moves. An ABSENT pointer is
+# a distinct, ordinary state (vendor-tools SKIPs); a pointer to a path that no
+# longer exists is a hard failure. Do not "fix" a broken one by deleting it.
+.depot-dir.local

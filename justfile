@@ -29,6 +29,7 @@ profile_sh := justfile_directory() / "scripts" / "profile.sh"
 setup_sh   := justfile_directory() / "scripts" / "setup.sh"
 code_sh    := justfile_directory() / "scripts" / "code-attach.sh"
 dash_sh    := justfile_directory() / "scripts" / "dashboard.sh"
+vendortools_sh := justfile_directory() / "scripts" / "vendor-tools.sh"
 
 # default: banner + recipe list (a bare `just` lists, never runs a recipe).
 _default:
@@ -106,6 +107,10 @@ audit profile *args:
 dashboard *args:
     {{dash_sh}} {{args}}
 
+# is this repo current with the depot channel? (offline; SKIPs loudly when unconfigured)
+tools-check:
+    {{vendortools_sh}} --check
+
 # dashboard parser + render regression suite (needs dashboard/.venv; no docker required)
 test-dashboard:
     {{justfile_directory()}}/dashboard/.venv/bin/python {{justfile_directory()}}/dashboard/tests/test_allowlist_roundtrip.py
@@ -125,6 +130,7 @@ test-offline:
     bash {{justfile_directory()}}/scripts/depaudit.test.sh
     bash {{justfile_directory()}}/scripts/with-egress.test.sh
     bash {{justfile_directory()}}/scripts/dockerfile-order.test.sh
+    bash {{justfile_directory()}}/scripts/vendor-tools.test.sh
 
 # just the Dockerfile layer-order chain (also included in test-offline)
 test-dockerfile:
