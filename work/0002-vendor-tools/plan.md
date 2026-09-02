@@ -106,7 +106,7 @@ avoiding a permanent split in the tree.
 `converge_skills` iterates directories, so a file there can never be carried
 into a profile.
 
-### V3 — `vendor-tools.sh` (W: 579 lines, + a 399-line suite)
+### V3 — `vendor-tools.sh` (W: 579 lines, + a 399-line suite) — **DONE 2026-09-02**
 One door for every artifact. Verifies **every** hash before copying **any**
 file — a partial mirror is a half-updated image with no record of which half.
 
@@ -123,6 +123,14 @@ second parser of a security-relevant file.
 `VENDORED.lock` is tracked and is the only committed evidence of what an image
 contained: the wheel and `skills/myclickup/` are gitignored, because this repo
 is public and myclickup is not.
+
+**Landed with one deliberate gap, stated in the script's own header and in its
+`--check` output: the CONTENT check.** A hash proves an artifact did not change
+in transit; it cannot prove the wheel matches the `source_commit` it claims. W
+cross-checks each artifact against its member checkout when reachable, via the
+member-pointer machinery (`member_pointer`/`member_dir`/`member_subtree`,
+~100 lines). Deferred rather than half-done — a check that implies more coverage
+than it has is worse than none.
 
 ### V4 — the wheel layer in the Dockerfile
 `COPY sandbox_templates/wheels/ /tmp/wheels/` then a conditional `uv tool

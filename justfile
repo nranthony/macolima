@@ -107,6 +107,10 @@ audit profile *args:
 dashboard *args:
     {{dash_sh}} {{args}}
 
+# vendor every channel artifact into sandbox_templates/ (hash-gated). Accepts --dry-run
+vendor-tools *args:
+    {{vendortools_sh}} {{args}}
+
 # is this repo current with the depot channel? (offline; SKIPs loudly when unconfigured)
 tools-check:
     {{vendortools_sh}} --check

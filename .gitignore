@@ -225,3 +225,14 @@ docker-compose.override.yml
 # a distinct, ordinary state (vendor-tools SKIPs); a pointer to a path that no
 # longer exists is a hard failure. Do not "fix" a broken one by deleting it.
 .depot-dir.local
+
+# Vendored channel payloads (work/0002 V3). These are DERIVED — `just
+# vendor-tools` reproduces them from the depot channel — and myclickup is a
+# private repo while this one is not, so the wheel (a py3-none-any wheel is a zip
+# of the .py files) and its skill stay out of git. Mirrors windows-ai-sandbox's
+# decision exactly.
+#
+# sandbox_templates/VENDORED.lock is deliberately NOT ignored: with the payloads
+# untracked it is the ONLY committed evidence of what an image was built from.
+sandbox_templates/wheels/*.whl
+sandbox_templates/skills/myclickup/
