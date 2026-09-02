@@ -279,6 +279,29 @@ www.ncbi.nlm.nih.gov
 # sites are gone.
 # web.archive.org
 
+# --- Google Docs / Sheets via the API [google-workspace] ---
+# Programmatic Docs/Sheets access (google-api-python-client, gspread, or raw
+# REST). Pinned API hosts only — never wildcard `.googleapis.com`, which fronts
+# every Google API including Vertex, GCS and IAM.
+#
+# ONLY TWO HOSTS BELONG HERE. The other two this needs are already ALWAYS ON
+# under [antigravity] and are deliberately NOT repeated: oauth2.googleapis.com
+# (token exchange) and www.googleapis.com (Drive v3 + discovery). A duplicate
+# line would make a future removal from one block look effective while the
+# other still permits the host.
+#
+# Distinct from windows-ai-sandbox's [google-workspace], which lists
+# docs.google.com / drive.google.com — those are the WEB UIs, for a human in a
+# browser. These are the API endpoints. Verified against the live services
+# 2026-09-02:
+#   docs.googleapis.com/v1/documents/<id>       -> 401 (exists, needs auth)
+#   sheets.googleapis.com/v4/spreadsheets/<id>  -> 403 (exists, needs auth)
+#
+# Commented by default: needs OAuth credentials in the profile before it does
+# anything. Uncomment for the duration of the work, then recomment.
+# docs.googleapis.com
+# sheets.googleapis.com
+
 
 # =============================================================================
 # === DROPPED — explicitly NOT in the list ===================================

@@ -17,9 +17,9 @@ must not break the page. `tests/test_allowlist_roundtrip.py` asserts that no
 tag in the live allowlist lands there, so a new block forces a deliberate
 one-line decision instead of quietly accumulating in the junk drawer.
 
-Colours are the first five slots of a categorical palette in fixed order, never
-cycled or reassigned per render — a block's accent colour has to mean the same
-thing on every load.
+Colours are fixed slots of a categorical palette, never cycled or reassigned
+per render — a block's accent colour has to mean the same thing on every load.
+Adding a category means adding a slot here, deliberately; six as of work/0003.
 """
 
 from __future__ import annotations
@@ -40,6 +40,12 @@ CATEGORY_TAGS: dict[str, list[str]] = {
     "Reference & vendor docs": [
         "wearables", "archive",
     ],
+    # Sixth slot added with work/0003. One member today, but it is the right
+    # home for `clickup` when myclickup's egress lands (work/0002 V7) — and W
+    # uses this same category name, so the two repos group alike.
+    "Productivity & Google Workspace": [
+        "google-workspace",
+    ],
 }
 
 CATEGORY_ORDER: list[str] = list(CATEGORY_TAGS.keys()) + ["Other"]
@@ -50,6 +56,7 @@ CATEGORY_COLORS: dict[str, dict[str, str]] = {
     "Package & OS registries":   {"light": "#1baf7a", "dark": "#199e70"},
     "Academic & research data":  {"light": "#eda100", "dark": "#c98500"},
     "Reference & vendor docs":   {"light": "#e87ba4", "dark": "#d55181"},
+    "Productivity & Google Workspace": {"light": "#8a63d2", "dark": "#7a53c2"},
     "Other":                     {"light": "#898781", "dark": "#898781"},
 }
 
@@ -59,6 +66,7 @@ CATEGORY_SLUGS: dict[str, str] = {
     "Package & OS registries": "pkg",
     "Academic & research data": "research",
     "Reference & vendor docs": "refdocs",
+    "Productivity & Google Workspace": "productivity",
     "Other": "other",
 }
 
