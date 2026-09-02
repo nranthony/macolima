@@ -284,7 +284,7 @@ COMPOSE_PROFILES=db-mongo             scripts/profile.sh <p> up
 COMPOSE_PROFILES=db-all               scripts/profile.sh <p> up
 ```
 
-On first `up`, `profiles/<p>/db.env.example` is seeded from `config/db.env.template`. Copy to `db.env`, replace every `__SET_ME__`, re-up:
+On first `up`, `profiles/<p>/db.env.example` is seeded from `sandbox_templates/common/db.env.template`. Copy to `db.env`, replace every `__SET_ME__`, re-up:
 
 ```bash
 cp /Volumes/DataDrive/.claude-colima/profiles/<p>/db.env.example \
@@ -299,7 +299,7 @@ COMPOSE_PROFILES=db-all scripts/profile.sh <p> up
 
 **Project DSN vars** (e.g. `WEARDATA_PG_DSN`, `DATABASE_URL`) go in `db.env` alongside `POSTGRES_*` — agent code reads them as env. Adding/editing one after first `up` requires a force-recreate of the agent (compose reads `env_file` at create time only): `COMPOSE_PROFILES=db-postgres PROFILE=<p> docker compose -p macolima-<p> up -d --force-recreate claude-agent`, then re-attach VS Code.
 
-**Multiple projects in one profile:** one Postgres server hosts many databases. The default `postgres` database is created automatically; create project databases explicitly with `CREATE DATABASE <name> OWNER agent;` (run via `psql -U agent -d postgres`) and add one DSN per project in `db.env` — same host/user/password, just different database name at the end. See `config/db.env.template` for examples.
+**Multiple projects in one profile:** one Postgres server hosts many databases. The default `postgres` database is created automatically; create project databases explicitly with `CREATE DATABASE <name> OWNER agent;` (run via `psql -U agent -d postgres`) and add one DSN per project in `db.env` — same host/user/password, just different database name at the end. See `sandbox_templates/common/db.env.template` for examples.
 
 Inside the agent the DBs are reachable as `postgres:5432` and `mongo:27017`; `psql` and `mongosh` are preinstalled, and the creds come in via env. For host GUI access (TablePlus, Compass), uncomment the `ports:` block on the relevant service — loopback-only, never `0.0.0.0`.
 
@@ -398,7 +398,7 @@ Each profile is a separate sandbox. Within one profile:
 | No direct internet | `docker-compose.yml` | Docker network isolation (`internal: true`) |
 | No DNS forwarding | `docker-compose.yml` | `dns: [127.0.0.1]` sinkhole + `extra_hosts` for siblings |
 | Egress HTTP allowlist | `proxy/allowed_domains.txt` | Squid sidecar (domain + port + CONNECT-only-on-443) |
-| Destructive-command deny | `config/hooks/deny-destructive.sh` | Claude Code `PreToolUse` hook — content-aware regex on the full envelope; catches shapes the matcher prefix can't see (`find -delete`, `dd of=`, `git clean`, hook/settings tamper). Hook is root-owned in the image; agent has no tool path that bypasses kernel write-protect. |
+| Destructive-command deny | `sandbox_templates/claude/hooks/deny-destructive.sh` | Claude Code `PreToolUse` hook — content-aware regex on the full envelope; catches shapes the matcher prefix can't see (`find -delete`, `dd of=`, `git clean`, hook/settings tamper). Hook is root-owned in the image; agent has no tool path that bypasses kernel write-protect. |
 | Auth token isolation | per-profile bind mount | filesystem |
 | `db.env` perms enforced | `profile.sh ensure_state` | `chmod 600` re-asserted on every `up` |
 
@@ -423,7 +423,7 @@ Three distinct egress paths from the agent, each with a different trust model �
 
 ### Self-audit from inside the sandbox
 
-Each profile ships with the `audit-sandbox` skill at `~/.claude/skills/audit-sandbox/` (seeded by `ensure_state()` from `config/skills/audit-sandbox/SKILL.md`). To run:
+Each profile ships with the `audit-sandbox` skill at `~/.claude/skills/audit-sandbox/` (seeded by `ensure_state()` from `sandbox_templates/skills/audit-sandbox/SKILL.md`). To run:
 
 ```bash
 # host: stage the audit package into this profile's workspace
@@ -440,7 +440,7 @@ The skill follows `claude_internal_audit.md` — runs the `verify-sandbox.sh` tr
 - `<YYYY-MM-DD>-<profile>-report.md` — markdown report, invariants tagged OK/DRIFT/WEAK/UNKNOWN
 - `<YYYY-MM-DD>-<profile>-commands.sh` — replayable command log
 
-If you edit `claude_internal_audit.md`, just re-run `stage-audit-package.sh` — the skill reads the staged file rather than duplicating its content. If you edit `config/skills/audit-sandbox/SKILL.md` itself, run `scripts/profile.sh <profile> reset-skills` to refresh existing profiles (new profiles pick it up automatically on first `up`).
+If you edit `claude_internal_audit.md`, just re-run `stage-audit-package.sh` — the skill reads the staged file rather than duplicating its content. If you edit `sandbox_templates/skills/audit-sandbox/SKILL.md` itself, run `scripts/profile.sh <profile> reset-skills` to refresh existing profiles (new profiles pick it up automatically on first `up`).
 
 ## Updating
 

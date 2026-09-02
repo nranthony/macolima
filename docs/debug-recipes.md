@@ -57,7 +57,7 @@ PROFILE=<p> COMPOSE_PROJECT_NAME=macolima-<p> docker compose restart egress-prox
 # Probe gitstatusd / zsh init with a TTY
 docker exec -t claude-agent-<p> zsh -ic 'echo ok'
 
-# Enable p10k debug logs: add `export GITSTATUS_LOG_LEVEL=DEBUG` to config/.zshrc, rebuild
+# Enable p10k debug logs: add `export GITSTATUS_LOG_LEVEL=DEBUG` to sandbox_templates/common/.zshrc, rebuild
 docker exec claude-agent-<p> sh -c 'cat /tmp/gitstatus.*.log'
 
 # Verify a domain reaches through the proxy

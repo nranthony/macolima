@@ -47,7 +47,7 @@ cp "$MACOLIMA_DIR/proxy/squid.conf"                "$dest/proxy/squid.conf"
 cp "$MACOLIMA_DIR/scripts/verify-sandbox.sh"       "$dest/scripts/verify-sandbox.sh"
 cp "$MACOLIMA_DIR/scripts/setup.sh"                "$dest/scripts/setup.sh"
 cp "$MACOLIMA_DIR/scripts/profile.sh"              "$dest/scripts/profile.sh"
-cp "$MACOLIMA_DIR/config/claude-settings.json"    "$dest/config/claude-settings.json"
+cp "$MACOLIMA_DIR/sandbox_templates/claude/claude-settings.json" "$dest/config/claude-settings.json"
 cp "$MACOLIMA_DIR/claude_internal_audit.md"        "$dest/claude_internal_audit.md"
 
 # Structured audit package (audit.sh + aggregate.py + probes/*) — driven by

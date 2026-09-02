@@ -305,8 +305,8 @@ RUN userdel -r ubuntu 2>/dev/null || true \
 
 # ---------- zsh + oh-my-zsh + powerlevel10k + plugins -----------------------
 # Installed as the agent user so ownership is correct. Dotfiles are baked in.
-COPY --chown=agent:agent config/.zshrc      /home/agent/.zshrc
-COPY --chown=agent:agent config/.p10k.zsh   /home/agent/.p10k.zsh
+COPY --chown=agent:agent sandbox_templates/common/.zshrc      /home/agent/.zshrc
+COPY --chown=agent:agent sandbox_templates/common/.p10k.zsh   /home/agent/.p10k.zsh
 
 # ---------- PreToolUse hook (deny-destructive) ------------------------------
 # Inspects every Bash/Edit/Write/MultiEdit tool envelope; blocks destructive
@@ -316,7 +316,7 @@ COPY --chown=agent:agent config/.p10k.zsh   /home/agent/.p10k.zsh
 # 1000) has no tool path that bypasses the kernel's write-protect on this
 # file (the matched Edit-tamper rule is defence in depth). Updates require
 # image rebuild — intentional friction. See docs/deny-destructive-hook-plan.md.
-COPY --chown=root:root config/hooks/deny-destructive.sh /usr/local/lib/claude-hooks/deny-destructive.sh
+COPY --chown=root:root sandbox_templates/claude/hooks/deny-destructive.sh /usr/local/lib/claude-hooks/deny-destructive.sh
 RUN chmod 0755 /usr/local/lib/claude-hooks/deny-destructive.sh
 
 USER agent

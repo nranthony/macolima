@@ -37,6 +37,7 @@ USER_CUSTOMIZATION_KEYS = {
     "agentPushNotifEnabled",       # notification preference
     "skipAutoPermissionPrompt",    # UI dismissal state
     "skipWorkflowUsageWarning",    # UI dismissal state
+    "tui",                         # fullscreen/inline TUI mode
 }
 
 # Required permissions.deny set — covers audits H1 and L7 tightening.

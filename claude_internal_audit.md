@@ -23,7 +23,7 @@ recommending tight diffs. Don't replicate the script's checks.
 - `CLAUDE.md` — invariants and their rationales (load-bearing)
 - `Dockerfile`, `docker-compose.yml`, `seccomp.json`
 - `proxy/squid.conf`, `proxy/allowed_domains.txt`
-- `config/claude-settings.json`
+- `sandbox_templates/claude/claude-settings.json`
 - `scripts/audit/audit.sh` and the structured probes under `scripts/audit/probes/`
 - `scripts/verify-sandbox.sh`
 

@@ -133,7 +133,7 @@ else
   fail "Squid allowed CONNECT to port 80 (HTTP $code) — add 'http_access deny CONNECT !SSL_ports' to squid.conf"
 fi
 
-# Deny-destructive hook tripwire (audit L8): config/hooks/deny-destructive.sh
+# Deny-destructive hook tripwire (audit L8): sandbox_templates/claude/hooks/deny-destructive.sh
 # must be installed root-owned at the path referenced in settings.json's hooks
 # block, executable, not writable by the agent, and must actually block the
 # canonical bypass (find -delete) — script presence alone is insufficient,

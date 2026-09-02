@@ -11,7 +11,7 @@ All commands below run **inside the agent container** (`scripts/profile.sh thera
   # host:
   COMPOSE_PROFILES=db-postgres scripts/profile.sh therapod up
   ```
-- `db.env` in place with `POSTGRES_USER=agent`, `POSTGRES_PASSWORD=<hex>`, and the three DSN vars (`WEARDATA_PG_DSN`, `PIPELINE_PG_DSN`, `DATABASE_URL`). See `config/db.env.template` for the shape.
+- `db.env` in place with `POSTGRES_USER=agent`, `POSTGRES_PASSWORD=<hex>`, and the three DSN vars (`WEARDATA_PG_DSN`, `PIPELINE_PG_DSN`, `DATABASE_URL`). See `sandbox_templates/common/db.env.template` for the shape.
 - `.venv-linux` built in both `/workspace/wearable_data_testing` and `/workspace/pipeline`.
 
 ## 1. Create project databases

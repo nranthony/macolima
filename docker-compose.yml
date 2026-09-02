@@ -45,7 +45,7 @@ services:
     # VS Code windows (gitstatusd + Node extension hosts) → libzmq EAGAIN /
     # dead Jupyter kernels. Raised to 2048 (NOT the 4096 the 48GB-host sibling
     # uses — each live thread carries a stack, and this VM is small). Paired
-    # with GITSTATUS_NUM_THREADS=4 in config/.zshrc, which removes the largest
+    # with GITSTATUS_NUM_THREADS=4 in sandbox_templates/common/.zshrc, which removes the largest
     # idle-thread source. See MACOLIMA_in-transit_resource-limits-recommendations.md.
     pids_limit: 2048
     mem_limit: 3g

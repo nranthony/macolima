@@ -90,10 +90,17 @@ real three-release wheel drift went green"). It has now happened twice.
 **Send W a one-line `.depot-dir.local` as part of this work.**
 
 ### V2 — `sandbox_templates/` layout
-`config/` → `sandbox_templates/{claude,common,skills,wheels,bin}`. Keep
-`config/hooks/` where it is until Phase D moves it, so `deny-destructive.sh`'s
-hardcoded path in `verify-sandbox.sh` and `scripts/audit/probes/settings.py`
-does not move twice.
+`config/` → `sandbox_templates/{claude,common,skills,wheels}`.
+
+**Correction (applied 2026-09-02).** This item originally said to leave
+`config/hooks/` in place "so `deny-destructive.sh`'s hardcoded path in
+`verify-sandbox.sh` and `scripts/audit/probes/settings.py` does not move twice".
+That was a misreading of `CLAUDE.md`: the hardcoded path those two files carry
+is the CONTAINER path `/usr/local/lib/claude-hooks/deny-destructive.sh`, which
+this move does not touch. The repo-side source is referenced in exactly three
+places — the Dockerfile `COPY`, the justfile test path, and one comment — so it
+moves to `sandbox_templates/claude/hooks/` with everything else, matching W and
+avoiding a permanent split in the tree.
 
 `VENDORED.lock` sits at the templates **root as a FILE**, deliberately:
 `converge_skills` iterates directories, so a file there can never be carried
@@ -154,7 +161,7 @@ Carries `profile-skills.test.sh` (157 lines). `reset-skills` survives as
 ### V6 — the permissions leg
 The manifest proposes `allow`/`ask`/`deny` per artifact (myclickup: 19/11/2).
 `vendor-tools.sh --permissions` **reports** the proposal against
-`config/claude-settings.json` and never edits it. Keep that read-only property:
+`sandbox_templates/claude/claude-settings.json` and never edits it. Keep that read-only property:
 an artifact must not be able to widen the sandbox's permission surface by being
 vendored. Applying a proposal is a human decision.
 

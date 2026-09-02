@@ -126,7 +126,7 @@ test-dashboard:
 
 # every offline suite (179 assertions across four files)
 test-offline:
-    bash {{justfile_directory()}}/config/hooks/deny-destructive.test.sh
+    bash {{justfile_directory()}}/sandbox_templates/claude/hooks/deny-destructive.test.sh
     bash {{justfile_directory()}}/scripts/depaudit.test.sh
     bash {{justfile_directory()}}/scripts/with-egress.test.sh
     bash {{justfile_directory()}}/scripts/dockerfile-order.test.sh
@@ -182,7 +182,7 @@ db-reset profile *args:
 reset-settings profile:
     {{profile_sh}} {{profile}} reset-settings
 
-# overwrite this profile's claude skills from config/skills/ (backs up old)
+# overwrite this profile's claude skills from sandbox_templates/skills/ (backs up old)
 reset-skills profile:
     {{profile_sh}} {{profile}} reset-skills
 

@@ -25,8 +25,8 @@
 #                   compose / seccomp / proxy / mount changes). Equivalent to
 #                   `setup.sh <p> --recreate` (which is the flag-style alias).
 #   rebuild         build + recreate this profile's containers
-#   reset-settings  overwrite this profile's claude settings.json from config/claude-settings.json (backs up the old one)
-#   reset-skills    overwrite this profile's claude skills from config/skills/ (backs up old skill dirs)
+#   reset-settings  overwrite this profile's claude settings.json from sandbox_templates/claude/claude-settings.json (backs up the old one)
+#   reset-skills    overwrite this profile's claude skills from sandbox_templates/skills/ (backs up old skill dirs)
 #   db-reset        wipe the postgres data volume and bring postgres back up with a fresh initdb.
 #                   Flags: --yes (skip confirmation). Does NOT touch mongo; does NOT recreate
 #                   the agent container (force-recreate it yourself if db.env DSNs changed).
@@ -387,18 +387,18 @@ ensure_state() {
   # user copies the example and fills in secrets. The example is a *template*
   # (not user data), so always overwrite — that way doc improvements to the
   # template propagate to existing profiles on the next `up`.
-  cp "$SCRIPT_DIR/config/db.env.template" "$p/db.env.example"
+  cp "$SCRIPT_DIR/sandbox_templates/common/db.env.template" "$p/db.env.example"
   # Seed settings.json if absent.
-  if [[ ! -f "$p/claude-home/settings.json" ]] && [[ -f "$SCRIPT_DIR/config/claude-settings.json" ]]; then
-    cp "$SCRIPT_DIR/config/claude-settings.json" "$p/claude-home/settings.json"
+  if [[ ! -f "$p/claude-home/settings.json" ]] && [[ -f "$SCRIPT_DIR/sandbox_templates/claude/claude-settings.json" ]]; then
+    cp "$SCRIPT_DIR/sandbox_templates/claude/claude-settings.json" "$p/claude-home/settings.json"
   fi
   # Seed skills (per-skill granularity so user customisations to one skill
-  # don't block updates to another). Templates live at config/skills/<name>/;
+  # don't block updates to another). Templates live at sandbox_templates/skills/<name>/;
   # each is copied into the per-profile claude-home only if absent. To force
   # a refresh from template, run `scripts/profile.sh <p> reset-skills`.
-  if [[ -d "$SCRIPT_DIR/config/skills" ]]; then
+  if [[ -d "$SCRIPT_DIR/sandbox_templates/skills" ]]; then
     mkdir -p "$p/claude-home/skills"
-    for skill_src in "$SCRIPT_DIR/config/skills"/*/; do
+    for skill_src in "$SCRIPT_DIR/sandbox_templates/skills"/*/; do
       [[ -d "$skill_src" ]] || continue
       name="$(basename "$skill_src")"
       if [[ ! -d "$p/claude-home/skills/$name" ]]; then
@@ -1200,10 +1200,10 @@ case "$CMD" in
     ;;
 
   reset-settings)
-    # Overwrite the profile's claude settings.json from config/claude-settings.json.
+    # Overwrite the profile's claude settings.json from sandbox_templates/claude/claude-settings.json.
     # ensure_state() only seeds when absent; use this when the template changes and
     # you want to apply it to an existing profile.
-    src="$SCRIPT_DIR/config/claude-settings.json"
+    src="$SCRIPT_DIR/sandbox_templates/claude/claude-settings.json"
     dst="$PROFILES_ROOT/$PROFILE/claude-home/settings.json"
     [[ -f "$src" ]] || fail "template missing: $src"
     mkdir -p "$(dirname "$dst")"
@@ -1604,11 +1604,11 @@ PY
     ;;
 
   reset-skills)
-    # Force-refresh per-profile skills from config/skills/. Each skill dir is
+    # Force-refresh per-profile skills from sandbox_templates/skills/. Each skill dir is
     # backed up (if present) then replaced. Use this when a SKILL.md template
     # changes and you want to apply it to an existing profile (ensure_state
     # only seeds when absent).
-    src_dir="$SCRIPT_DIR/config/skills"
+    src_dir="$SCRIPT_DIR/sandbox_templates/skills"
     dst_dir="$PROFILES_ROOT/$PROFILE/claude-home/skills"
     [[ -d "$src_dir" ]] || fail "no skills templates: $src_dir"
     mkdir -p "$dst_dir"

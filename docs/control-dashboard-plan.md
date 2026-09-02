@@ -252,7 +252,7 @@ Edits via a structured form (toggles for `defaultMode`,
 `sandbox.enabled`, allow/deny pattern lists) with a raw-JSON fallback.
 Validates as JSON before writing. After save: prompt to restart the
 agent container so the change takes effect. Surfaces the
-`config/claude-settings.json` template and `reset-settings` button.
+`sandbox_templates/claude/claude-settings.json` template and `reset-settings` button.
 
 ### Verify & audit
 

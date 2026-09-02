@@ -14,11 +14,11 @@ behaviour is pending an image rebuild + per-profile settings refresh.
 What exists:
 
 ```
-config/hooks/
+sandbox_templates/claude/hooks/
   deny-destructive.sh           # POSIX sh + jq, 10 rules, fail-open trap
   deny-destructive.test.sh      # 35-assertion host-side harness, all green
 Dockerfile                      # COPY + chmod 0755 to /usr/local/lib/claude-hooks/
-config/claude-settings.json     # top-level "hooks" block (Bash + Edit|Write|MultiEdit)
+sandbox_templates/claude/claude-settings.json     # top-level "hooks" block (Bash + Edit|Write|MultiEdit)
 scripts/verify-sandbox.sh       # tripwire: file invariants + behavioural deny probe
 scripts/audit/probes/settings.py # _check_hooks() + REQUIRED_HOOKS (3 new checks)
 CLAUDE.md                       # L8 paragraph, new gotcha, checklist + "What NOT to do" entries
@@ -30,7 +30,7 @@ What's pending:
 - `scripts/profile.sh <p> rebuild` per running profile (so they pick up the
   new image).
 - `scripts/profile.sh <p> reset-settings` per existing profile (so the
-  `hooks` block in `config/claude-settings.json` is copied into the live
+  `hooks` block in `sandbox_templates/claude/claude-settings.json` is copied into the live
   per-profile `claude-home/settings.json` — `ensure_state()` only seeds
   if the file is absent, preserving customizations). New profiles pick it
   up automatically on first `up`.
@@ -85,7 +85,7 @@ defeat them:
    the kernel says so, not because a hook says so. The Edit-tamper hook
    is defence in depth on top of this.
 
-Hooks are wired in `config/claude-settings.json` under the top-level
+Hooks are wired in `sandbox_templates/claude/claude-settings.json` under the top-level
 `hooks` key, referencing the absolute path. Per-profile customizable
 hooks (`claude-home/hooks/`) are deliberately out of scope — see the
 "Out of scope" section.
@@ -186,17 +186,17 @@ Original specialist review (2026-05-14) and how each is reflected:
 
 Pointers to the live code, not duplicated content (which would drift):
 
-- `config/hooks/deny-destructive.sh` — the hook itself.
-- `config/hooks/deny-destructive.test.sh` — host-side test harness, 35
+- `sandbox_templates/claude/hooks/deny-destructive.sh` — the hook itself.
+- `sandbox_templates/claude/hooks/deny-destructive.test.sh` — host-side test harness, 35
   assertions covering negatives, all rule positives, hook-tamper for
   both Bash and Edit paths, malformed JSON / empty stdin robustness,
   and warn-log writes.
-- `Dockerfile` — `COPY --chown=root:root config/hooks/deny-destructive.sh
+- `Dockerfile` — `COPY --chown=root:root sandbox_templates/claude/hooks/deny-destructive.sh
   /usr/local/lib/claude-hooks/deny-destructive.sh` followed by
   `RUN chmod 0755`. Inserted between the `.zshrc` copy block and the
   `USER agent` switch so the file lands root-owned. (Not using
   `COPY --chmod=` to stay portable across non-BuildKit builders.)
-- `config/claude-settings.json` — top-level `hooks.PreToolUse` with two
+- `sandbox_templates/claude/claude-settings.json` — top-level `hooks.PreToolUse` with two
   matcher entries (`Bash`, `Edit|Write|MultiEdit`) both pointing at the
   in-image hook with `timeout: 2`.
 - `scripts/verify-sandbox.sh` — tripwire after the CONNECT-on-non-443
@@ -219,11 +219,11 @@ Pointers to the live code, not duplicated content (which would drift):
 Every new destructive primitive needs **all three** of the following, or
 silent drift creeps in:
 
-1. New rule in `config/hooks/deny-destructive.sh` (block or warn,
+1. New rule in `sandbox_templates/claude/hooks/deny-destructive.sh` (block or warn,
    following the `match … && emit_block …` / `warn_log` pattern).
 2. New positive + negative assertions in
-   `config/hooks/deny-destructive.test.sh`. Run on host pre-commit
-   (`bash config/hooks/deny-destructive.test.sh`) — must stay green.
+   `sandbox_templates/claude/hooks/deny-destructive.test.sh`. Run on host pre-commit
+   (`bash sandbox_templates/claude/hooks/deny-destructive.test.sh`) — must stay green.
 3. If the rule adds a new path constant, an extension to the
    `verify-sandbox.sh` probe and/or `_check_hooks()` so the new
    constant is asserted at runtime, not just in the test harness.
@@ -258,7 +258,7 @@ changes the `hookSpecificOutput` envelope shape:
 
 1. Update `emit_block()` in `deny-destructive.sh`.
 2. Update the `grep` in `verify-sandbox.sh`'s tripwire.
-3. Re-run `bash config/hooks/deny-destructive.test.sh` — the assertion
+3. Re-run `bash sandbox_templates/claude/hooks/deny-destructive.test.sh` — the assertion
    greps the `permissionDecision` field, so the test catches schema
    regressions.
 4. Add a note to `CLAUDE.md` if the change affects what writers should
@@ -268,7 +268,7 @@ changes the `hookSpecificOutput` envelope shape:
 
 End-to-end pass criteria once rollout completes:
 
-- [x] `bash config/hooks/deny-destructive.test.sh` — all 35 assertions
+- [x] `bash sandbox_templates/claude/hooks/deny-destructive.test.sh` — all 35 assertions
   pass on host (achieved 2026-05-14).
 - [ ] Rebuilt container: agent-issued `find /tmp -delete` returns a
   hook deny with `deny-destructive: find-delete: …`; sentinel still

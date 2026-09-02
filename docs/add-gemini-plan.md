@@ -96,10 +96,10 @@ COMPOSE_PROFILES=db-postgres PROFILE=<p> docker compose -p macolima-<p> \
 
 ## One real consideration: autonomy posture
 
-Claude Code's `permissions.allow`/`deny` (in `config/claude-settings.json`) is Claude-specific. Gemini CLI has its own permission model (`--yolo` for blanket auto-accept, per-tool gating in `~/.gemini/settings.json`).
+Claude Code's `permissions.allow`/`deny` (in `sandbox_templates/claude/claude-settings.json`) is Claude-specific. Gemini CLI has its own permission model (`--yolo` for blanket auto-accept, per-tool gating in `~/.gemini/settings.json`).
 
 - **Planning-mode use** (human approves each step): trivial — no extra config.
-- **Autonomous use** with the same "deny network tools, deny shell-outs" posture built for Claude: separate config in `gemini-home/settings.json`, modeled on `config/claude-settings.json`. Not hard, just not free.
+- **Autonomous use** with the same "deny network tools, deny shell-outs" posture built for Claude: separate config in `gemini-home/settings.json`, modeled on `sandbox_templates/claude/claude-settings.json`. Not hard, just not free.
 
 Recommendation: ship **planning-mode + API key auth first** (~10-line change). Add autonomous-mode permissions later if the workflow demands it.
 

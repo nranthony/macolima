@@ -13,16 +13,16 @@ VS Code's Dev Containers extension injects several host→container forwards tha
 
 ## In-container mitigations
 
-Dockerfile + `config/.zshrc`:
+Dockerfile + `sandbox_templates/common/.zshrc`:
 
 - **`openssh-client` is purged.** Closes the SSH exfil path at the tool level: even if the env var + socket leak in, no `ssh`/`scp`/`ssh-add` exists to use them.
-- **`config/.zshrc` runs `unset SSH_AUTH_SOCK`** — this is the *primary*, flow-independent SSH-env defense. It covers every path: VS Code attach (which ignores devcontainer.json `remoteEnv` entirely — see below), `profile.sh attach`, and any `docker exec` shell. Don't demote it to a fallback behind `remoteEnv`; `remoteEnv` does nothing on the attach flow.
+- **`sandbox_templates/common/.zshrc` runs `unset SSH_AUTH_SOCK`** — this is the *primary*, flow-independent SSH-env defense. It covers every path: VS Code attach (which ignores devcontainer.json `remoteEnv` entirely — see below), `profile.sh attach`, and any `docker exec` shell. Don't demote it to a fallback behind `remoteEnv`; `remoteEnv` does nothing on the attach flow.
 
 ## Attach-time config is host-side, not per-repo
 
 `Attach to Running Container` ignores the repo's `.devcontainer/devcontainer.json` — that file is only consumed by `Reopen in Container`, which macolima doesn't use ([VS Code docs](https://code.visualstudio.com/docs/devcontainers/attach-container)). Attach-time customisation lives in the host-side **attached-container configuration file** (image- or name-keyed; `Dev Containers: Open Attached Container Configuration File`), which supports a subset: `workspaceFolder`, `extensions`, `settings`, `forwardPorts`, `remoteUser`.
 
-`remoteEnv` is **not** in that subset — so emptying `SSH_AUTH_SOCK` via `remoteEnv` does nothing on attach. The actual, flow-independent SSH defense is `config/.zshrc`'s `unset SSH_AUTH_SOCK` plus the purge of `openssh-client`; treat those as load-bearing, not a devcontainer.json `remoteEnv`. `updateRemoteUserUID`/`overrideCommand` are likewise inert on attach (Reopen-only): macolima runs as `agent` (UID 1000) under compose regardless of flow, so the `usermod`-as-root orphan never arises on the Attach path.
+`remoteEnv` is **not** in that subset — so emptying `SSH_AUTH_SOCK` via `remoteEnv` does nothing on attach. The actual, flow-independent SSH defense is `sandbox_templates/common/.zshrc`'s `unset SSH_AUTH_SOCK` plus the purge of `openssh-client`; treat those as load-bearing, not a devcontainer.json `remoteEnv`. `updateRemoteUserUID`/`overrideCommand` are likewise inert on attach (Reopen-only): macolima runs as `agent` (UID 1000) under compose regardless of flow, so the `usermod`-as-root orphan never arises on the Attach path.
 
 The git-config-copy + credential-helper closure is a **host setting**, not a devcontainer.json key — set `dev.containers.copyGitConfig: false` and `dev.containers.gitCredentialHelperConfigLocation: "none"` in host user `settings.json` (see `README.md` §"Required host settings"). The host setting is what actually prevents re-injection on every attach.
 

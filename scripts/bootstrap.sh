@@ -79,7 +79,7 @@ if ! grep -q "$SNIPPET_MARKER" "$HOME/.zshrc" 2>/dev/null; then
   {
     echo ""
     echo "$SNIPPET_MARKER"
-    cat "$SCRIPT_DIR/config/zshrc-snippet.sh"
+    cat "$SCRIPT_DIR/sandbox_templates/common/zshrc-snippet.sh"
     echo "# <<< macolima env <<<"
   } >> "$HOME/.zshrc"
   ok "Added. Run: source ~/.zshrc"
