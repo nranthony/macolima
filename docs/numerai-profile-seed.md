@@ -41,15 +41,18 @@ chmod 600 /Volumes/DataDrive/.claude-colima/profiles/numerai/secrets.env
 scripts/setup.sh numerai --name "Your Name" --email "you@example.com"
 ```
 
-The `secrets.env` lands in the agent's environment because `docker-compose.yml` already loads `profiles/<p>/db.env` via `env_file:`. **Required compose change** (one-time, in the macolima repo): add a second `env_file:` entry on the `claude-agent` service:
+The `secrets.env` lands in the agent's environment through a second optional
+`env_file:` entry on the `claude-agent` service, alongside `db.env`. **This landed
+in work/0004** — it was a "required compose change" pending when this document was
+written, and is now in `docker-compose.yml`. `scripts/profile.sh <p> up` also
+seeds a `secrets.env.example` from
+`sandbox_templates/common/secrets.env.template` and chmod 600s any real
+`secrets.env`, so step 2 above only needs the `cat`; the `chmod` is belt and
+braces. See `docs/database-internals.md` §"Per-profile API keys".
 
-```yaml
-env_file:
-  - path: /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/db.env
-    required: false
-  - path: /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/secrets.env
-    required: false
-```
+Note the step-2 heredoc predates the template. Prefer copying the template and
+editing it — its comments are the documentation for how the file is read (at
+container **create**, so an edit needs `recreate`, not `up`).
 
 The agent never sees `secrets.env` on the filesystem (it's not bind-mounted into `/workspace`); only the env vars surface inside the container.
 

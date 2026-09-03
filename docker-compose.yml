@@ -104,6 +104,17 @@ services:
       # without DBs still come up cleanly.
       - path: /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/db.env
         required: false
+      # Optional per-profile API keys (CLICKUP_TOKEN etc.), same mechanism.
+      # Seeded as secrets.env.example by ensure_state, chmod 600'd there on every
+      # `up`, and preserved by `wipe`. The agent never sees the FILE — it is not
+      # bind-mounted anywhere — only the variables.
+      #
+      # BOTH ARE READ AT CONTAINER CREATE ONLY. Editing either after the agent is
+      # up changes nothing until `scripts/profile.sh <p> recreate`; a plain `up`
+      # or `restart` will not re-read them. Said here because the failure is a
+      # correct key that behaves exactly like a missing one.
+      - path: /Volumes/DataDrive/.claude-colima/profiles/${PROFILE}/secrets.env
+        required: false
     environment:
       - HTTP_PROXY=http://egress-proxy:3128
       - HTTPS_PROXY=http://egress-proxy:3128
@@ -111,6 +122,17 @@ services:
       - https_proxy=http://egress-proxy:3128
       - NO_PROXY=localhost,127.0.0.1,egress-proxy
       - MACOLIMA_PROFILE=${PROFILE}
+      # SANDBOX_PROFILE is the CROSS-REPO contract name, and it is not a synonym
+      # kept for tidiness. Vendored tools key on this exact string to know they
+      # are inside a sandbox: myclickup's config.in_sandbox() is literally
+      # `"SANDBOX_PROFILE" in env`, and when it is false the tool merges a
+      # repo-root `.env` beneath the real environment (its ADR-0003). /workspace
+      # is agent-writable, so with only MACOLIMA_PROFILE set — the state here
+      # until work/0004 — a file the agent can create becomes a credential
+      # source, which is exactly what that ADR disables inside a sandbox.
+      # MACOLIMA_PROFILE stays: the audit aggregator, the audit-sandbox skill and
+      # run-ephemeral.sh all read it. Set both; they answer different questions.
+      - SANDBOX_PROFILE=${PROFILE}
       # Route git's global config through the mounted .config/ dir so it persists
       # across container recreates AND avoids single-file bind-mount EBUSY.
       - GIT_CONFIG_GLOBAL=/home/agent/.config/git/config

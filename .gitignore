@@ -218,6 +218,11 @@ __marimo__/
 docker-compose.override.yml
 .env
 .env.*
+# Belt-and-braces: the real secrets.env lives under the profile state dir on the
+# drive, outside this repo. This catches a copy made in the tree by mistake.
+# .dockerignore carries the same line for the same reason.
+secrets.env
+**/secrets.env
 .DS_Store
 
 # Local pointer to the depot channel (work/0002 V1). Machine-specific, never

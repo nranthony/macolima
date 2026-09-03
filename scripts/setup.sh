@@ -259,6 +259,17 @@ if [[ -n "$ACTION" ]]; then
       else
         ok "db.env not present (DBs not configured for this profile)"
       fi
+      echo
+      info "secrets.env perms:"
+      secenv="$PROFILES_ROOT/$PROFILE/secrets.env"
+      if [[ -f "$secenv" ]]; then
+        mode=$(stat -f '%Lp' "$secenv" 2>/dev/null || stat -c '%a' "$secenv" 2>/dev/null)
+        if [[ "$mode" == "600" ]]; then ok "secrets.env is 600"
+        else warn "secrets.env is $mode (should be 600 — contains third-party API tokens)"
+        fi
+      else
+        ok "secrets.env not present (no API keys configured for this profile)"
+      fi
       exit 0
       ;;
   esac

@@ -503,6 +503,10 @@ ensure_state() {
   # (not user data), so always overwrite — that way doc improvements to the
   # template propagate to existing profiles on the next `up`.
   cp "$SCRIPT_DIR/sandbox_templates/common/db.env.template" "$p/db.env.example"
+  # Same deal for API keys the agent's tooling reads (CLICKUP_TOKEN etc.).
+  # Overwritten every `up` for the same reason: it is a template, not user data,
+  # and the notes in it are the documentation.
+  cp "$SCRIPT_DIR/sandbox_templates/common/secrets.env.template" "$p/secrets.env.example"
   # Seed settings.json if absent.
   if [[ ! -f "$p/claude-home/settings.json" ]] && [[ -f "$SCRIPT_DIR/sandbox_templates/claude/claude-settings.json" ]]; then
     cp "$SCRIPT_DIR/sandbox_templates/claude/claude-settings.json" "$p/claude-home/settings.json"
@@ -583,6 +587,11 @@ ensure_state() {
   # not a secret).
   if [[ -f "$p/db.env" ]]; then
     chmod 600 "$p/db.env" 2>/dev/null || warn "could not chmod 600 $p/db.env"
+  fi
+  # secrets.env carries third-party API tokens and gets the same treatment for
+  # the same reason. Its .example stays 644 — a template is not a secret.
+  if [[ -f "$p/secrets.env" ]]; then
+    chmod 600 "$p/secrets.env" 2>/dev/null || warn "could not chmod 600 $p/secrets.env"
   fi
 }
 
@@ -1587,7 +1596,8 @@ PY
     # Preserves: claude-home/.credentials.json, claude.json, config/gh/,
     #            config/git/, gemini-home/oauth_creds.json,
     #            db.env (DB superuser credentials — preserved even with
-    #            --all-volumes; rm it yourself if you want fresh creds).
+    #            --all-volumes; rm it yourself if you want fresh creds),
+    #            secrets.env (third-party API tokens, same rule).
     # Wipes:     containers (agent AND db siblings, even if not in the caller's
     #            COMPOSE_PROFILES — see `--profile db-all` on the `down` below),
     #            vscode-server + cache named volumes, everything else under
@@ -1631,6 +1641,7 @@ PY
     echo "    $p/config/git/"
     echo "    $p/gemini-home/oauth_creds.json"
     echo "    $p/db.env  (if present)"
+    echo "    $p/secrets.env  (if present)"
     echo "  WIPE:"
     echo "    docker compose down --remove-orphans  ($([[ $all_vols == 1 ]] && echo '+ ALL named volumes' || echo '+ vscode-server + cache volumes; DB volumes preserved'))"
     echo "    rm -rf $p/*  (everything except the PRESERVE list above)"
@@ -1691,6 +1702,7 @@ PY
     [[ -d "$p/config/git" ]]                 && mv "$p/config/git"                 "$stage/config/git"
     [[ -f "$p/gemini-home/oauth_creds.json" ]] && mv "$p/gemini-home/oauth_creds.json" "$stage/gemini-home/oauth_creds.json"
     [[ -f "$p/db.env" ]]                       && mv "$p/db.env"                       "$stage/db.env"
+    [[ -f "$p/secrets.env" ]]                  && mv "$p/secrets.env"                  "$stage/secrets.env"
     ok "staged auth artefacts → $stage"
 
     # 3. Nuke the profile dir.
@@ -1705,6 +1717,7 @@ PY
     [[ -d "$stage/config/git" ]]                 && mv "$stage/config/git"                 "$p/config/git"
     [[ -f "$stage/gemini-home/oauth_creds.json" ]] && mv "$stage/gemini-home/oauth_creds.json" "$p/gemini-home/oauth_creds.json"
     [[ -f "$stage/db.env" ]]                       && mv "$stage/db.env"                       "$p/db.env"
+    [[ -f "$stage/secrets.env" ]]                  && mv "$stage/secrets.env"                  "$p/secrets.env"
     # All preserved items have been moved back into $p; anything left in $stage
     # is unexpected. Sanity-check, then nuke the stage dir wholesale (rmdir
     # was fragile — failed silently if any future preserve target added a
@@ -1724,6 +1737,7 @@ PY
     [[ -f "$p/claude-home/.credentials.json" ]] && chmod 600 "$p/claude-home/.credentials.json"
     [[ -f "$p/claude.json" ]]                   && chmod 644 "$p/claude.json"
     [[ -f "$p/db.env" ]]                        && chmod 600 "$p/db.env"
+    [[ -f "$p/secrets.env" ]]                   && chmod 600 "$p/secrets.env"
     ok "restored auth artefacts into fresh $p"
 
     # 6. Re-seed templates (settings.json, skills, db.env.example) so a plain `up` works.

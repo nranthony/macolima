@@ -152,7 +152,8 @@ macolima/
         │   │   ├── gh/                     #     GitHub CLI tokens
         │   │   └── git/config              #     git global config (via GIT_CONFIG_GLOBAL)
         │   ├── gemini-home/                # → /home/agent/.gemini  (Antigravity CLI `agy` state)
-        │   └── db.env                      #     postgres/mongo creds (chmod 600)
+        │   ├── db.env                      #     postgres/mongo creds (chmod 600)
+        │   └── secrets.env                 #     API keys, e.g. CLICKUP_TOKEN (chmod 600)
         ├── personal/ ...
         └── sideproject/ ...
 ```
@@ -230,12 +231,12 @@ scripts/profile.sh work attach
 | `--recreate` | force-recreate containers (picks up compose/seccomp/mount changes) |
 | `--remove` | `docker compose down` — stops containers, keeps persistent state |
 | `--reset --yes` | **nuke** the profile's state dir + drop the `vscode-server`/`cache` volumes, then fresh setup if `--name`/`--email` given. **DB volumes (postgres-data / mongo-data) are preserved by default** — re-up brings the same data back. |
-| `--verify` | print compose ps, auth status (claude/gh), git config, egress sentinel state, and `db.env` perms |
+| `--verify` | print compose ps, auth status (claude/gh), git config, egress sentinel state, and `db.env` / `secrets.env` perms |
 | `--yes` | skip confirmation prompts (required for `--reset`) |
 
 `--reset` vs `profile.sh wipe`: both clear rotating state, but they differ on auth:
 - **`setup.sh --reset`** deletes Claude/gh tokens with the profile dir, intended for "I want to re-login from scratch" workflows.
-- **`profile.sh wipe`** preserves Claude / Gemini / gh / git auth and `db.env`, intended for "I want everything else fresh but don't want to redo OAuth or DB passwords" workflows. `wipe --all-volumes` if you also want DB data dropped (creds in `db.env` still preserved — `rm` it yourself for fresh creds).
+- **`profile.sh wipe`** preserves Claude / Gemini / gh / git auth, `db.env` and `secrets.env`, intended for "I want everything else fresh but don't want to redo OAuth or DB passwords" workflows. `wipe --all-volumes` if you also want DB data dropped (creds in `db.env` still preserved — `rm` it yourself for fresh creds).
 
 Idempotent: `setup.sh` detects if Claude or gh is already authenticated and skips those prompts. Safe to re-run.
 
@@ -253,7 +254,7 @@ Idempotent: `setup.sh` detects if Claude or gh is already authenticated and skip
 | `scripts/profile.sh <p> status` / `logs` | `docker compose ps` / logs |
 | `scripts/profile.sh <p> recreate` | force-recreate containers without rebuilding the image (picks up compose / seccomp / squid / mount changes). Same effect as `setup.sh <p> --recreate`. |
 | `scripts/profile.sh <p> rebuild` | build image + recreate `<p>` (use after Dockerfile changes) |
-| `scripts/profile.sh <p> wipe` | blank-slate the profile, **preserve** Claude / Gemini / gh / git auth + `db.env` (use `--all-volumes` to also drop DB data) |
+| `scripts/profile.sh <p> wipe` | blank-slate the profile, **preserve** Claude / Gemini / gh / git auth + `db.env` + `secrets.env` (use `--all-volumes` to also drop DB data) |
 | `scripts/profile.sh <p> exec <cmd>` | run arbitrary command in the container |
 | `scripts/profile.sh build` | rebuild the shared image only (no profile arg — it is shared) |
 | `scripts/profile.sh build --refresh-ai` | bump Claude Code + agy to latest, rebuilding only that tail layer (~21s, vs ~100s for a full build) |

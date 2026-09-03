@@ -62,6 +62,12 @@ Everything outside these paths is **wiped on container recreate**:
 
 Volatile (tmpfs): `/tmp`, `/run`, `/home/agent/.npm-global`, `/home/agent/.local`.
 
+`db.env` and `secrets.env` are NOT in the table because they are not mounted:
+compose injects them as optional `env_file`s, so only the variables reach the
+container and the files stay host-side. Both are read at container **create**,
+so an edit needs `recreate`, not `up`. Both are chmod 600'd on every `up` and
+preserved by `wipe`.
+
 Named volumes become `macolima-<profile>_<name>` — separate per profile.
 
 Of everything this map marks as wiped, only three things are **irrecoverable** (no script regenerates them): unpushed `/workspace` code, Claude session history (`claude-home/projects`, `sessions`, `todos`), and DB *rows* (schema is recreatable, data isn't). Everything else re-seeds from `config/`, re-downloads, or comes back on re-login. README → "What you can't get back" has the reset pre-flight checklist; point users there before any `wipe`/`--reset`/`colima delete`.
@@ -73,6 +79,7 @@ For project-customization patterns (local wheels, overlay images), see `docs/loc
 | Editing… | See |
 |---|---|
 | `docker-compose.yml` DB siblings, `db.env`, DSNs | `docs/database-internals.md` |
+| `secrets.env`, per-profile API keys, `SANDBOX_PROFILE` | `docs/database-internals.md` §"Per-profile API keys" |
 | `proxy/squid.conf`, allowlist policy, caps, tmpfs ownership | `docs/squid-internals.md` |
 | `seccomp.json`, `clone3` errno, syscall allowances | `docs/seccomp-notes.md` |
 | `devcontainer.json`, `openssh-client`, `SSH_AUTH_SOCK`, `ensure_state` scrub | `docs/vscode-leakage.md` |
@@ -108,7 +115,7 @@ Routine debug commands moved to `docs/debug-recipes.md`. Accepted CVEs/misconfig
 - Don't add broad wildcards (`*.microsoft.com`, `.anthropic.com`) to the proxy allowlist — pin to specific subdomains. Sole exception: `.vscode-unpkg.net` (vendor-controlled CDN that legitimately rotates subdomains).
 - Don't share the same profile dir between two profiles via symlinks "to save space" — the whole point is isolation.
 - Don't commit secrets from `profiles/<name>/` into git — that dir is user state, not repo content. It lives on the drive, outside this repo.
-- Don't chmod `.claude/.credentials.json` to anything other than 600. (And `db.env` to anything other than 600 — `ensure_state` re-asserts this on every `up`.)
+- Don't chmod `.claude/.credentials.json` to anything other than 600. (And `db.env` / `secrets.env` to anything other than 600 — `ensure_state` re-asserts both on every `up`.)
 - Don't re-add a `.gitconfig` bind mount (use `GIT_CONFIG_GLOBAL`), don't re-enable `sandbox.enabled`, don't re-add `bubblewrap`/`socat`/`openssh-client`.
 - Don't revert `claude-agent`'s `dns: [127.0.0.1]` to Docker's default — that re-opens the DNS exfil side channel (`docs/compose-network-ipam.md`).
 - Don't delete `http_access deny CONNECT !SSL_ports` from `proxy/squid.conf` — that line closes the CONNECT-on-port-80 hole (`docs/squid-internals.md`).

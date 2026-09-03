@@ -65,6 +65,7 @@ docker run --rm -it \
   -e NO_PROXY=localhost,127.0.0.1,egress-proxy \
   -e GIT_CONFIG_GLOBAL=/home/agent/.config/git/config \
   -e MACOLIMA_PROFILE="$PROFILE" \
+  -e SANDBOX_PROFILE="$PROFILE" \
   -v "$REPO_PATH":/workspace:rw \
   -v "$STATE/claude-home":/home/agent/.claude:rw \
   -v "$STATE/claude.json":/home/agent/.claude.json:rw \

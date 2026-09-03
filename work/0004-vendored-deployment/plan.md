@@ -155,17 +155,54 @@ against a throwaway repo root and HOME. Joins `test-offline`.
 - `test-offline` carries `profile-skills.test.sh`
 - `just verify <p>` clean (SUID set unchanged — `uv tool install` adds none)
 
-## 5. Not in scope
+## 5. V7 — reach and credentials — **DONE 2026-09-03**
+
+Landed after the section below was written, in two owner-directed steps.
+
+**Egress.** One host uncommented: `api.clickup.com`, ALWAYS ON. Read out of
+myclickup 0.7.0's source rather than copied from W's block — `client.py` has
+exactly two request sites and the API one builds every URL from `API_BASE`
+(`/api/v2`) or `API_V3` (same host). `app.clickup.com` is not in the source at
+all. The remote-MCP hosts stay shut (`mcpServers` is `{}` in every profile here)
+and so do the attachment hosts, including therapod's unverified tenant ID — a
+wrong ID there does not fail closed.
+
+**Credentials.** `secrets.env`, ported from W: a second optional `env_file` on
+the agent, seeded as `secrets.env.example`, chmod 600 on every `up`, preserved by
+`wipe`. This was already specified in `docs/numerai-profile-seed.md` as a
+"required compose change" and had simply never been made.
+
+The template is W's with its mechanics intact and its key list cut to what this
+repo has a consumer for. W's carries `TAVILY_API_KEY`, `TINYFISH_API_KEY`,
+`JINA_API_KEY`, `FIRECRAWL_API_KEY` (the webfetch broker, not ported — work/0002
+§4.4), `HF_TOKEN` and `FAL_KEY` (the GPU/ML stack, out of scope — work/0001
+§0.2). Copying those over would document keys with no reader: a key whose
+consumer does not exist reads as configured and fails as a silence. The template
+says so explicitly, so nobody restores them for parity.
+
+**F6, found while doing it.** W sets `SANDBOX_PROFILE=${PROFILE}` on the agent;
+this repo set only `MACOLIMA_PROFILE`. That is not a naming preference — it is a
+literal string comparison in a tool this repo does not own:
+`myclickup.config.in_sandbox()` is `"SANDBOX_PROFILE" in env`, and when it is
+false the tool merges a repo-root `.env` beneath the real environment. Since
+`/workspace` is agent-writable, a file the agent can create was a credential
+source, which is exactly what myclickup's ADR-0003 disables inside a sandbox. The
+vendoring pipeline delivered the tool correctly and the container then told it it
+was not in a sandbox. Now set on both the compose agent and `run-ephemeral.sh`;
+`MACOLIMA_PROFILE` stays, since the audit aggregator, the `audit-sandbox` skill
+and `run-ephemeral.sh` all read it.
+
+Still open: `CLICKUP_TOKEN` is plumbed but not set — that needs a real token per
+profile and a `recreate`, both owner actions.
+
+## 6. Not in scope
 
 - **V6, the permissions leg.** The manifest proposes 19 allow / 11 ask / 2 deny
   for myclickup. Reporting it is a separate step and applying it is a human
   decision — an artifact must not widen the sandbox by being vendored.
-- **V7, ClickUp egress.** `api.clickup.com` is not in the allowlist, so the CLI
-  is installed but cannot reach ClickUp. Deliberate: adding a domain is its own
-  justified decision, and the tool needs credentials anyway.
 - The content check against `source_commit` (work/0002 V3's stated gap).
 
-## 6. Back to W
+## 7. Back to W
 
 1. **F5**, the cross-device staging fix — a portability defect in W's own
    function, latent on WSL, live on macOS.
