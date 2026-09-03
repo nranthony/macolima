@@ -434,17 +434,35 @@ for name, art in sorted(manifest.get("artifact", {}).items()):
         wanted = proposals[kind]
         # A write may be gated by `ask` OR by the stronger `deny`; either counts.
         pool = deployed[kind] + (deployed["deny"] if kind == "ask" else [])
-        missing, via_prefix = [], []
+        missing, via_prefix, promoted = [], [], []
         for w in wanted:
             if w in pool:
                 continue
             hit = next((d for d in pool if covers(d, w)), None)
-            (via_prefix if hit else missing).append((w, hit))
-        print("  %-5s proposed %2d  exact %2d  by-prefix %2d  MISSING %2d"
-              % (kind, len(wanted), len(wanted) - len(missing) - len(via_prefix),
-                 len(via_prefix), len(missing)))
+            if hit:
+                via_prefix.append((w, hit))
+                continue
+            # A proposed `ask` sitting on `allow` is neither gated-as-proposed
+            # nor a classifier gap: it is a deterministic rule the owner chose
+            # to WIDEN. Report it as its own state — silently folding it into
+            # "exact" would hide a widening, and counting it MISSING would make
+            # the report cry wolf on every run after a deliberate promotion
+            # (the three-write promotion of 2026-09-03 is the live case).
+            if kind == "ask" and w in deployed["allow"]:
+                promoted.append(w)
+                continue
+            missing.append((w, None))
+        line = ("  %-5s proposed %2d  exact %2d  by-prefix %2d  MISSING %2d"
+                % (kind, len(wanted),
+                   len(wanted) - len(missing) - len(via_prefix) - len(promoted),
+                   len(via_prefix), len(missing)))
+        if kind == "ask":
+            line += "  promoted-to-allow %2d" % len(promoted)
+        print(line)
         for w, hit in via_prefix:
             print("        covered by prefix: %s  <-  %s" % (w, hit))
+        for w in promoted:
+            print("        PROMOTED to allow (owner decision, runs unprompted): %s" % w)
         for w, _ in missing:
             print("        MISSING: %s" % w)
             if kind in ("ask", "deny"):

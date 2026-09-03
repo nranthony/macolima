@@ -123,7 +123,9 @@ decision being re-litigated.
 ### P8 — `check-permissions` (work/0002 V6) — **DONE 2026-09-03** (report only)
 The depot manifest proposes 19 allow / 11 ask / 2 deny for myclickup.
 `vendor-tools.sh --permissions` REPORTS the proposal against
-claude-settings.json and never edits it. Keep it read-only: an artifact must not
+claude-settings.json and never edits it. (Adopted later the same day — §8
+item 1 — with three writes promoted to allow, which the report shows as
+PROMOTED, a recorded owner decision, not a gap.) Keep it read-only: an artifact must not
 widen the sandbox by being vendored.
 
 ### P9 — allowlist blocks worth considering — **DONE 2026-09-03** (1 added, 3 refused)
@@ -245,12 +247,14 @@ The handoff §9 asks for a report. Accumulated so far:
 
 **P1–P11 are all landed.** What remains is not port work:
 
-1. **Adopt or reject the myclickup permission proposal** (P8 reported it; the
-   decision is the owner's). Today no myclickup pattern is on `allow`, `ask` or
-   `deny` in either grammar, so `myclickup delete` and `myclickup rm` are gated
-   by nothing — absence is not a gate under `defaultMode:auto`. W's own file is
-   a worked reference: 21 allow / 8 ask / 2 deny, i.e. the manifest proposal
-   with `comment`, `set-status` and `update` promoted to allow.
+1. ~~Adopt or reject the myclickup permission proposal~~ — **DECIDED
+   2026-09-03: adopted, mirroring W tier-for-tier** (21 allow / 8 ask / 2 deny;
+   the channel's 19 / 11 / 2 with `comment`, `set-status` and `update` carried
+   into allow). Reasoning lives in the claude template's `_myclickup_note`;
+   `just check-permissions` now reports those three as PROMOTED rather than
+   MISSING. Residual for agy only: an approved `ask` is cached as a permanent
+   Always-Allow, so the eight asked writes are one approval from permanent per
+   profile — wiring them through the hook's `force_ask` is the open follow-up.
 2. **Set `CLICKUP_TOKEN`** in a profile's `secrets.env` and `recreate` — the
    plumbing has been in place since work/0004 §5 and has never been fed a token.
 3. **Decide whether `agy` should get the notice per workspace** — the mechanism

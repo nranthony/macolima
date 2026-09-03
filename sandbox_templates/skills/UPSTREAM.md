@@ -65,4 +65,7 @@ skill an agent authored inside a profile survives untouched.
 An artifact must not widen the sandbox by arriving. The channel manifest ships a
 *proposed* permission set alongside `myclickup`; `vendor-tools.sh --permissions`
 reports that proposal against `sandbox_templates/claude/claude-settings.json`
-and **never edits it**. Adopting any part of it is a separate, human decision.
+and **never edits it**. Adopting any part of it is a separate, human decision —
+made on 2026-09-03, mirroring the sibling repo tier-for-tier; the reasoning is
+the `_myclickup_note` in that template, and a later CLI version that changes the
+command surface shows up in this report before it shows up anywhere else.

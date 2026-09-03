@@ -464,6 +464,24 @@ else
   bad "deny did not satisfy a proposed ask" "$out"
 fi
 
+# a proposed `ask` that the owner PROMOTED to `allow` is a recorded decision:
+# visible in the report, counted in neither MISSING nor the gap tally. Both
+# halves matter — hidden, a widening goes unreviewed; counted as a gap, the
+# report cries wolf on every run after a deliberate promotion and gets ignored.
+RP5="$(mkrepo p5)"
+mkpolicy "$RP5" '"Bash(demo read:*)", "Bash(demo list:*)", "Bash(demo write:*)"' '' '"Bash(demo destroy:*)"'
+out="$(run_perm "$RP5" DEPOT_DIR="$PC")"
+if printf '%s' "$out" | grep -q 'PROMOTED to allow.*Bash(demo write:\*)'; then
+  ok "an ask proposal sitting on allow is reported as PROMOTED (visible)"
+else
+  bad "promotion not surfaced" "$out"
+fi
+if ! printf '%s' "$out" | grep -q 'MISSING:' && ! printf '%s' "$out" | grep -q 'WRITE-SURFACE GAP'; then
+  ok "a promoted write is not MISSING and not a gap  <-- FALSE-FAIL LOCK"
+else
+  bad "a deliberate promotion was reported as a gap" "$out"
+fi
+
 # prefix coverage: a deployed shorter prefix covers a longer proposal
 RP4="$(mkrepo p4)"; mkpolicy "$RP4" '"Bash(demo r:*)"' '' ''
 out="$(run_perm "$RP4" DEPOT_DIR="$PC")"
