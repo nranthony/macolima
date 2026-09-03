@@ -27,6 +27,7 @@
 
 profile_sh := justfile_directory() / "scripts" / "profile.sh"
 setup_sh   := justfile_directory() / "scripts" / "setup.sh"
+gc_sh      := justfile_directory() / "scripts" / "docker-gc.sh"
 code_sh    := justfile_directory() / "scripts" / "code-attach.sh"
 dash_sh    := justfile_directory() / "scripts" / "dashboard.sh"
 vendortools_sh := justfile_directory() / "scripts" / "vendor-tools.sh"
@@ -51,6 +52,14 @@ down profile:
 # force-recreate containers — picks up compose/seccomp/proxy/mount/dns changes (no image rebuild)
 recreate profile *args:
     {{profile_sh}} {{profile}} recreate {{args}}
+
+# force-recreate EVERY running profile onto the current image (no profile arg; down profiles are skipped)
+recreate-all *args:
+    {{profile_sh}} recreate-all {{args}}
+
+# reclaim docker disk no profile's lifecycle owns. --dry-run / --yes / --days N / --cache-age DURATION
+docker-gc *args:
+    {{gc_sh}} {{args}}
 
 # rebuild the image + recreate this profile's containers. Accepts --no-cache / --pull
 rebuild profile *args:
@@ -191,9 +200,7 @@ wipe profile *args:
 db-reset profile *args:
     {{profile_sh}} {{profile}} db-reset {{args}}
 
-# re-run everything `up` seeds — EVERY agent's policy + skills — from
-# sandbox_templates/, touching no container. Replaces reset-settings and
-# reset-skills. Pass --defaults to also reset preserved preference keys.
+# re-seed EVERY agent's policy + skills from sandbox_templates/, touching no container (--defaults also resets preferences)
 converge profile *args:
     {{profile_sh}} {{profile}} converge {{args}}
 

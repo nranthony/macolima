@@ -18,6 +18,8 @@
 #                   (running + stopped), by project label — robust to
 #                   compose-profile gating. Accepts extra `docker ps` flags.
 #   build           force-rebuild the shared image (NO profile arg — the image is
+#   recreate-all    force-recreate EVERY running profile onto the current image
+#                   (no profile arg; down profiles are skipped)
 #                   shared by every profile). Flags: --no-cache, --pull,
 #                   --refresh-ai (rebuild just the Claude Code + agy tail layer),
 #                   --claude-version=X.Y.Z (pin claude; implies --refresh-ai).
@@ -301,6 +303,44 @@ fi
 # PROFILE=_build satisfies docker-compose.yml's ${PROFILE:?} guard, which exists
 # to stop a bare `docker compose` running against an unset project. A build
 # creates no network and no container, so the value is inert.
+# --- `recreate-all` — force-recreate every RUNNING profile (no profile arg) --
+# Rolls every live profile onto the current macolima:latest image. Use after
+# `build` to adopt a new image without a manual per-profile loop — which is what
+# every `just build` in this repo has ended with until now.
+#
+# DOWN PROFILES ARE SKIPPED, not started. They pick the new image up on their
+# next `up`, and starting a profile the operator deliberately stopped would be a
+# side effect of a command that says "recreate", not "start".
+#
+# Container names here are `claude-agent-<profile>`, not the sibling repo's
+# `ai-sandbox-<profile>`; the egress-proxy and DB siblings are ignored because a
+# profile is identified by its agent.
+#
+# Extra args (e.g. --expose-dev) are forwarded to each `recreate`.
+if [[ "${1:-}" == "recreate-all" ]]; then
+  running=()
+  while IFS= read -r cname; do
+    case "$cname" in claude-agent-*) running+=("${cname#claude-agent-}") ;; esac
+  done < <(docker ps --format '{{.Names}}' 2>/dev/null | sort)
+  if (( ${#running[@]} == 0 )); then
+    warn "No running profiles (no claude-agent-* containers up). Nothing to recreate."
+    warn "  A profile that is DOWN picks up the new image on its next 'up'."
+    exit 0
+  fi
+  info "Recreating ${#running[@]} running profile(s): ${running[*]}"
+  rc=0
+  for p in "${running[@]}"; do
+    info "── recreate '$p' ──"
+    "$0" "$p" recreate "${@:2}" || { rc=1; warn "recreate failed for '$p' (continuing)"; }
+  done
+  if (( rc == 0 )); then
+    ok "recreate-all done (${#running[@]} profile(s))."
+  else
+    warn "recreate-all finished with errors — see above."
+  fi
+  exit "$rc"
+fi
+
 if [[ "${1:-}" == "build" ]]; then
   build_flags=()
   for a in "${@:2}"; do
