@@ -153,6 +153,11 @@ test-offline:
     bash {{justfile_directory()}}/scripts/agent-policy.test.sh
     bash {{justfile_directory()}}/scripts/agent-notice.test.sh
     bash {{justfile_directory()}}/scripts/private-names-check.sh
+    bash {{justfile_directory()}}/scripts/sync-agent-files.sh --check
+
+# regenerate the thin CLAUDE.md entry points beside every AGENTS.md
+sync-agent-files *args:
+    bash {{justfile_directory()}}/scripts/sync-agent-files.sh {{args}}
 
 # public-repo name gate — SKIPs loudly with no .private-names.local (also in test-offline)
 check-names:
