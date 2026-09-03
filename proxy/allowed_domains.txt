@@ -417,8 +417,8 @@ www.ncbi.nlm.nih.gov
 #
 # Commented by default: needs OAuth credentials in the profile before it does
 # anything. Uncomment for the duration of the work, then recomment.
-# docs.googleapis.com
-# sheets.googleapis.com
+docs.googleapis.com
+sheets.googleapis.com
 
 
 # --- Google Fonts [google-fonts] ---
