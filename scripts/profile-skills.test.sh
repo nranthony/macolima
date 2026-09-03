@@ -3,7 +3,7 @@
 # profile-skills.test.sh — converge_skills regression suite (offline)
 # =============================================================================
 # Ported from windows-ai-sandbox (work/0004 V5). No docker, no network. Runs the
-# REAL `scripts/profile.sh <p> reset-skills` against a throwaway profile root, so
+# REAL `scripts/profile.sh <p> converge` against a throwaway profile root, so
 # the function under test is reached through the script's own dispatch rather
 # than sourced or re-implemented. `up` reaches the same function via
 # ensure_state.
@@ -69,7 +69,7 @@ mk_plugin() { # <name> <version>
 
 run() { # -> stdout+stderr of a converge run
   ( cd "$ROOT" && SANDBOX_DRIVE="$DRIVE_DIR" \
-      bash "$REPO/scripts/profile.sh" testp reset-skills 2>&1 )
+      bash "$REPO/scripts/profile.sh" testp converge 2>&1 )
 }
 
 echo "-- converge_skills --"
@@ -173,11 +173,16 @@ check "$(sort "$DST/.sandbox-seeded" 2>/dev/null | tr -d '\n')" "myconv" \
 # 10. the manifest is a file, not a skill dir (must not be scanned as one)
 check "$([[ -f "$DST/.sandbox-seeded" ]] && echo y || echo n)" y "manifest is a dotfile beside the skills"
 
-# 11. an absent template tree is a no-op, not a wipe. `reset-skills` fails
+# 11. an absent template tree is a no-op, not a wipe. `converge` fails
 #     early; the ensure_state path must simply return.
 rm -rf "$REPO/sandbox_templates/skills"
 out="$(run)"; rc=$?
-check "$rc" 1 "reset-skills refuses when the template tree is missing"
+# NOT a failure: `converge` also converges agent policy, and failing here would
+# skip that. But it must not be silent — a broken checkout looking like a clean
+# converge is the shape this repo keeps finding.
+check "$rc" 0 "a missing template tree does not fail the whole converge"
+check "$(grep -c 'skills NOT converged' <<<"$out")" 1 \
+  "a missing template tree WARNS rather than passing silently"
 check "$([[ -d "$DST/handmade" ]] && echo y || echo n)" y \
   "a missing template tree prunes nothing"
 

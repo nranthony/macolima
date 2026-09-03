@@ -128,7 +128,7 @@ test-dashboard:
 # `just` aborts the recipe on the first failing line, so a red suite stops the
 # run and names itself. Run one directly if you want the rest to continue.
 
-# every offline suite (eight files; the run prints the per-file totals)
+# every offline suite (nine files; the run prints the per-file totals)
 test-offline:
     bash {{justfile_directory()}}/sandbox_templates/claude/hooks/deny-destructive.test.sh
     bash {{justfile_directory()}}/scripts/depaudit.test.sh
@@ -137,6 +137,7 @@ test-offline:
     bash {{justfile_directory()}}/scripts/vendor-tools.test.sh
     bash {{justfile_directory()}}/scripts/profile-skills.test.sh
     bash {{justfile_directory()}}/scripts/webfetch.test.sh
+    bash {{justfile_directory()}}/scripts/agent-policy.test.sh
     bash {{justfile_directory()}}/scripts/private-names-check.sh
 
 # public-repo name gate — SKIPs loudly with no .private-names.local (also in test-offline)
@@ -189,13 +190,11 @@ wipe profile *args:
 db-reset profile *args:
     {{profile_sh}} {{profile}} db-reset {{args}}
 
-# overwrite this profile's claude settings.json from config/ (backs up old)
-reset-settings profile:
-    {{profile_sh}} {{profile}} reset-settings
-
-# converge this profile's claude skills to sandbox_templates/skills/ (no backups)
-reset-skills profile:
-    {{profile_sh}} {{profile}} reset-skills
+# re-run everything `up` seeds — EVERY agent's policy + skills — from
+# sandbox_templates/, touching no container. Replaces reset-settings and
+# reset-skills. Pass --defaults to also reset preserved preference keys.
+converge profile *args:
+    {{profile_sh}} {{profile}} converge {{args}}
 
 # ---- one-shot onboarding / lifecycle flags (setup.sh) -----------------------
 

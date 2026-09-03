@@ -359,6 +359,20 @@ RUN chmod 0755 /usr/local/bin/webfetch
 COPY --chown=root:root sandbox_templates/claude/hooks/deny-destructive.sh /usr/local/lib/claude-hooks/deny-destructive.sh
 RUN chmod 0755 /usr/local/lib/claude-hooks/deny-destructive.sh
 
+# The SAME script, reached by a second name for the second agent. `agy`'s
+# hooks.json points at /usr/local/lib/sandbox-hooks/guardrails.sh and passes
+# --dialect=antigravity; one rule table serves both, so a rule added for Claude
+# protects Antigravity in the same edit.
+#
+# A SYMLINK, not a copy — two copies could diverge on disk and the divergence
+# would be invisible until one agent enforced a rule the other did not. And the
+# claude-hooks path stays canonical because every already-seeded profile's
+# settings.json names it: adding the second name must not require an existing
+# profile to converge before its hook works again.
+RUN mkdir -p /usr/local/lib/sandbox-hooks \
+ && ln -sf /usr/local/lib/claude-hooks/deny-destructive.sh \
+           /usr/local/lib/sandbox-hooks/guardrails.sh
+
 USER agent
 RUN set -eux; \
     export RUNZSH=no CHSH=no; \

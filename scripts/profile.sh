@@ -25,8 +25,9 @@
 #                   compose / seccomp / proxy / mount changes). Equivalent to
 #                   `setup.sh <p> --recreate` (which is the flag-style alias).
 #   rebuild         build + recreate this profile's containers
-#   reset-settings  overwrite this profile's claude settings.json from sandbox_templates/claude/claude-settings.json (backs up the old one)
-#   reset-skills    converge this profile's claude skills to sandbox_templates/skills/ (mirrors; keeps no backups)
+#   converge        re-run everything `up` seeds: every agent's policy + skills, from
+#                   sandbox_templates/. Touches no container. --defaults also resets
+#                   preserved preference keys to the template defaults.
 #   db-reset        wipe the postgres data volume and bring postgres back up with a fresh initdb.
 #                   Flags: --yes (skip confirmation). Does NOT touch mongo; does NOT recreate
 #                   the agent container (force-recreate it yourself if db.env DSNs changed).
@@ -382,7 +383,15 @@ SEED_MANIFEST=".sandbox-seeded"
 converge_skills() {
   local dst="$PROFILES_ROOT/$PROFILE/claude-home/skills"
   local src="$SCRIPT_DIR/sandbox_templates/skills"
-  [[ -d "$src" ]] || return 0
+  # A missing template tree is not fatal — `converge` also converges agent
+  # policy, and failing the whole command would skip that. But it must not be
+  # SILENT either: a bare `return 0` here would make a broken checkout look like
+  # a clean converge, and pruning nothing is indistinguishable from having
+  # nothing to prune. Say so and carry on.
+  if [[ ! -d "$src" ]]; then
+    warn "no skills templates at $src — skills NOT converged (nothing pruned either)"
+    return 0
+  fi
   mkdir -p "$dst"
 
   # Names previously seeded from the template tree.
@@ -457,6 +466,334 @@ converge_skills() {
   done
 }
 
+# =============================================================================
+# Agent policy convergence — ONE function, ONE descriptor table (work/0011)
+# =============================================================================
+#
+# Every code agent in this image keeps its tool policy in a JSON file inside the
+# profile's state dir. Until 2026-08-24 each one reached a profile by a different
+# route, and the most security-relevant of them — Claude Code's 96-rule deny
+# list — reached it by the route that is a no-op: seeded CREATE-ONLY, so a
+# template edit landed in git and nowhere else until someone remembered a
+# `reset-*` command. That is precisely the failure ADR-0005 was written about,
+# never applied to the file where it matters most. Now every agent converges on
+# every `up`/`recreate`/`rebuild`/`wipe`, and adding an agent is a ROW here, not
+# a new code path (ADR-0007).
+#
+# TWO MODES, and which one an agent gets is decided by ONE rule:
+#
+#   Overwrite where the agent has somewhere else to put its preferences.
+#   Merge where it does not.
+#
+#   claude       -> OVERWRITE. Nearly everything Claude Code writes back
+#                   (model, effortLevel, theme, agentPushNotifEnabled,
+#                   statusLine) is settable in a repo's own
+#                   .claude/settings.local.json, so the live file can simply BE
+#                   the template — which is stronger than merge: a future
+#                   release putting something security-relevant in a key we do
+#                   not own is enforced rather than silently preserved.
+#                   The exception rides the preserve list; see below.
+#   antigravity  -> MERGE. `agy` has NO in-repo permission or preference
+#                   surface at all (work/0011 F3), and what it stores in that
+#                   file — colorScheme, model, enableTelemetry,
+#                   trustedWorkspaces — is functional state, not a preference.
+#                   Overwriting it is data loss with nowhere to restore from.
+#   opencode     -> OVERWRITE when it lands (0009): it never writes to
+#                   opencode.json; its TUI prefs live in a separate tui.json.
+#
+# PRESERVE LIST — the mode rule applied per key. Four keys, owner-decided
+# 2026-08-24 (work/0011 F6, ADR-0007):
+#
+#   skipAutoPermissionPrompt   user-or-managed scope: it CANNOT be set in a repo
+#                              file, so dropping it leaves the user nowhere to
+#                              restore it and the one-time auto-mode notice
+#                              returns forever.
+#   model, effortLevel,        settable per-repo, but the agent rewrites them
+#   agentPushNotifEnabled      every session and re-picking them after every
+#                              `up` is friction with no security value.
+#
+# PRESERVE HAS TWO HALVES and both matter. A live value SURVIVES convergence.
+# When the live file LACKS the key — a fresh bootstrap, or a profile whose keys
+# an earlier converge dropped — the TEMPLATE DEFAULT seeds it. That is why the
+# three preference keys now live in claude-settings.json at all: without a
+# template value, "preserve" on a bootstrapped profile means "leave it unset",
+# and the operator picks model/effort by hand in every new profile forever.
+#
+# The seeded defaults are opinionated and deliberately so: "opus" (NOT a
+# variant-suffixed id — the suffix pins a context window this repo has no
+# opinion about), "medium", and push notifications OFF.
+#
+# `converge --defaults` inverts the first half for one run: the template value
+# overwrites the live one for EVERY key here, skipAutoPermissionPrompt
+# included. It is the opt-out for "this profile's preferences drifted somewhere
+# I do not want" — and it still captures what it replaced, because a reset the
+# operator cannot undo is the same silent loss the capture exists to prevent.
+#
+# Keep this list to keys the sandbox has no security opinion about — every
+# entry is a hole in "the live file IS the template".
+#
+# NOT a directory mirror, in either mode. converge_skills MIRRORS (ADR-0005),
+# and applying that here would be data loss: gemini-home/config/ holds
+# config.json, mcp_config.json, .migrated and projects/, all live `agy` state no
+# template will ever contain. File-scoped, always — the offline suite locks it.
+#
+# Row format:  agent|template (repo-relative)|dest (profile-relative)|mode|owned keys|preserve keys
+AGENT_POLICY_DESCRIPTORS=(
+  # PRESERVE LIST: windows-ai-sandbox's four, plus four measured here. The rule
+  # is theirs — preserve where the agent has nowhere ELSE to put a preference —
+  # applied to what this repo's agents actually write:
+  #   skipWorkflowUsageWarning, tui   2026-09-01 audit, in a live settings.json
+  #   theme, modelSettings            first real converge, 2026-09-03: both were
+  #                                   DROPPED from two profiles (theme=dark,
+  #                                   modelSettings={claude-opus-5:{effortLevel:
+  #                                   xhigh}}).
+  # A repo's .claude/settings.local.json is not the alternative home for these:
+  # they are GLOBAL UI preferences, so "put it back per-repo" means re-setting it
+  # in every repo forever. None is a permission, so preserving them widens
+  # nothing — the owned list (env hooks permissions sandbox) is what enforcement
+  # compares, and it is untouched.
+  "claude|sandbox_templates/claude/claude-settings.json|claude-home/settings.json|overwrite|env hooks permissions sandbox|skipAutoPermissionPrompt model effortLevel agentPushNotifEnabled skipWorkflowUsageWarning tui theme modelSettings"
+  "antigravity|sandbox_templates/antigravity/antigravity-settings.json|gemini-home/antigravity-cli/settings.json|merge|permissions toolPermission|"
+)
+
+# converge_agent_policy <agent> <src> <dst> <mode> "<owned keys>" "<preserve keys>"
+#
+# Writes only when the result differs (it runs on EVERY up — churning the file
+# would fight the running agent for no reason), writes atomically (.tmp +
+# os.replace), and REFUSES a dst that exists but is not valid JSON: a corrupt
+# policy file is the agent's to report, not ours to silently replace, and its
+# other keys may still be recoverable by hand.
+#
+# Under `overwrite` the loss has to be VISIBLE, and that is most of this
+# function:
+#
+#   1. Every key the template does not own is written to
+#      claude-home/settings.discarded.json BEFORE the overwrite — recoverable
+#      from disk, not from scrollback, and present even on the silent runs.
+#      That directory is inside the container mount, so the file is
+#      agent-writable: it is recovery capture, NOT audit evidence. The
+#      authoritative drift signal is the tier-1 check in `verify`.
+#   2. The capture includes the content diff of any OWNED key that differs.
+#      Top-level capture alone misses a change INSIDE an owned key, and that is
+#      the case that actually happened: an in-session "Yes, and don't ask again"
+#      lands an allow rule in `permissions` — the single most sandbox-owned key
+#      in the repo — which the overwrite reverts. Silent reversion is the exact
+#      failure this whole item exists to prevent (measured live, 2026-08-24).
+#   3. The warning fires ONLY when the captured SIGNATURE changes: the set of
+#      dropped key names plus a digest of the owned-key diffs. Claude rewrites
+#      `model` and `effortLevel` every session, so an unconditional warning
+#      fires on every `up` forever and stops being read — going quiet in the
+#      reader's head exactly when a genuinely new key appears. Values are noise;
+#      a NEW dropped key, or ANY change inside an owned key, is signal.
+#
+# Requirement 3 subsumes the "unexpected top-level key" detector: a key a future
+# Claude release invents surfaces as a dropped key on the next `up`.
+converge_agent_policy() {
+  local agent="$1" src="$2" dst="$3" mode="$4" owned="$5" preserve="${6:-}"
+  local defaults="${POLICY_DEFAULTS:-0}"
+  [[ -f "$src" ]] || return 0
+  mkdir -p "$(dirname "$dst")"
+  if ! command -v python3 >/dev/null 2>&1; then
+    warn "python3 absent — cannot converge the $agent policy into $dst"
+    return 0
+  fi
+
+  local out
+  if ! out=$(AGENT="$agent" SRC="$src" DST="$dst" MODE="$mode" \
+             OWNED="$owned" PRESERVE="$preserve" DEFAULTS="$defaults" python3 - <<'PY'
+import hashlib, json, os, sys
+
+agent = os.environ["AGENT"]
+src, dst = os.environ["SRC"], os.environ["DST"]
+mode = os.environ["MODE"]
+owned = os.environ["OWNED"].split()
+preserve = os.environ["PRESERVE"].split()
+use_defaults = os.environ.get("DEFAULTS") == "1"
+
+def emit(kind, msg):
+    sys.stdout.write("%s:%s\n" % (kind, msg))
+
+tpl = json.load(open(src))
+live = {}
+if os.path.exists(dst) and os.path.getsize(dst):
+    try:
+        live = json.load(open(dst))
+    except Exception:
+        # A corrupt policy file is the agent's problem to report, not ours to
+        # silently replace — its other keys may still be recoverable by hand.
+        emit("warn", "%s policy at %s is not valid JSON — leaving it alone" % (agent, dst))
+        raise SystemExit(0)
+if not isinstance(live, dict):
+    emit("warn", "%s policy at %s is not a JSON object — leaving it alone" % (agent, dst))
+    raise SystemExit(0)
+
+before = json.dumps(live, sort_keys=True)
+
+def strip_doc(o):
+    """Drop '_'-prefixed annotation keys. JSON has no comments, so the templates
+    carry '_comment'/'_*_note' keys instead; no agent ever writes one, so they
+    are never a real diff."""
+    if isinstance(o, dict):
+        return {k: strip_doc(v) for k, v in o.items() if not k.startswith("_")}
+    if isinstance(o, list):
+        return [strip_doc(v) for v in o]
+    return o
+
+if mode == "merge":
+    result = dict(live)
+    for k in owned:
+        if k in tpl:
+            result[k] = tpl[k]
+elif mode == "overwrite":
+    result = json.loads(json.dumps(tpl))
+    # PRESERVE, both halves. A live value wins over the template; a key the live
+    # file does not carry falls through to the template default (that is the
+    # `result` copy above, so it needs no branch here). `--defaults` skips the
+    # first half — the template default wins for every preserved key — and
+    # records what it replaced, so the reset is recoverable like any other loss.
+    pref_resets = {}
+    for k in preserve:
+        if k not in live:
+            continue
+        if use_defaults:
+            if k not in tpl:
+                # No default to reset TO. Dropping it here would be a silent
+                # one-way loss of a key with nowhere else to live, so treat the
+                # absence of a template value as "nothing to reset".
+                result[k] = live[k]
+            elif live[k] != tpl[k]:
+                pref_resets[k] = {"was_live": live[k], "now_template": tpl[k]}
+        else:
+            result[k] = live[k]
+
+    dropped = {k: v for k, v in live.items()
+               if k not in tpl and k not in preserve}
+    owned_changes = {}
+    for k in owned:
+        if k in live and strip_doc(live[k]) != strip_doc(tpl.get(k)):
+            owned_changes[k] = {"was_live": live[k], "now_template": tpl.get(k)}
+
+    discard = os.path.join(os.path.dirname(dst), "settings.discarded.json")
+    sig = {
+        "dropped_keys": sorted(dropped),
+        "owned_diff": hashlib.sha256(
+            json.dumps(owned_changes, sort_keys=True).encode()).hexdigest()[:16],
+        # A --defaults reset is an EXPLICIT operator action, so unlike the other
+        # two it must never be silenced by a matching previous signature: the
+        # digest carries the replaced VALUES, not just the key names.
+        "pref_reset": hashlib.sha256(
+            json.dumps(pref_resets, sort_keys=True, default=str).encode()).hexdigest()[:16],
+    }
+    prev_sig = None
+    if os.path.exists(discard):
+        try:
+            prev_sig = json.load(open(discard)).get("_signature")
+        except Exception:
+            prev_sig = None
+
+    # Write ONLY when there is something to record AND it is new. Two halves,
+    # both load-bearing:
+    #   "something to record" — a clean run must not blank the file. The run
+    #   right after a converge drops nothing (the live file IS the template
+    #   until the agent next writes to it), so clearing on empty would give the
+    #   operator exactly one `up` to notice a captured grant before the record
+    #   of it vanished. The file is the last ACTUAL discard, not the last run.
+    #   "and it is new" — see the signature comment above.
+    if (dropped or owned_changes or pref_resets) and sig != prev_sig:
+        record = {
+            "_comment": (
+                "Keys the %s policy convergence did NOT keep, captured before the "
+                "overwrite that dropped them. RECOVERY CAPTURE, not audit evidence: "
+                "this file lives inside the container mount and the agent can write "
+                "it. The authoritative drift signal is `scripts/profile.sh <p> "
+                "verify`. Rewritten whenever the captured set changes; see "
+                "docs/permissions-model.md for where each key can be put back."
+            ) % agent,
+            "agent": agent,
+            "template": src,
+            "dropped": dropped,
+            "owned_key_changes": owned_changes,
+            "preference_resets": pref_resets,
+            "_signature": sig,
+        }
+        tmp = discard + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(record, fh, indent=2, default=str)
+            fh.write("\n")
+        os.replace(tmp, discard)
+        if dropped:
+            emit("warn", "%s policy converge DISCARDED %d key(s) the template does not own: %s"
+                 % (agent, len(dropped), ", ".join(sorted(dropped))))
+        for k in sorted(owned_changes):
+            emit("warn", "%s policy converge REVERTED the sandbox-owned key '%s' to the template "
+                         "(an in-session grant does not survive converge — edit the template to keep it)"
+                 % (agent, k))
+        for k in sorted(pref_resets):
+            emit("warn", "%s policy converge --defaults RESET the preference '%s' to the template "
+                         "default (%r, was %r)"
+                 % (agent, k, pref_resets[k]["now_template"], pref_resets[k]["was_live"]))
+        emit("warn", "captured in %s" % discard)
+        emit("info", "put a preference back per-repo in <repo>/.claude/settings.local.json "
+                     "(model/effortLevel/theme/statusLine/agentPushNotifEnabled live there) — "
+                     "but a repo file can only TIGHTEN permissions, never re-allow what the "
+                     "sandbox denies, and never promote an `ask` to `allow`")
+else:
+    emit("warn", "unknown convergence mode '%s' for %s — refusing to guess" % (mode, agent))
+    raise SystemExit(0)
+
+if json.dumps(result, sort_keys=True) != before:
+    tmp = dst + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(result, fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, dst)
+    emit("changed", dst)
+PY
+  ); then
+    warn "could not converge the $agent policy into $dst"
+    return 0
+  fi
+
+  local line
+  while IFS= read -r line; do
+    case "$line" in
+      warn:*)    warn "${line#warn:}" ;;
+      info:*)    info "${line#info:}" ;;
+      changed:*) : ;;
+    esac
+  done <<< "$out"
+}
+
+# converge_antigravity_hooks — the ONE whole-file extra in the descriptor table.
+#
+# gemini-home/config/hooks.json is replaced wholesale: nothing but the sandbox
+# writes it. Its SIBLINGS in that directory are not ours at all, which is why
+# this copies one file and never mirrors the tree.
+converge_antigravity_hooks() {
+  local tdir="$SCRIPT_DIR/sandbox_templates/antigravity"
+  local dst="$PROFILES_ROOT/$PROFILE/gemini-home/config/hooks.json"
+  [[ -f "$tdir/hooks.json" ]] || return 0
+  mkdir -p "$(dirname "$dst")"
+  cmp -s "$tdir/hooks.json" "$dst" 2>/dev/null || cp "$tdir/hooks.json" "$dst"
+}
+
+# converge_agent_policies [--defaults] — every descriptor, plus the whole-file
+# extras. This is what `up`, `recreate`, `rebuild`, `wipe` and `converge` all
+# run. `--defaults` is the opt-out described on the preserve list above and is
+# only ever passed by `converge` — the lifecycle commands must never reset an
+# operator's preferences behind their back.
+converge_agent_policies() {
+  local p="$PROFILES_ROOT/$PROFILE"
+  local POLICY_DEFAULTS=0 a
+  for a in "$@"; do [[ "$a" == "--defaults" ]] && POLICY_DEFAULTS=1; done
+  converge_antigravity_hooks
+  local row agent src dst mode owned preserve
+  for row in "${AGENT_POLICY_DESCRIPTORS[@]}"; do
+    IFS='|' read -r agent src dst mode owned preserve <<< "$row"
+    converge_agent_policy "$agent" "$SCRIPT_DIR/$src" "$p/$dst" "$mode" "$owned" "$preserve"
+  done
+}
+
 # --- ensure persistent state dirs -------------------------------------------
 ensure_state() {
   local p="$PROFILES_ROOT/$PROFILE"
@@ -507,10 +844,12 @@ ensure_state() {
   # Overwritten every `up` for the same reason: it is a template, not user data,
   # and the notes in it are the documentation.
   cp "$SCRIPT_DIR/sandbox_templates/common/secrets.env.template" "$p/secrets.env.example"
-  # Seed settings.json if absent.
-  if [[ ! -f "$p/claude-home/settings.json" ]] && [[ -f "$SCRIPT_DIR/sandbox_templates/claude/claude-settings.json" ]]; then
-    cp "$SCRIPT_DIR/sandbox_templates/claude/claude-settings.json" "$p/claude-home/settings.json"
-  fi
+  # EVERY agent's policy converges on every `up` (ADR-0007), by one function and
+  # one descriptor table. Claude's settings.json used to be seeded create-only
+  # right here — which meant the most security-relevant file in the repo was the
+  # one thing that silently lagged its template, the exact failure ADR-0005 was
+  # written about, never applied where it matters most.
+  converge_agent_policies
   # Skills CONVERGE to the template tree on every `up` (ADR-0005) — they are no
   # longer seeded create-only. Create-only is what let profiles drift behind the
   # templates: an edit reached a profile only if someone remembered to run
@@ -704,6 +1043,73 @@ ALLOWLIST_CANARY="api.anthropic.com"
 # down. Only the single allowed canary opens a real connection. An extra domain
 # in the container is the dangerous direction — a host the repo revoked but the
 # proxy still permits — so that is a hard FAIL, not a warning.
+# check_agent_policy_sync — tier-1 drift detector for every agent's policy.
+#
+# HOST-SIDE for the same reason check_allowlist_sync is: verify-sandbox.sh is
+# streamed into the AGENT container, which cannot see this repo (the sandbox
+# repo is not bind-mounted into /workspace), so it has no template to compare
+# against. Only the host has both halves.
+#
+# Nothing reported a profile lagging its policy template before 2026-08-24 —
+# which is how the 96-rule Claude deny list sat in the template and in none of
+# the three live profiles for five days, undetected. Convergence on `up` is the
+# fix; this is the check that says convergence actually happened.
+#
+# OWNED KEYS ONLY, deliberately. Comparing whole files would fire on `model`
+# and `effortLevel` — which the agent rewrites every session — and a check that
+# fires on every run is a check that gets trained away. '_'-prefixed annotation
+# keys are stripped for the same reason: no agent writes one.
+#
+# The preserved keys are NOT owned keys, and since 2026-08-24 the template
+# carries defaults for three of them. A live `model` that differs from the
+# template default is the preserve list working exactly as designed, so it must
+# not trip this check — which it cannot, because `owned` never names them.
+check_agent_policy_sync() {
+  local p="$PROFILES_ROOT/$PROFILE"
+  local row agent src dst mode owned preserve
+  command -v python3 >/dev/null 2>&1 || { warn "python3 absent — cannot check agent policy drift"; return 0; }
+  local rc=0
+  for row in "${AGENT_POLICY_DESCRIPTORS[@]}"; do
+    IFS='|' read -r agent src dst mode owned preserve <<< "$row"
+    [[ -f "$SCRIPT_DIR/$src" ]] || continue
+    if [[ ! -s "$p/$dst" ]]; then
+      printf '\033[0;31m[FAIL]\033[0m  %s policy missing from this profile: %s\n' "$agent" "$p/$dst" >&2
+      printf '        fix: scripts/profile.sh %s converge\n' "$PROFILE" >&2
+      rc=1; HOST_FAILS=$(( ${HOST_FAILS:-0} + 1 )); continue
+    fi
+    local delta
+    if delta=$(SRC="$SCRIPT_DIR/$src" DST="$p/$dst" OWNED="$owned" python3 - <<'PY2'
+import json, os, sys
+def strip(o):
+    if isinstance(o, dict):
+        return {k: strip(v) for k, v in o.items() if not k.startswith("_")}
+    if isinstance(o, list):
+        return [strip(v) for v in o]
+    return o
+tpl = json.load(open(os.environ["SRC"]))
+try:
+    live = json.load(open(os.environ["DST"]))
+except Exception:
+    print("live policy is not valid JSON")
+    raise SystemExit(1)
+bad = [k for k in os.environ["OWNED"].split()
+       if k in tpl and strip(live.get(k)) != strip(tpl[k])]
+if bad:
+    print("sandbox-owned key(s) differ from the template: " + ", ".join(bad))
+    raise SystemExit(1)
+PY2
+    ); then
+      ok "$agent policy matches its template on the sandbox-owned keys ($owned)"
+    else
+      printf '\033[0;31m[FAIL]\033[0m  %s policy DRIFT in %s\n' "$agent" "$p/$dst" >&2
+      printf '        %s\n' "$delta" >&2
+      printf '        fix: scripts/profile.sh %s converge   (then restart the agent in the container)\n' "$PROFILE" >&2
+      rc=1; HOST_FAILS=$(( ${HOST_FAILS:-0} + 1 ))
+    fi
+  done
+  return "$rc"
+}
+
 check_allowlist_sync() {
   local proxy="egress-proxy-$PROFILE"
   local allowlist="$SCRIPT_DIR/proxy/allowed_domains.txt"
@@ -1190,6 +1596,9 @@ case "$CMD" in
     verify_rc=0
     HOST_WARNS=0; HOST_FAILS=0
     check_allowlist_sync || verify_rc=1
+    # Same reason, same place: the streamed script runs INSIDE the agent, which
+    # cannot see this repo, so it has no template to compare a policy against.
+    check_agent_policy_sync || verify_rc=1
 
     info "Running verify-sandbox.sh inside $AGENT (streamed via stdin)"
     # Streamed, NOT staged: no file has to be copied into /workspace first, so
@@ -1338,435 +1747,28 @@ case "$CMD" in
     echo "  COMPOSE_PROFILES=db-postgres scripts/profile.sh $PROFILE recreate"
     ;;
 
-  reset-settings)
-    # Overwrite the profile's claude settings.json from sandbox_templates/claude/claude-settings.json.
-    # ensure_state() only seeds when absent; use this when the template changes and
-    # you want to apply it to an existing profile.
-    src="$SCRIPT_DIR/sandbox_templates/claude/claude-settings.json"
-    dst="$PROFILES_ROOT/$PROFILE/claude-home/settings.json"
-    [[ -f "$src" ]] || fail "template missing: $src"
-    mkdir -p "$(dirname "$dst")"
-    if [[ -f "$dst" ]]; then
-      backup="$dst.bak.$(date +%Y%m%d-%H%M%S)"
-      cp "$dst" "$backup"
-      info "backed up existing settings → $backup"
-    fi
-    cp "$src" "$dst"
-    ok "settings.json reset for '$PROFILE'. Restart claude inside the container to pick up."
-    ;;
-
-  deps)
-    # Dependency posture for the profile's workspace. Runs HOST-SIDE: depaudit is
-    # read-only and spawns nothing, and the OSV cross-check needs api.osv.dev,
-    # which is deliberately NOT in the egress allowlist — keeping it on the host
-    # means the check costs no egress surface inside any profile (plan D1/D6).
-    # Routed through profile.sh anyway, per golden rule 1: discovery of what a
-    # profile can do lives here, not in a script the user has to know about.
-    da="$SCRIPT_DIR/scripts/depaudit.py"
-    [[ -f "$da" ]] || fail "depaudit.py missing: $da"
-    command -v python3 >/dev/null 2>&1 || fail "python3 not found on the host (depaudit needs 3.11+)"
-    python3 -c 'import sys,tomllib' 2>/dev/null \
-      || fail "python3 is too old for depaudit (needs 3.11+ for tomllib): $(python3 -V 2>&1)"
-
-    # --history reads back the T22 install-window log and returns. It is a
-    # different question from posture — "what came in, and what did it reach"
-    # rather than "how is this repo configured" — and needs no workspace, so it
-    # short-circuits before the workspace check below.
-    if [[ "${1:-}" == "--history" ]]; then
-      hist="$PROFILES_ROOT/$PROFILE/audit/depgate.jsonl"
-      [[ -f "$hist" ]] || { info "No install windows recorded yet for '$PROFILE'."; \
-        info "The log is written by scripts/with-egress.sh, which per ADR-0003 is the only route a dependency can take."; exit 0; }
-      shift
-      hist_n="${1:-20}"
-      python3 - "$hist" "$hist_n" <<'PY'
-import json, sys, datetime
-
-path, want = sys.argv[1], int(sys.argv[2])
-rows = []
-for line in open(path, encoding="utf-8"):
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        rows.append(json.loads(line))
-    except json.JSONDecodeError:
-        # A partial line means a run was killed mid-append. Say so; do not
-        # silently drop it, or the log looks complete when it is not.
-        rows.append(None)
-
-shown = rows[-want:]
-bad = sum(1 for r in shown if r is None)
-print(f"{len(rows)} window(s) recorded; showing last {len(shown)}\n")
-for r in shown:
-    if r is None:
-        print("  ??  <unparseable line — a run was interrupted mid-write>")
-        continue
-    when = datetime.datetime.fromtimestamp(r["ts_open"]).strftime("%Y-%m-%d %H:%M")
-    eg = r.get("egress", {})
-    denied = eg.get("denied", [])
-    add = r.get("modules_added", {}).get("count", 0)
-    rem = r.get("modules_removed", {}).get("count", 0)
-    locks = r.get("lockfiles_changed", [])
-    flag = "!" if (denied or r.get("rc")) else " "
-    print(f"{flag} {when}  {r['duration_s']:>4}s  rc={r.get('rc',0)}  "
-          f"[{','.join(r.get('sections', [])) or '-'}]  modules +{add}/-{rem}  "
-          f"lockfiles {len(locks)}")
-    print(f"     cmd: {r.get('cmd','')[:100]}")
-    if eg.get("allowed"):
-        print(f"     reached: {', '.join(eg['allowed'][:8])}"
-              + (f" (+{len(eg['allowed'])-8} more)" if len(eg["allowed"]) > 8 else ""))
-    if denied:
-        print(f"     DENIED : {', '.join(denied)}")
-    for p in r.get("preflight", []):
-        if p.get("verdict") not in ("NO-KNOWN-MAL", ""):
-            print(f"     preflight {p['verdict']}: {p['eco']}/{p['name']} — {p.get('detail','')}")
-    if locks:
-        print(f"     lockfiles: {', '.join(locks)}")
-    print()
-if bad:
-    print(f"WARNING: {bad} unparseable line(s) in {path}")
-PY
-      exit 0
-    fi
-
-    ws="$REPO_ROOT/$PROFILE"
-    [[ -d "$ws" ]] || fail "Workspace does not exist: $ws"
-
-    dep_osv=0; dep_vulns=0; dep_fmt="md"; dep_failon="warn"
-    for a in "$@"; do
-      case "$a" in
-        --osv)     dep_osv=1 ;;
-        --vulns)   dep_vulns=1 ;;
-        --json)    dep_fmt="json" ;;
-        --strict)  dep_failon="fail" ;;
-        --quiet)   dep_failon="never" ;;
-        *) fail "Unknown flag for deps: $a
-      Usage: scripts/profile.sh $PROFILE deps [--osv] [--vulns] [--json] [--strict|--quiet]
-             scripts/profile.sh $PROFILE deps --history [N]" ;;
-      esac
-    done
-
-    # --- uv audit: KNOWN-VULNERABILITY scan. Separate, labelled, NON-GATING --
+  converge)
+    # ONE reset, replacing reset-settings and reset-skills (ADR-0007). Those two
+    # were near-identical commands with different semantics — one overwrote with
+    # a backup, one mirrored — and that confusion is what let the Claude policy
+    # sit behind its template. Removed outright rather than aliased.
     #
-    # ADR-0002 refused `osv-scanner` ("a Go binary to avoid writing a urllib
-    # POST") and a local OSV mirror (~240k records to keep fresh). BOTH refusals
-    # were priced on COST, and that cost is now zero: `uv audit` ships in the uv
-    # this repo already installs on the host and bakes into the image, reads
-    # uv.lock directly, needs no new binary, no vendored corpus and no API key.
-    # It caches the OSV data it fetches under ~/.cache/uv/osv-v0/.
-    #
-    # WHAT DID NOT CHANGE is depaudit's report design: it reports MAL- records
-    # only, because GHSA-/PYSEC-/CVE- answer a different question, and mixing
-    # them is how a supply-chain gate becomes a CVE treadmill nobody reads. That
-    # reasoning is intact, so this section is walled off from it:
-    #   * opt-in (--vulns), never part of a bare `deps`, which stays offline;
-    #   * printed under its own heading, never merged into depaudit's counts;
-    #   * it does NOT touch dep_rc — a CVE in a transitive dependency is not the
-    #     same event as a malicious package, and must not fail the same command;
-    #   * it never gates tier-1 `verify`, which is offline by contract.
-    #
-    # HOST-SIDE ONLY, and that is load-bearing: api.osv.dev is deliberately
-    # absent from proxy/allowed_domains.txt, and ADR-0002 banked "zero new
-    # egress surface" as a consequence of its refusals. Running this inside a
-    # profile would spend exactly that. Adding osv.dev to the allowlist is not
-    # the answer to anything here.
-    #
-    # --ignore-until-fixed is what keeps such a section survivable rather than
-    # permanently red: it suppresses an ID only while no fix exists, so the
-    # finding returns by itself the day one lands — unlike a plain --ignore,
-    # which is forever. Every entry below is one ID plus the reason it is
-    # ignored; an entry with no reason is not a decision, it is a silence.
-    UV_AUDIT_IGNORE=(
-      # (empty — nothing is being suppressed today)
-    )
-    run_uv_audit() {  # <root> <label>
-      local uroot="$1" ulabel="$2" uargs=() uid
-      [[ -f "$uroot/uv.lock" ]] || { info "uv audit: $ulabel — skipped, no uv.lock (a skip is not a pass)"; return 0; }
-      command -v uv >/dev/null 2>&1 || { warn "uv audit: uv not found on the host — skipped (a skip is not a pass)"; return 0; }
-      for uid in ${UV_AUDIT_IGNORE[@]+"${UV_AUDIT_IGNORE[@]}"}; do
-        uargs+=(--ignore-until-fixed "$uid")
-      done
-      printf '\n%s\n' "---- uv audit (known vulnerabilities) — $ulabel ----"
-      printf '%s\n' "     NON-GATING and separate from depaudit's malicious-package verdict."
-      if (( ${#UV_AUDIT_IGNORE[@]} > 0 )); then
-        printf '%s\n' "     ignored-until-fixed: ${UV_AUDIT_IGNORE[*]}"
-      fi
-      # --frozen: audit what the lockfile SAYS, never re-resolve. A scan that
-      # silently relocks is reporting on a tree that does not exist yet.
-      ( cd "$uroot" && uv audit --frozen ${uargs[@]+"${uargs[@]}"} ) || true
-    }
-
-    # A profile's workspace holds MANY repos (docker-compose.yml: "the profile's
-    # repo parent folder = /workspace"). depaudit is root-scoped by design, so
-    # iterate: the workspace root, plus each repo under it that carries a
-    # manifest.
-    #
-    # Enumeration lives in depaudit's `roots` (work/0018), NOT here. What it
-    # replaced asked only "does a manifest sit at this child's root?", which
-    # silently omitted any repo whose manifest sits one level down (upstream's
-    # case there was a vendored tree holding the largest dependency surface in
-    # the workspace, missed for the whole life of the subcommand — see
-    # windows-ai-sandbox ccf27a3, ported with this). Two reasons it moved:
-    # the vendored-tree exclusion is now
-    # depaudit's own skipped(), so it cannot drift from the one the checks use;
-    # and the enumeration is testable offline in depaudit.test.sh.
-    dep_roots=""
-    dep_skipped=""
-    # Captured, not piped: an enumeration that CRASHES must not read as "no
-    # manifests here" — that is the same under-report in a different disguise.
-    dep_rows=$(python3 "$da" roots "$ws") \
-      || fail "depaudit roots failed for $ws — enumeration is not optional"
-    while IFS=$'\t' read -r dep_verdict dep_path dep_reason; do
-      case "$dep_verdict" in
-        SCAN) dep_roots="$dep_roots $dep_path" ;;
-        SKIP) dep_skipped="${dep_skipped}${dep_path#"$ws"/}|$dep_reason
-" ;;
-      esac
-    done <<< "$dep_rows"
-    [[ -n "${dep_roots// /}" ]] || { warn "No manifests found under $ws"; exit 0; }
-
-    dep_rc=0
-    dep_summary=""
-    for r in $dep_roots; do
-      rel="${r#$REPO_ROOT/}"
-      [[ "$dep_fmt" == "md" ]] && info "depaudit posture: $rel"
-      dep_out=$(python3 "$da" posture "$r" --format "$dep_fmt" --fail-on "$dep_failon") || dep_rc=1
-      printf '%s\n' "$dep_out"
-      if [[ "$dep_fmt" == "md" ]]; then
-        counts=$(printf '%s\n' "$dep_out" | grep -m1 '^| FAIL ' | tr -d '|' | tr -s ' ')
-        dep_summary="${dep_summary}${rel}|${counts}
-"
-      fi
-      if [[ "$dep_osv" -eq 1 ]]; then
-        [[ "$dep_fmt" == "md" ]] && info "depaudit OSV malicious-package check: $rel"
-        osv_out=$(python3 "$da" deps "$r" --format "$dep_fmt") || dep_rc=1
-        printf '%s\n' "$osv_out"
-        if [[ "$dep_fmt" == "md" ]]; then
-          blocked=$(printf '%s\n' "$osv_out" | grep -c '^\- \*\*\[BLOCK\]' || true)
-          [[ "${blocked:-0}" -gt 0 ]] && dep_summary="${dep_summary}${rel}|  OSV BLOCK ${blocked}
-"
-        fi
-      fi
-      # Deliberately outside the --json path: this is uv's own text output, not
-      # depaudit's schema, and splicing a foreign format into --json would make
-      # the JSON unparseable for anything consuming it.
-      if [[ "$dep_vulns" -eq 1 && "$dep_fmt" == "md" ]]; then
-        run_uv_audit "$r" "$rel"
-      fi
-    done
-
-    # A nine-repo workspace produces nine reports; without a roll-up the reader
-    # has to scroll and diff them by eye, which is how a FAIL gets missed.
-    if [[ "$dep_fmt" == "md" && -n "$dep_summary" ]]; then
-      printf '\n%s\n' "=========================================================="
-      printf '%s\n' "SUMMARY — $PROFILE workspace ($REPO_ROOT/$PROFILE)"
-      printf '%s\n' "=========================================================="
-      printf '%s' "$dep_summary" | while IFS='|' read -r name counts; do
-        [[ -z "$name" ]] && continue
-        printf '  %-32s %s\n' "$name" "$counts"
-      done
-      printf '%s\n' "----------------------------------------------------------"
-      if [[ -n "$dep_skipped" ]]; then
-        printf '%s\n' "  NOT SCANNED — a skip is not a pass:"
-        printf '%s' "$dep_skipped" | while IFS='|' read -r name reason; do
-          [[ -z "$name" ]] && continue
-          printf '  %-32s %s\n' "$name" "$reason"
-        done
-        printf '%s\n' "----------------------------------------------------------"
-      fi
-      printf '%s\n' "  scanned $(printf '%s' "$dep_roots" | wc -w) repo root(s), skipped $(printf '%s' "$dep_skipped" | grep -c . || true)."
-      printf '%s\n' "  depaudit is READ-ONLY and reports on configuration; it does"
-      printf '%s\n' "  not enforce anything. FAIL = a control that is absent, not"
-      printf '%s\n' "  a vulnerability. Fixes belong in the repo it names."
-      if [[ "$dep_vulns" -eq 1 ]]; then
-        printf '%s\n' "  uv audit ran separately above and is NOT counted here: a known"
-        printf '%s\n' "  CVE is a different question from a missing control, and from a"
-        printf '%s\n' "  malicious package. Its findings gate nothing."
-      else
-        printf '%s\n' "  Known vulnerabilities were NOT checked. Add --vulns (host-side,"
-        printf '%s\n' "  needs network) to run uv audit alongside this."
-      fi
-    fi
-    exit "$dep_rc"
-    ;;
-
-  wipe)
-    # Blank-slate this profile while preserving auth tokens + git identity.
-    # Use case: testing the stack from a clean state without re-doing OAuth.
-    # Preserves: claude-home/.credentials.json, claude.json, config/gh/,
-    #            config/git/, gemini-home/oauth_creds.json,
-    #            db.env (DB superuser credentials — preserved even with
-    #            --all-volumes; rm it yourself if you want fresh creds),
-    #            secrets.env (third-party API tokens, same rule).
-    # Wipes:     containers (agent AND db siblings, even if not in the caller's
-    #            COMPOSE_PROFILES — see `--profile db-all` on the `down` below),
-    #            vscode-server + cache named volumes, everything else under
-    #            profiles/<p>/ (settings, skills, sessions, projects, paste-cache,
-    #            shell-snapshots, audits, ...).
-    # Does NOT touch: shared image (use `build` to rebuild), DB *data* volumes
-    #            (postgres-data, mongo-data) unless --all-volumes is passed.
-    #            NOTE: DB *containers* are always stopped+removed; they're
-    #            recreated from the surviving data volumes on next `up`.
-    dry=0; assume_yes=0; all_vols=0
-    for a in "$@"; do
-      case "$a" in
-        --dry-run)     dry=1 ;;
-        --yes|-y)      assume_yes=1 ;;
-        --all-volumes) all_vols=1 ;;
-        *) fail "wipe: unknown flag '$a' (valid: --dry-run --yes --all-volumes)" ;;
-      esac
-    done
-
-    p="$PROFILES_ROOT/$PROFILE"
-    [[ -d "$p" ]] || fail "no state dir to wipe: $p"
-
-    # Reaper: bail out if a previous wipe was interrupted between the stage and
-    # restore steps — auth artefacts may be stranded in .wipe-stage-<p>-<ts>/.
-    # Don't auto-recover; the operator should look before we touch anything.
-    shopt -s nullglob
-    orphans=( "$PROFILES_ROOT"/.wipe-stage-"$PROFILE"-* )
-    shopt -u nullglob
-    if (( ${#orphans[@]} > 0 )); then
-      warn "found orphaned wipe stage dir(s) from a previous interrupted run:"
-      printf '  %s\n' "${orphans[@]}"
-      fail "inspect/restore manually (creds may be inside), then rerun"
-    fi
-
-    # Itemise what will survive vs disappear, so the user sees it before confirming.
-    info "wipe plan for profile '$PROFILE' (project: $COMPOSE_PROJECT_NAME)"
-    echo "  PRESERVE:"
-    echo "    $p/claude.json"
-    echo "    $p/claude-home/.credentials.json"
-    echo "    $p/config/gh/"
-    echo "    $p/config/git/"
-    echo "    $p/gemini-home/oauth_creds.json"
-    echo "    $p/db.env  (if present)"
-    echo "    $p/secrets.env  (if present)"
-    echo "  WIPE:"
-    echo "    docker compose down --remove-orphans  ($([[ $all_vols == 1 ]] && echo '+ ALL named volumes' || echo '+ vscode-server + cache volumes; DB volumes preserved'))"
-    echo "    rm -rf $p/*  (everything except the PRESERVE list above)"
-    echo "  AFTER:"
-    echo "    re-seed claude settings.json + skills from config/ (via ensure_state)"
-    echo "    next step: scripts/profile.sh $PROFILE up   (or 'rebuild' if image changed)"
-
-    if [[ "$dry" == "1" ]]; then
-      ok "dry-run; no changes made"
-      exit 0
-    fi
-
-    if [[ "$assume_yes" != "1" ]]; then
-      printf '\nProceed? type the profile name (%s) to confirm: ' "$PROFILE"
-      read -r confirm
-      [[ "$confirm" == "$PROFILE" ]] || fail "confirmation mismatch; aborting"
-    fi
-
-    # 1. Tear down containers (+ networks). Only nuke named volumes if asked.
-    #    --profile db-all forces postgres/mongo into scope regardless of the
-    #    caller's COMPOSE_PROFILES; otherwise they'd be left running and the
-    #    sandbox-internal network would refuse to delete ("Resource is still
-    #    in use"), leaving a half-state where wipe re-seeds the profile dir
-    #    but old DB containers are stranded on a dead network.
-    info "tearing down containers (including db siblings via --profile db-all)"
-    if [[ "$all_vols" == "1" ]]; then
-      docker compose --profile db-all down -v --remove-orphans \
-        || warn "compose down had errors; continuing"
-    else
-      docker compose --profile db-all down --remove-orphans \
-        || warn "compose down had errors; continuing"
-      # Drop the throwaway named volumes (vscode-server, cache); leave DB volumes alone.
-      for v in vscode-server cache; do
-        docker volume rm "${COMPOSE_PROJECT_NAME}_${v}" 2>/dev/null \
-          && ok "removed volume ${COMPOSE_PROJECT_NAME}_${v}" \
-          || info "no ${v} volume to remove (or already gone)"
-      done
-    fi
-
-    # 1b. Verify nothing in the project is still up. If something is, the
-    #     network won't be removed, and a subsequent `up` will create a new
-    #     network leaving the stragglers stranded. Fail loud rather than
-    #     paper over it with the rest of the wipe.
-    leftover=$(docker ps -aq --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME")
-    if [[ -n "$leftover" ]]; then
-      warn "containers still present after down:"
-      docker ps -a --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" \
-        --format '  {{.Names}}  ({{.Status}})'
-      fail "refusing to continue; tear them down manually (docker rm -f <name>) and rerun"
-    fi
-
-    # 2. Stage auth on the same filesystem so the move is a rename, not a copy.
-    stage="$PROFILES_ROOT/.wipe-stage-$PROFILE-$(date +%s)"
-    mkdir -p "$stage/claude-home" "$stage/config" "$stage/gemini-home"
-    [[ -f "$p/claude.json" ]]                && mv "$p/claude.json"                "$stage/claude.json"
-    [[ -f "$p/claude-home/.credentials.json" ]] && mv "$p/claude-home/.credentials.json" "$stage/claude-home/.credentials.json"
-    [[ -d "$p/config/gh" ]]                  && mv "$p/config/gh"                  "$stage/config/gh"
-    [[ -d "$p/config/git" ]]                 && mv "$p/config/git"                 "$stage/config/git"
-    [[ -f "$p/gemini-home/oauth_creds.json" ]] && mv "$p/gemini-home/oauth_creds.json" "$stage/gemini-home/oauth_creds.json"
-    [[ -f "$p/db.env" ]]                       && mv "$p/db.env"                       "$stage/db.env"
-    [[ -f "$p/secrets.env" ]]                  && mv "$p/secrets.env"                  "$stage/secrets.env"
-    ok "staged auth artefacts → $stage"
-
-    # 3. Nuke the profile dir.
-    rm -rf "$p"
-    ok "removed $p"
-
-    # 4. Restore auth into a fresh profile dir.
-    mkdir -p "$p/claude-home" "$p/config" "$p/gemini-home"
-    [[ -f "$stage/claude.json" ]]                && mv "$stage/claude.json"                "$p/claude.json"
-    [[ -f "$stage/claude-home/.credentials.json" ]] && mv "$stage/claude-home/.credentials.json" "$p/claude-home/.credentials.json"
-    [[ -d "$stage/config/gh" ]]                  && mv "$stage/config/gh"                  "$p/config/gh"
-    [[ -d "$stage/config/git" ]]                 && mv "$stage/config/git"                 "$p/config/git"
-    [[ -f "$stage/gemini-home/oauth_creds.json" ]] && mv "$stage/gemini-home/oauth_creds.json" "$p/gemini-home/oauth_creds.json"
-    [[ -f "$stage/db.env" ]]                       && mv "$stage/db.env"                       "$p/db.env"
-    [[ -f "$stage/secrets.env" ]]                  && mv "$stage/secrets.env"                  "$p/secrets.env"
-    # All preserved items have been moved back into $p; anything left in $stage
-    # is unexpected. Sanity-check, then nuke the stage dir wholesale (rmdir
-    # was fragile — failed silently if any future preserve target added a
-    # sub-sub-dir, leaving stage debris around).
-    residue=$(find "$stage" -mindepth 1 -not -type d 2>/dev/null)
-    if [[ -n "$residue" ]]; then
-      warn "unexpected files left in stage dir; not removing automatically:"
-      printf '  %s\n' $residue
-      warn "inspect: $stage"
-    else
-      rm -rf "$stage"
-    fi
-
-    # 5. Restore the sensitive perms documented in CLAUDE.md.
-    #    .credentials.json must be 600 (inside a directory bind-mount, UID remap works).
-    #    claude.json must be 644 (single-file bind-mount needs world-readable so agent UID 1000 sees it).
-    [[ -f "$p/claude-home/.credentials.json" ]] && chmod 600 "$p/claude-home/.credentials.json"
-    [[ -f "$p/claude.json" ]]                   && chmod 644 "$p/claude.json"
-    [[ -f "$p/db.env" ]]                        && chmod 600 "$p/db.env"
-    [[ -f "$p/secrets.env" ]]                   && chmod 600 "$p/secrets.env"
-    ok "restored auth artefacts into fresh $p"
-
-    # 6. Re-seed templates (settings.json, skills, db.env.example) so a plain `up` works.
-    ensure_state
-    ok "re-seeded settings + skills from config/"
-
-    ok "wipe done for '$PROFILE'. Next: scripts/profile.sh $PROFILE up"
-    ;;
-
-  reset-skills)
-    # Convergence without touching the container — the same reconciliation `up`
-    # performs, on demand. Since ADR-0005 this no longer "resets with a backup":
-    # it MIRRORS the template tree and keeps no backup, because a
-    # `<name>.bak.<stamp>` inside the scanned skills directory loads INSTEAD of
-    # the fresh copy for a plugin-shaped skill.
-    #
-    # The name survives its old meaning deliberately. W folded this command into
-    # a broader `converge` that also reconciles agent policy; this repo has no
-    # converge_agent_policies yet (work/0002 Phase D), so renaming now would
-    # leave a command named for something it does not do.
-    [[ -d "$SCRIPT_DIR/sandbox_templates/skills" ]] \
-      || fail "no skills templates: $SCRIPT_DIR/sandbox_templates/skills"
+    # Runs exactly what `up` runs and touches NO container, except for
+    # --defaults, which `up` never passes: it additionally overwrites the
+    # PRESERVED preference keys with the template defaults instead of keeping
+    # the live values, capturing what it replaced to settings.discarded.json.
+    converge_agent_policies "$@"
     converge_skills
-    ok "skills converged for '$PROFILE' from sandbox_templates/skills/"
-    # THE RESTART LINE IS THE CONTRACT, not a courtesy: a running session has
-    # already loaded the old copy and will not re-scan on its own.
-    info "restart claude inside the container to pick the new copies up."
+    case " $* " in
+      *" --defaults "*) ok "policy + skills converged for '$PROFILE' from sandbox_templates/ (preferences RESET to template defaults)" ;;
+      *)                ok "policy + skills converged for '$PROFILE' from sandbox_templates/" ;;
+    esac
+    # THE RESTART LINE IS THE CONTRACT, not a courtesy. Converging under a live
+    # session is a lost-update race in BOTH directions: the session holds its
+    # settings in memory and can write them back over the converge, and the
+    # converge can revert a grant the session just made.
+    info "restart claude (and agy) inside the container to pick this up."
     ;;
-
   *)
     # Tell the user what went wrong before dumping the help. Includes a hint
     # for the most common slip: setup.sh uses --flag style, profile.sh uses

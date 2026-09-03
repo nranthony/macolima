@@ -441,7 +441,7 @@ The skill follows `claude_internal_audit.md` — runs the `verify-sandbox.sh` tr
 - `<YYYY-MM-DD>-<profile>-report.md` — markdown report, invariants tagged OK/DRIFT/WEAK/UNKNOWN
 - `<YYYY-MM-DD>-<profile>-commands.sh` — replayable command log
 
-If you edit `claude_internal_audit.md`, just re-run `stage-audit-package.sh` — the skill reads the staged file rather than duplicating its content. If you edit `sandbox_templates/skills/audit-sandbox/SKILL.md` itself, run `scripts/profile.sh <profile> reset-skills` to refresh existing profiles (new profiles pick it up automatically on first `up`).
+If you edit `claude_internal_audit.md`, just re-run `stage-audit-package.sh` — the skill reads the staged file rather than duplicating its content. If you edit `sandbox_templates/skills/audit-sandbox/SKILL.md` itself, run `scripts/profile.sh <profile> converge` to refresh existing profiles (a plain `up` also converges them).
 
 ## Updating
 
