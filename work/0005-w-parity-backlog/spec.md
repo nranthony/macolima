@@ -106,13 +106,13 @@ the exact gap that has made every `just build` in this session end with
 disk no profile's lifecycle owns; worth a Colima pass on the sizing numbers,
 since the VM disk is a one-way sparse ratchet here.
 
-### P6 — `AGENTS.md` + `sync-agent-files.sh`
+### P6 — `AGENTS.md` + `sync-agent-files.sh` — **DONE 2026-09-03**
 `agy` reads `AGENTS.md` natively; this repo has only `CLAUDE.md`, so the second
 agent we ship has no repo guidance at all. W generates thin `CLAUDE.md` entry
 points that `@`-import the `AGENTS.md` beside them (generated files, not
 symlinks). Pairs naturally with P2.
 
-### P7 — `docs/adr/`
+### P7 — `docs/adr/` — **DONE 2026-09-03**
 W has 12 ADRs; this repo has none. At least six describe decisions **this repo
 has already adopted** and currently records only in commit messages and work
 items: 0003 strict-egress-default, 0004 python-wheels-only, 0005
@@ -120,22 +120,42 @@ skill-templates-are-source-of-truth, 0008 deletion-is-a-human-step, 0009
 public-repo-names, 0011/0012 web-read. Cheap, and it is what stops the same
 decision being re-litigated.
 
-### P8 — `check-permissions` (work/0002 V6)
+### P8 — `check-permissions` (work/0002 V6) — **DONE 2026-09-03** (report only)
 The depot manifest proposes 19 allow / 11 ask / 2 deny for myclickup.
 `vendor-tools.sh --permissions` REPORTS the proposal against
 claude-settings.json and never edits it. Keep it read-only: an artifact must not
 widen the sandbox by being vendored.
 
-### P9 — allowlist blocks worth considering
+### P9 — allowlist blocks worth considering — **DONE 2026-09-03** (1 added, 3 refused)
 `[openrouter]`, `[openai]`, `[google-fonts]`, `[citation-tools]`. Each is a
 per-need decision, not a batch. Parser trap to respect: the block-open regex is
 `\[[a-z-]+\]`, so a dot or digit in a tag makes the block unopenable by
 `with-egress.sh` while looking correct in the file.
 
-### P10 — smaller doc/process carries
+### P10 — smaller doc/process carries — **DONE 2026-09-03**
 `docs/extending-a-profile.md`, `docs/sibling-repo-relationship.md`,
 `sandbox_templates/skills/UPSTREAM.md` (skill provenance), and a `LICENSE` —
 this repo is public and has none.
+
+### P11 — the allow-list gap that was costing prompts — **DONE 2026-09-03**
+**Not from the scan.** Found by reading a live profile's transcripts after the
+owner asked why auto mode kept prompting for benign reads. The Bash matcher
+evaluates EVERY segment of a compound command, and `head`, `echo`, `cd`, `grep`,
+`cut`, `tail`, `sort`, `uniq`, `wc` were on no list — so 74% of subagent Bash
+calls (175 of 236, measured) could only proceed via the auto-mode classifier and
+were prompt-eligible. Latency proved some did stall: **0 of 61** fully
+allow-listed calls ever exceeded 20s against **7 of 175** unlisted ones, the
+worst 1456s — 24 minutes on `cd … && grep -liE …`, inside a background agent
+with nobody watching.
+
+Nineteen read-only utilities added to both grammars. They grant no new write
+reach: `Bash(cat:*)` was already allow-listed and `cat > file` already writes,
+and the hook blocks redirects into the sandbox's control paths whichever command
+produces them. `sed`/`awk` deliberately stay denied — 11 hard denials in the same
+logs, all agents using `sed -n '1,40p'` as a pager, which is a deny-list bypass
+with a direct replacement (`Read` with offset/limit). The notice now says so.
+
+**Owed back to W** — see §3 item 13; their list has the same gap.
 
 ## 2. Deliberately EXCLUDED
 
@@ -192,8 +212,52 @@ The handoff §9 asks for a report. Accumulated so far:
    outside the CUDA section their handoff told us to delete — so following the
    instruction exactly leaves a dangling WSL reference.
 
+10. **`sync-agent-files.sh` overwrites `CLAUDE.md` unconditionally.** `cat >`
+    with no existence check, no marker check, no backup. Safe in W only because
+    its migration already happened and its root `CLAUDE.md` is already the
+    stub — but it is one `AGENTS.md` away from truncating a real file in any
+    directory. Our copy refuses unless the target carries the GENERATED marker.
+11. **That script's exclusion list is `.git` and `docs/_archive` only.** Both
+    repos carry two `AGENTS.md` files that are NOT repo guidance —
+    `sandbox_templates/skills/myconv/.../templates/AGENTS.md` (payload inside a
+    vendored plugin; a file beside it changes the tree hash, so `tools-check`
+    reports DRIFT and the next vendor deletes it) and
+    `scripts/depaudit-fixtures/docs-injection/AGENTS.md` (a fixture whose
+    assertion is "install command lives only in AGENTS.md"). Running the script
+    in W today writes into both.
+12. **`[openrouter]` and `[openai]` are ALWAYS ON with `# claude, fill in here`
+    as their justification.** Two permanent third-party LLM POST targets with no
+    stated reason, in a file whose own header requires one per block.
+13. **The read-only text utilities are missing from their allow list too.**
+    None of `head`, `tail`, `cut`, `cd`, `echo`, `grep`, `sort`, `uniq`, `wc`,
+    `nl`, `tr` is in their 58 entries. Since the Bash matcher checks every
+    segment of a compound command, this is the same prompt-stall we measured
+    here: 74% of subagent Bash calls prompt-eligible, seven stalls over 20s, the
+    worst 24 minutes. Their substrate does not change the arithmetic. This is
+    probably the highest-value single item we owe them.
+14. **Their `docs/sibling-repo-relationship.md` has gone stale in three
+    places** — it still says macolima has the seccomp `creat` bug unreported (it
+    landed), that macolima has 1 offline suite against their 10 (it is 10 and
+    10), and it advises `diff seccomp.json` expecting byte-identity when the two
+    files legitimately differ in their substrate comments.
+
 ## 8. Still open, in rank order
 
-P6 `AGENTS.md` + `sync-agent-files.sh`; P7 `docs/adr/`; P8 `check-permissions`
-(work/0002 V6); P9 the four candidate allowlist blocks; P10 the doc/process
-carries and a `LICENSE`.
+**P1–P11 are all landed.** What remains is not port work:
+
+1. **Adopt or reject the myclickup permission proposal** (P8 reported it; the
+   decision is the owner's). Today no myclickup pattern is on `allow`, `ask` or
+   `deny` in either grammar, so `myclickup delete` and `myclickup rm` are gated
+   by nothing — absence is not a gate under `defaultMode:auto`. W's own file is
+   a worked reference: 21 allow / 8 ask / 2 deny, i.e. the manifest proposal
+   with `comment`, `set-status` and `update` promoted to allow.
+2. **Set `CLICKUP_TOKEN`** in a profile's `secrets.env` and `recreate` — the
+   plumbing has been in place since work/0004 §5 and has never been fed a token.
+3. **Decide whether `agy` should get the notice per workspace** — the mechanism
+   exists and is documented in `sandbox_templates/antigravity/README.md`, and is
+   deliberately not wired into `up` because it writes into the operator's own
+   git tree. Until then agy is gated but not briefed.
+4. **Decide whether to keep tracking per-profile compose overlays**
+   (`docker-compose.<profile>.yml`), currently scoped out of
+   `private-names-check.sh` with the reason recorded.
+5. **Send §3's fourteen items back to W.**
