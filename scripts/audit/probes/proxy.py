@@ -33,7 +33,21 @@ ANTI_WILDCARDS = [".anthropic.com", ".claude.com", ".claude.ai"]
 # Section tags for the planning-mode block (commented-by-default in
 # autonomous mode; with-egress.sh toggles them temporarily under flock).
 PLANNING_TAGS = {"[git]", "[pypi]", "[npm]", "[nodejs]", "[apt]",
-                 "[playwright-install]"}
+                 "[playwright-install]", "[antigravity-install]"}
+
+# Planning-mode blocks that are DELIBERATELY live in the committed baseline.
+# Each entry is an accepted opening whose reasoning lives in
+# proxy/allowed_domains.txt above the block it applies to — this set DEFERS to
+# that note and never replaces it. Adding a tag here is a security decision:
+# write the rationale in the allowlist first, then cite it.
+#
+# [git]: `git push` and `uv pip install git+https://github.com/...` are both
+# github.com:443. Squid gates on dstdomain and cannot separate them, so the block
+# cannot be tuned — it is open, or no profile can reach GitHub at all. The
+# install half is held elsewhere, and not by this allowlist: permissions.deny
+# (the npm/pip/uv/git-clone categories) and the manifest-dep-add rule in
+# deny-destructive.sh.
+ACCEPTED_OPEN_TAGS = {"[git]"}
 
 # squid.conf ACL ordering — load-bearing for both M1 and H1.
 EXPECTED_ACL_ORDER = [
@@ -122,29 +136,49 @@ def run():
     uncommented_planning = []
     for raw in lines:
         s = raw.strip()
-        # Tag line look-up — anywhere a planning tag appears in a comment
-        # header opens its block.
+        # A tag only opens its block from a BLOCK HEADER — `# --- name [tag] ---`.
+        # Matching a tag ANYWHERE, as this did until 2026-09-03, means a comment
+        # that merely mentions another block re-tags everything after it: the
+        # ALWAYS-ON [antigravity] block says its download hosts "live under
+        # [antigravity-install] in PLANNING-MODE", and that sentence alone made
+        # the walker attribute eight always-on Google hosts to a planning tag and
+        # report them as live planning egress. A mention is not a header.
         m = re.search(r"\[[\w-]+\]", raw)
-        if m and m.group(0) in PLANNING_TAGS:
+        if m and raw.lstrip().startswith("# ---") and raw.rstrip().endswith("---"):
             current_tag = m.group(0)
-            in_planning = True
+            in_planning = m.group(0) in PLANNING_TAGS
             continue
-        # New top-level section header closes any planning block.
-        if raw.startswith("# ===") or raw.startswith("# ---"):
+        # A section divider or a non-tagged rule line closes the current block.
+        if raw.startswith("# ===") or (raw.startswith("# ---") and not m):
             current_tag = None
             in_planning = False
             continue
         if in_planning and s and not s.startswith("#"):
-            uncommented_planning.append({"line": raw, "tag": current_tag})
+            uncommented_planning.append({"line": s, "tag": current_tag})
 
+    # Split the walk: a tag open BY DECISION is reported, a tag open by accident
+    # is flagged. Without this split the probe reported DRIFT on every run of
+    # every profile forever, because [git] is permanently live — and a check that
+    # always fires is one that stops being read, burying the case it exists for:
+    # a block left open by a with-egress.sh run whose trap died before it could
+    # restore the file.
+    accepted_open = [e for e in uncommented_planning if e["tag"] in ACCEPTED_OPEN_TAGS]
+    unexpected = [e for e in uncommented_planning if e["tag"] not in ACCEPTED_OPEN_TAGS]
     out.append(_check(
         "planning_mode_commented",
-        not uncommented_planning,
-        uncommented=uncommented_planning[:10],
-        count=len(uncommented_planning),
-        rationale=("autonomous mode: planning-mode blocks should all be "
-                   "commented; surviving uncommented entry = with-egress.sh "
-                   "sentinel may be live (host-side check)"),
+        not unexpected,
+        uncommented=unexpected[:10],
+        count=len(unexpected),
+        open_blocks=sorted({e["tag"] for e in unexpected}),
+        accepted_open=sorted({e["tag"] for e in accepted_open}),
+        accepted_domains=[e["line"] for e in accepted_open][:20],
+        rationale=("autonomous mode: planning-mode blocks should be commented. A "
+                   "surviving uncommented entry means package/code-fetch egress is "
+                   "live right now — confirm it was a deliberate with-egress.sh or "
+                   "dashboard toggle for a stage, not residual from one that died "
+                   "before restoring the file. Tags in accepted_open are open by "
+                   "decision, with the reasoning recorded above their block in "
+                   "proxy/allowed_domains.txt; they are reported, not flagged."),
     ))
 
     # Per-profile additions — informational, not a verdict. The audit prompt

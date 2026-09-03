@@ -217,6 +217,17 @@ developers.google.com
 # storage.googleapis.com
 
 # --- Source code / git [git] ---
+# DELIBERATELY LIVE, and the audit knows it: `[git]` is the one planning-mode tag
+# in scripts/audit/probes/proxy.py's ACCEPTED_OPEN_TAGS, so the two hosts below
+# are REPORTED by `just audit <p>` rather than flagged as drift. The reason it
+# cannot simply be closed: `git push` and `uv pip install git+https://github.com/…`
+# are both github.com:443, and Squid gates on dstdomain, so there is no setting
+# that permits one and refuses the other. Either the block is open or no profile
+# can reach GitHub at all. The install half is held somewhere the allowlist
+# cannot help with — permissions.deny's npm/pip/uv/git-clone categories, and the
+# manifest-dep-add rule in deny-destructive.sh.
+#
+# Everything else in this block stays commented; only those two are accepted.
 # Pinned hosts (per CLAUDE.md discipline: no parent wildcards under vendors
 # we don't control). If a TCP_DENIED hits a sibling subdomain that's clearly
 # legitimate during planning, add the specific host here — never widen back
