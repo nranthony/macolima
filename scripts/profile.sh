@@ -850,6 +850,14 @@ ensure_state() {
   # one thing that silently lagged its template, the exact failure ADR-0005 was
   # written about, never applied where it matters most.
   converge_agent_policies
+  # Refresh the managed sandbox-notice in the agent's GLOBAL memory
+  # (~/.claude/CLAUDE.md, auto-loaded every session) so agents see the
+  # capabilities and prohibitions even in a workspace repo whose own AGENTS.md
+  # has not been synced. Rewrites only the marked block, idempotently.
+  if [[ -f "$SCRIPT_DIR/scripts/sync-agent-notice.sh" ]]; then
+    bash "$SCRIPT_DIR/scripts/sync-agent-notice.sh" "$p/claude-home/CLAUDE.md" >/dev/null \
+      || warn "could not sync sandbox-notice into $p/claude-home/CLAUDE.md"
+  fi
   # Skills CONVERGE to the template tree on every `up` (ADR-0005) — they are no
   # longer seeded create-only. Create-only is what let profiles drift behind the
   # templates: an edit reached a profile only if someone remembered to run
@@ -1759,6 +1767,11 @@ case "$CMD" in
     # the live values, capturing what it replaced to settings.discarded.json.
     converge_agent_policies "$@"
     converge_skills
+    if [[ -f "$SCRIPT_DIR/scripts/sync-agent-notice.sh" ]]; then
+      bash "$SCRIPT_DIR/scripts/sync-agent-notice.sh" \
+        "$PROFILES_ROOT/$PROFILE/claude-home/CLAUDE.md" >/dev/null \
+        || warn "could not sync sandbox-notice into claude-home/CLAUDE.md"
+    fi
     case " $* " in
       *" --defaults "*) ok "policy + skills converged for '$PROFILE' from sandbox_templates/ (preferences RESET to template defaults)" ;;
       *)                ok "policy + skills converged for '$PROFILE' from sandbox_templates/" ;;
