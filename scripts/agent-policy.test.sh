@@ -85,6 +85,41 @@ python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$AGY_TPL" \
 python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$AGY_HOOKS" \
   && ok "hooks.json parses" || bad "hooks.json does not parse"
 
+printf -- "-- hooks block carries ONLY hook events --\n"
+# REGRESSION LOCK. Claude Code validates every key inside `hooks` against its
+# hook-event list and reports anything else at session start:
+#   hooks._comment: Unknown hook event "_comment" was ignored.
+# Reported 2026-09-03 from a live container. Annotation keys are fine ANYWHERE
+# else in this file — `permissions` and `sandbox` carry several and neither
+# warns, which is why the fix is to move the one key rather than to strip the
+# convention. `hooks` is the strictly-validated object; nothing else is.
+#
+# This is offline-detectable and nothing detected it: the convergence strips
+# '_'-prefixed keys before DIFFING, so an annotation inside `hooks` converged
+# cleanly into every profile and only surfaced when a human opened the CLI.
+python3 - "$CLAUDE_TPL" <<'PY'
+import json, sys
+EVENTS = {
+    "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch",
+    "Notification", "UserPromptSubmit", "UserPromptExpansion", "SessionStart",
+    "SessionEnd", "Stop", "StopFailure", "SubagentStart", "SubagentStop",
+    "PreCompact", "PostCompact", "PreModelSwitch", "PostModelSwitch",
+    "PermissionRequest", "PermissionDenied", "Setup", "TeammateIdle",
+    "TaskCreated", "TaskCompleted", "Elicitation", "ElicitationResult",
+    "ConfigChange", "WorktreeCreate", "WorktreeRemove", "InstructionsLoaded",
+    "CwdChanged", "FileChanged", "DirectoryAdded", "MessageDisplay",
+}
+hooks = json.load(open(sys.argv[1])).get("hooks", {})
+bad = sorted(k for k in hooks if k not in EVENTS)
+if bad:
+    print("  FAIL hooks carries non-event key(s): %s  <-- LOCK" % ", ".join(bad))
+    print("       Claude Code warns about each at session start. Move the prose to a")
+    print("       TOP-LEVEL _<name>_comment key, where it is inert.")
+    raise SystemExit(1)
+print("  ok   every key inside `hooks` is a real hook event  <-- LOCK")
+PY
+if [[ $? -eq 0 ]]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
+
 printf "\n-- deny parity --\n"
 python3 - "$CLAUDE_TPL" "$AGY_TPL" <<'PY'
 import json, re, sys

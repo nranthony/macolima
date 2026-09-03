@@ -148,8 +148,8 @@
       "Read(**/id_ed25519*)"
     ]
   },
+  "_hooks_comment": "PreToolUse enforcement upstream of tool dispatch. The matcher-level permissions.deny list is prefix-on-tokens and cannot see destructive flags (find -delete, dd of=, etc.) or path targets (Edit to /usr/local/lib/claude-hooks/... or settings.json). The hook script handles both via regex on the full envelope. Script is baked root-owned in the image at /usr/local/lib/claude-hooks/deny-destructive.sh; agent (UID 1000) has no tool path that bypasses kernel write-protect on it. See docs/deny-destructive-hook-plan.md. NOTE: this lives at TOP level, not inside `hooks`. Claude Code validates every key inside `hooks` against its hook-event list and reports anything else as an unknown event at session start \u2014 so an annotation key belongs out here, where it is inert.",
   "hooks": {
-    "_comment": "PreToolUse enforcement upstream of tool dispatch. The matcher-level permissions.deny list is prefix-on-tokens and cannot see destructive flags (find -delete, dd of=, etc.) or path targets (Edit to /usr/local/lib/claude-hooks/... or settings.json). The hook script handles both via regex on the full envelope. Script is baked root-owned in the image at /usr/local/lib/claude-hooks/deny-destructive.sh; agent (UID 1000) has no tool path that bypasses kernel write-protect on it. See docs/deny-destructive-hook-plan.md.",
     "PreToolUse": [
       {
         "matcher": "Bash",
