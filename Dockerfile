@@ -329,6 +329,25 @@ RUN userdel -r ubuntu 2>/dev/null || true \
 COPY --chown=agent:agent sandbox_templates/common/.zshrc      /home/agent/.zshrc
 COPY --chown=agent:agent sandbox_templates/common/.p10k.zsh   /home/agent/.p10k.zsh
 
+# ---------- webfetch — the web-read broker ----------------------------------
+# curl/wget are DENIED to the agent and the real WebFetch tool is scoped per
+# repo, so the agent reads the open web ONLY through a hosted reader API that is
+# already allowlisted ([web-read] in proxy/allowed_domains.txt). The vendor does
+# the arbitrary-URL egress from ITS infrastructure and returns clean text, so
+# this repo's own egress surface never grows to the dozens of research/UGC/PDF
+# domains a direct-fetch design would need.
+#
+# stdlib-only Python, so it needs no pip layer and cannot drift with a
+# dependency; urllib honours HTTPS_PROXY, so every request still goes through
+# the Squid sidecar. Keys come from the per-profile secrets.env env_file and
+# never from argv — argv lands in the Bash-tool transcript and Squid logs URLs.
+#
+# Baked into the image rather than mounted: /home/agent/.local is a noexec
+# tmpfs, so a broker delivered through a profile dir would be both unrunnable
+# and wiped on recreate. See docs/web-read-broker.md.
+COPY sandbox_templates/bin/webfetch /usr/local/bin/webfetch
+RUN chmod 0755 /usr/local/bin/webfetch
+
 # ---------- PreToolUse hook (deny-destructive) ------------------------------
 # Inspects every Bash/Edit/Write/MultiEdit tool envelope; blocks destructive
 # primitives reachable through allow-listed prefixes (find -delete, dd of=,

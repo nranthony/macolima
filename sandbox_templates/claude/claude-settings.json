@@ -67,7 +67,8 @@
       "Bash(pytest:*)",
       "Bash(uv run:*)",
       "Bash(make:*)",
-      "Bash(jq:*)"
+      "Bash(jq:*)",
+      "Bash(webfetch:*)"
     ],
     "deny": [
       "Bash(curl:*)",

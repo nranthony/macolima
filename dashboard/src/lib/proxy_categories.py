@@ -31,7 +31,7 @@ CATEGORY_TAGS: dict[str, list[str]] = {
         "claude", "antigravity", "antigravity-install",
     ],
     "Dev tooling & docs": [
-        "git", "github-raw", "vscode", "playwright-install",
+        "git", "github-raw", "vscode", "playwright-install", "web-read",
     ],
     "Package & OS registries": [
         "pypi", "npm", "apt",

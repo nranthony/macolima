@@ -101,6 +101,54 @@ api.clickup.com
 #   myclickup spaces --live --workspace 90141295179
 # t90141295179.p.clickup-attachments.com
 
+# --- Web-read brokers: crawl / scrape / search [web-read] ---
+# Every backend of the `webfetch` broker (sandbox_templates/bin/webfetch,
+# docs/web-read-broker.md) lives HERE and nowhere else, so a reviewer can see
+# the whole read surface in one place.
+#
+# THE CLASS. `curl`/`wget` are denied and the real WebFetch tool is scoped per
+# repo, so the agent reads arbitrary pages THROUGH a hosted reader API. The
+# vendor does the arbitrary-URL egress from ITS infrastructure and returns clean
+# text; this block therefore adds a handful of API hosts, not the open web. The
+# cost is the same for each: one more host the agent can POST to, i.e. one more
+# exfil channel — which is why every entry is the EXACT API host and never a
+# vendor wildcard (audit M3), and why a vendor whose key ALSO unlocks a write
+# surface gets its read hosts only.
+#
+# ADDING A BACKEND: wire it in the broker first, then add its exact host(s) here
+# with a `Host confirmed:` line, then a key block in
+# sandbox_templates/common/secrets.env.template. scripts/webfetch.test.sh
+# extracts every https:// host from the broker and requires each to be an exact
+# LIVE line in this file, so a host added in one place and not the other fails
+# offline — before a TCP_DENIED that reads like a bad key.
+#
+# The backends are PEERS — the broker has no default; `--via` is required and
+# the agent cycles to another on failure (`webfetch backends` says which are
+# ready). Order below is arrival order, not preference.
+#
+# Tavily — `--via tavily`, TAVILY_API_KEY. Search + extract.
+# Host confirmed: POST https://api.tavily.com/{search,extract}.
+api.tavily.com
+# Firecrawl — `--via firecrawl`, FIRECRAWL_API_KEY. JS-heavy pages, PDFs.
+# Note .dev, not .com — allowlisting the wrong one yields a TCP_DENIED that
+# reads like a bad key. Host confirmed: POST https://api.firecrawl.dev/v1/scrape.
+api.firecrawl.dev
+# TinyFish — `--via tinyfish`, TINYFISH_API_KEY. Search (snippets) + Fetch
+# (markdown, PDFs); both free tier. TWO hosts because the vendor splits the
+# APIs. NOT `.tinyfish.ai`: the same key drives agent.tinyfish.ai (paid Agent
+# API + MCP) and api.browser.tinyfish.ai (a cloud browser the caller steers —
+# logins, form-fills, arbitrary POSTs). Those are write surfaces, the broker
+# never calls them, and the suite asserts they are not live. Hosts confirmed:
+# GET https://api.search.tinyfish.ai?query=… / POST https://api.fetch.tinyfish.ai.
+api.search.tinyfish.ai
+api.fetch.tinyfish.ai
+# Jina Reader — `--via jina`, JINA_API_KEY optional (keyless is rate-limited).
+# r. = extract, s. = search — two hosts because the vendor splits them; never
+# `.jina.ai`. Hosts confirmed: GET https://r.jina.ai/<url> and
+# GET https://s.jina.ai/<query>.
+r.jina.ai
+s.jina.ai
+
 # --- VS Code Marketplace [vscode] ---
 # `.vscode-unpkg.net` is kept as a wildcard because VS Code's extension fetcher
 # rotates across many subdomains under that single MS-controlled parent. No

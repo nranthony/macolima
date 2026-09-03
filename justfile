@@ -128,7 +128,7 @@ test-dashboard:
 # `just` aborts the recipe on the first failing line, so a red suite stops the
 # run and names itself. Run one directly if you want the rest to continue.
 
-# every offline suite (six files; the run prints the per-file totals)
+# every offline suite (seven files; the run prints the per-file totals)
 test-offline:
     bash {{justfile_directory()}}/sandbox_templates/claude/hooks/deny-destructive.test.sh
     bash {{justfile_directory()}}/scripts/depaudit.test.sh
@@ -136,6 +136,7 @@ test-offline:
     bash {{justfile_directory()}}/scripts/dockerfile-order.test.sh
     bash {{justfile_directory()}}/scripts/vendor-tools.test.sh
     bash {{justfile_directory()}}/scripts/profile-skills.test.sh
+    bash {{justfile_directory()}}/scripts/webfetch.test.sh
 
 # just the Dockerfile layer-order chain (also included in test-offline)
 test-dockerfile:
