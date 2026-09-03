@@ -132,7 +132,7 @@ member-pointer machinery (`member_pointer`/`member_dir`/`member_subtree`,
 ~100 lines). Deferred rather than half-done — a check that implies more coverage
 than it has is worse than none.
 
-### V4 — the wheel layer in the Dockerfile
+### V4 — the wheel layer in the Dockerfile — **DONE 2026-09-02, see work/0004**
 `COPY sandbox_templates/wheels/ /tmp/wheels/` then a conditional `uv tool
 install`. Four properties, each load-bearing:
 
@@ -157,7 +157,7 @@ container.
 its header note — which currently names `beads` as W's one unported anchor —
 gains the wheel layer as a deliberate M addition rather than a W import.
 
-### V5 — convergence (D1)
+### V5 — convergence (D1) — **DONE 2026-09-02, see work/0004**
 Port `converge_skills` **verbatim**. W wrote it bash-3.2-clean *specifically so
 it ports to this repo unchanged* — space-padded membership tests via case-glob
 rather than associative arrays. Do not "improve" it; a divergence here is a
@@ -165,6 +165,10 @@ divergence in the only mechanism that keeps profiles current.
 
 Carries `profile-skills.test.sh` (157 lines). `reset-skills` survives as
 "converge without touching the container".
+
+**As landed, one deliberate divergence from verbatim** — W's staged replace
+uses a bare `mktemp -d`, which is cross-device on macOS and silently loses the
+atomicity it exists for. See work/0004 §2 F5; it goes back to W.
 
 ### V6 — the permissions leg
 The manifest proposes `allow`/`ask`/`deny` per artifact (myclickup: 19/11/2).
