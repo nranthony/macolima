@@ -30,6 +30,10 @@ action or hunt for a workaround — treat it as a human step.
 - **No shell escapes.** `bash -c`, `sh -c`, `python -c`, `node -e`, `env`,
   `xargs`, `eval`, `awk`, `sed`, `perl`/`ruby` are denied as deny-list
   bypasses — reaching for them instead of the direct tool also fails.
+  Note `sed` and `awk` are denied as *bypasses*, not as pagers, and that is
+  the one denial with a direct replacement: to read part of a file use the
+  `Read` tool's `offset` and `limit`, and to match lines use `Grep` or `rg`.
+  Reaching for `sed -n '1,40p'` is the commonest way to hit this.
 - **Destructive commands are hook-blocked.** `rm -rf`, `find -delete`, `dd of=`,
   `shred`, `truncate`, and edits to the sandbox's hook/settings files are
   refused by a PreToolUse hook beyond the deny-list. Don't look for a bypass —
@@ -157,6 +161,15 @@ also needs network the allowlist won't give it. Anything whose first step is
 in the plan rather than attempting it.
 
 ### What works
+
+Prefer the `Read`, `Grep` and `Glob` tools over shell pipelines when reading or
+searching. They are allow-listed outright and never prompt, whereas a compound
+shell command is checked **segment by segment** and stops on the first segment
+that is not allow-listed — so one unlisted `head` in a five-stage pipeline
+stalls the whole thing waiting on a human who may not be watching. The ordinary
+text utilities are allow-listed too — `cat`, `grep`, `head`, `tail`, `cut`,
+`sort`, `uniq`, `wc`, `nl`, `tr`, `comm`, `diff`, `cd`, `echo`, `mkdir`, `ls`,
+`find`, `rg`, `jq` — so a pipeline built only from those runs unattended.
 
 Read/edit files; `git add/commit/diff/log/show`; `git checkout` and `git stash`
 for navigation and saving work (their discarding forms ask first — see above);
