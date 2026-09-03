@@ -7,10 +7,12 @@ are useful and neither replaces the other: the file's tiers say when a block is
 expected to be on, these categories say what it is for.
 
 Ported from windows-ai-sandbox with the tag map REBUILT for this repo. Their
-map names blender, pytorch, nvidia, numerai, kaggle, clickup and more — none of
-which exist here — and misses `github-raw`, `paperbridge`, `oa-publishers`,
-`wearables` and `archive`, which do. Taking theirs verbatim would have dropped
-five of macolima's fourteen blocks into "Other".
+map names blender, pytorch, nvidia, numerai, kaggle and more that do not exist
+here, and misses `github-raw`, `paperbridge`, `oa-publishers`, `wearables` and
+`archive`, which do. Taking theirs verbatim would have dropped five of
+macolima's blocks into "Other". The overlap grows as this repo ports their
+capabilities — `clickup` arrived with work/0004 — but it is still an
+intersection, not an inheritance.
 
 Anything unmapped falls into "Other" rather than raising: a forgotten mapping
 must not break the page. `tests/test_allowlist_roundtrip.py` asserts that no
@@ -40,11 +42,12 @@ CATEGORY_TAGS: dict[str, list[str]] = {
     "Reference & vendor docs": [
         "wearables", "archive",
     ],
-    # Sixth slot added with work/0003. One member today, but it is the right
-    # home for `clickup` when myclickup's egress lands (work/0002 V7) — and W
-    # uses this same category name, so the two repos group alike.
+    # Sixth slot added with work/0003 for `google-workspace`; `clickup` joined it
+    # in work/0004 when the myclickup CLI was baked into the image. W uses this
+    # same category name, so the two repos group alike.
     "Productivity & Google Workspace": [
         "google-workspace",
+        "clickup",
     ],
 }
 

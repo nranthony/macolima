@@ -42,6 +42,65 @@ api.claude.com
 platform.claude.com
 claude.ai
 
+# --- ClickUp API [clickup] ---
+# ALWAYS ON for the same reason [antigravity] is: the `myclickup` CLI is baked
+# into the image (vendored from the depot channel, work/0004 V4), so it is
+# present in every profile whether or not a given profile uses it.
+#
+# ONE host carries every command. Read out of myclickup 0.7.0's source
+# 2026-09-03, not assumed — client.py has exactly two request sites, and the
+# API one builds its URL from:
+#   API_BASE = https://api.clickup.com/api/v2   (almost everything)
+#   API_V3   = https://api.clickup.com/api/v3   (`move` only, its ADR-0015)
+# Same host, same Authorization header, same token, so v3 needs no second entry.
+# `app.clickup.com` appears nowhere in the source: task URLs on that host are
+# printed for a human to click, never fetched.
+#
+# EGRESS IS OPEN HERE; AUTHENTICATION IS NOT. Tokens come from CLICKUP_TOKEN in
+# the environment and never from argv or a config file (myclickup ADR-0003 /
+# ADR-0005), and this repo has no route for one yet — docker-compose.yml injects
+# db.env only, and there is no secrets.env template here as there is in
+# windows-ai-sandbox. Until that lands every call 401s.
+#
+# Pinned subdomain only — no `.clickup.com` wildcard (audit M3). If a call hits
+# a TCP_DENIED on a sibling host, read Squid's access.log and add that exact
+# host rather than widening.
+api.clickup.com
+
+# --- ClickUp: deliberately NOT enabled, each for a stated reason -------------
+#
+# Remote MCP server and the OAuth hosts its sign-in redirects through.
+# windows-ai-sandbox drives ClickUp through the remote MCP and needs all three;
+# here `mcpServers` is `{}` in every profile, so nothing dials them. Uncomment
+# only if you configure the remote MCP server inside a container.
+# mcp.clickup.com
+# app.clickup.com
+#
+# Attachment DOWNLOADS. `myclickup attachments <task>` needs nothing below — it
+# lists titles and URLs from the api.clickup.com response. Only the 0.7.0
+# `--download` flag (read.py `_download_attachments`) fetches, and it fetches
+# from workspace-scoped, per-TENANT hosts: t<workspace_id>.p.clickup-attachments.com.
+#
+# A WRONG ID HERE DOES NOT FAIL CLOSED — it allow-lists egress from a hardened
+# image to a third party's attachment bucket. So every line carries how its ID
+# was established, and the one that was never confirmed stays shut. The IDs are
+# configuration, not secrets (myclickup ADR-0005), so they belong in this public
+# file. Provenance is windows-ai-sandbox's [clickup] block.
+#
+# Neil In Progress 90141364643 — the `nranthony` profile. Live-verified 2026-08-06.
+# t90141364643.p.clickup-attachments.com
+# Jeremy Dahl 9017997919 — the `jeremy_dahl` profile. Live-verified 2026-08-06.
+# t9017997919.p.clickup-attachments.com
+# FluidMomenta 9017949595 — live-verified 2026-08-06. No profile in this repo.
+# t9017949595.p.clickup-attachments.com
+# The Vault 90141509251 — live-verified 2026-08-11. No profile in this repo.
+# t90141509251.p.clickup-attachments.com
+# therapod 90141295179 — UNVERIFIED, and stays shut until it is not. The ID was
+# read off a source constant in the therapod repo during a 2026-07-31 survey and
+# never confirmed against the live API. Confirm from inside the therapod profile:
+#   myclickup spaces --live --workspace 90141295179
+# t90141295179.p.clickup-attachments.com
+
 # --- VS Code Marketplace [vscode] ---
 # `.vscode-unpkg.net` is kept as a wildcard because VS Code's extension fetcher
 # rotates across many subdomains under that single MS-controlled parent. No
