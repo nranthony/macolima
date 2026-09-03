@@ -81,6 +81,7 @@ For project-customization patterns (local wheels, overlay images), see `docs/loc
 
 | Editing… | See |
 |---|---|
+| **Why** a door is closed (before proposing to reopen it) | `docs/adr/` — [index](docs/adr/README.md) |
 | `docker-compose.yml` DB siblings, `db.env`, DSNs | `docs/database-internals.md` |
 | `secrets.env`, per-profile API keys, `SANDBOX_PROFILE` | `docs/database-internals.md` §"Per-profile API keys" |
 | `sandbox_templates/bin/webfetch`, `[web-read]` hosts, adding a backend | `docs/web-read-broker.md` |
