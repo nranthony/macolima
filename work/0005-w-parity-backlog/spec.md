@@ -36,7 +36,7 @@ reason they are absent rather than stubbed.
 
 Ordered by risk closed per unit of work, not by size.
 
-### P1 — `private-names-check.sh` + ADR-0009
+### P1 — `private-names-check.sh` — **DONE 2026-09-03**
 **~94 lines, 2 mapfile sites, no substrate risk.**
 
 This repo is public (`github.com/nranthony/macolima`) and profile names double
@@ -51,7 +51,7 @@ provenance comments, where the name IS the checkable evidence) are out of scope
 by design. Needs a `.private-names.local` — it `[SKIP]`s loudly until one
 exists, which is the same three-state contract `vendor-tools.sh` uses.
 
-### P2 — Phase D: multi-agent policy
+### P2 — Phase D: multi-agent policy — **DONE 2026-09-03**
 **The largest item and the one with a live hole.**
 
 `agy` is installed in this image and has **no policy file at all** — no
@@ -77,7 +77,7 @@ Port ADR-0010 + 0011 as ONE unit. Needs a rebuild + recreate to verify, not a
 converge. Brings the `converge` verb, which is what `reset-skills` is currently
 holding a name open for.
 
-### P3 — `proxy/gated_blocks_default_off` audit probe
+### P3 — the accepted-open allowlist probe — **DONE 2026-09-03**
 **Small, and it fixes something the owner asks about every session.**
 
 M's `planning_mode_commented` cannot tell a deliberately-open block from a leak,
@@ -85,7 +85,7 @@ so it reports DRIFT either way and gets skimmed past. W's carries an
 `ACCEPTED_OPEN_TAGS` set, so a deliberate opening is silent and a forgotten one
 is loud. Directly improves the standing "remind me if I leave it unsafe" ask.
 
-### P4 — the agent notice
+### P4 — the agent notice — **DONE 2026-09-03**
 `sandbox_templates/common/agent-notice.md` + `sync-agent-notice.sh` +
 `agent-notice.test.sh` (13). Injects a managed block into each profile's global
 `~/.claude/CLAUDE.md`, so agents see the sandbox's capabilities and prohibitions
@@ -97,7 +97,7 @@ block describing hardware we do not have. Delete that block; do not adapt it.
 `agent-notice.test.sh` passes 13/13 on the unadapted file because its locks are
 about repo-relative paths, not substrate applicability.
 
-### P5 — `recreate-all` + `docker-gc.sh`
+### P5 — `recreate-all` + `docker-gc.sh` — **DONE 2026-09-03**
 Two independent conveniences, both platform-neutral.
 
 `recreate-all` force-recreates every running profile onto the current image —
@@ -173,3 +173,27 @@ The handoff §9 asks for a report. Accumulated so far:
    (work/0001 §4): measured 22s → 97s → 97s with 0 cached layers, against
    21s/21s/21s under `--filter until=168h`. W carries the same line.
 5. §8.3 answered: `/usr/bin/env bash` here is **3.2.57**.
+6. **A bash-3.2 hazard their §1.2 does not list.** `"$( … "…" … )"` — a nested
+   double quote inside a double-quoted command substitution — terminates the
+   OUTER quote in 3.2.57, leaving the result unquoted and brace-expanded. One
+   site in `deny-destructive.test.sh` (the `dep-add via Write` assertion) arrived
+   as TWO arguments, so `assert` read `want` from the second half. Measured
+   argc=5 inline / argc=4 hoisted, and instrumenting all 155 assertions proved it
+   was the only affected site. Their §1.2 lists `mapfile` only; this belongs
+   beside it.
+7. **`private-names-check.sh` scans contents only.** A tracked PATH is at least
+   as searchable as a line inside a file. Added here; they have profile-named
+   files too.
+8. **The block walker in `proxy.py` opens a block on a tag mention.** Their copy
+   guards with `"---" in raw`; this repo's had dropped it, and adding one tag
+   made a comment that merely NAMES another block re-tag eight always-on hosts.
+   Worth a note that the guard is load-bearing, not cosmetic.
+9. **`agent-notice.md`'s "What works" line names `/usr/lib/wsl/lib/nvidia-smi`**
+   outside the CUDA section their handoff told us to delete — so following the
+   instruction exactly leaves a dangling WSL reference.
+
+## 8. Still open, in rank order
+
+P6 `AGENTS.md` + `sync-agent-files.sh`; P7 `docs/adr/`; P8 `check-permissions`
+(work/0002 V6); P9 the four candidate allowlist blocks; P10 the doc/process
+carries and a `LICENSE`.
