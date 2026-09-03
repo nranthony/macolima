@@ -55,8 +55,8 @@ Each probe's `run()` returns a list of finding dicts:
 {
   "info": {
     "stamp": "2026-05-09T12:34:56Z",
-    "profile": "therapod",
-    "container": "claude-agent-therapod",
+    "profile": "myproject",
+    "container": "claude-agent-myproject",
     "uname": "Linux ... aarch64"
   },
   "summary": {"OK": 72, "DRIFT": 1, "WEAK": 1, "UNKNOWN": 0, "N/A": 5, "INFO": 4},

@@ -27,7 +27,7 @@ This directory contains the design plans, operational recipes, and architectural
 
 ## 🧬 Profile Seeds & Templates
 *   **[numerai-profile-seed.md](./numerai-profile-seed.md)**: Hardening and setup guidance for a Numerai tournament research profile.
-*   **[therapod-profile-seed.md](./therapod-profile-seed.md)**: Database setup (wearables_ref + pipeline), H10 backfill pipeline run, and db-reset protocol.
+*   **[profile-seed-database.md](./profile-seed-database.md)**: Worked example of seeding a profile's databases — schema setup, a backfill pipeline run, and the db-reset protocol.
 
 ## ⏳ Future & Deferred Plans
 *   **[_future/overlay-project-plan.md](./_future/overlay-project-plan.md)**: Architectural design for per-profile image customization (overlays) to handle heavy dependencies.

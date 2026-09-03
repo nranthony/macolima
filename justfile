@@ -65,7 +65,7 @@ build *args:
 attach profile:
     {{profile_sh}} {{profile}} attach
 
-# open a container folder in VS Code (`just code therapod engine`; no folder = list; -r reuses window)
+# open a container folder in VS Code (`just code myproject engine`; no folder = list; -r reuses window)
 code profile *args:
     {{code_sh}} {{profile}} {{args}}
 
@@ -128,7 +128,7 @@ test-dashboard:
 # `just` aborts the recipe on the first failing line, so a red suite stops the
 # run and names itself. Run one directly if you want the rest to continue.
 
-# every offline suite (seven files; the run prints the per-file totals)
+# every offline suite (eight files; the run prints the per-file totals)
 test-offline:
     bash {{justfile_directory()}}/sandbox_templates/claude/hooks/deny-destructive.test.sh
     bash {{justfile_directory()}}/scripts/depaudit.test.sh
@@ -137,6 +137,11 @@ test-offline:
     bash {{justfile_directory()}}/scripts/vendor-tools.test.sh
     bash {{justfile_directory()}}/scripts/profile-skills.test.sh
     bash {{justfile_directory()}}/scripts/webfetch.test.sh
+    bash {{justfile_directory()}}/scripts/private-names-check.sh
+
+# public-repo name gate — SKIPs loudly with no .private-names.local (also in test-offline)
+check-names:
+    bash {{justfile_directory()}}/scripts/private-names-check.sh
 
 # just the Dockerfile layer-order chain (also included in test-offline)
 test-dockerfile:
@@ -144,7 +149,7 @@ test-dockerfile:
 
 # ---- Colima VM lifecycle (shared across profiles — no profile arg) ----------
 
-# start Colima VM after a reboot (idempotent). Optionally also up a profile: `just colima-up therapod`
+# start Colima VM after a reboot (idempotent). Optionally also up a profile: `just colima-up myproject`
 colima-up *args:
     {{justfile_directory()}}/scripts/start.sh {{args}}
 

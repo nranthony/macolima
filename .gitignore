@@ -223,6 +223,12 @@ docker-compose.override.yml
 # .dockerignore carries the same line for the same reason.
 secrets.env
 **/secrets.env
+
+# The private-name list for scripts/private-names-check.sh. NEVER commit it —
+# a tracked list of the names we scan for would re-introduce exactly what the
+# check exists to prevent. Same gitignored-pointer convention as
+# .depot-dir.local.
+.private-names.local
 .DS_Store
 
 # Local pointer to the depot channel (work/0002 V1). Machine-specific, never

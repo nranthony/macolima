@@ -6,10 +6,10 @@
 #   scripts/code-attach.sh <profile> [folder] [-- code-args...]
 #
 # Examples:
-#   scripts/code-attach.sh therapod                     # list repos under /workspace
-#   scripts/code-attach.sh therapod engine              # -> /workspace/engine
-#   scripts/code-attach.sh therapod /workspace/deep/path
-#   scripts/code-attach.sh therapod engine -r           # reuse the current window
+#   scripts/code-attach.sh myproject                     # list repos under /workspace
+#   scripts/code-attach.sh myproject engine              # -> /workspace/engine
+#   scripts/code-attach.sh myproject /workspace/deep/path
+#   scripts/code-attach.sh myproject engine -r           # reuse the current window
 #
 # Why this exists alongside `profile.sh <profile> attach`:
 #   - `attach` gives you a zsh shell inside the container.
@@ -52,7 +52,7 @@ DOCKER_CONTEXT_NAME="${SANDBOX_VSCODE_CONTEXT:-colima}"
 
 profile="$1"; shift
 
-# Accept a bare profile ("therapod") or the full container name.
+# Accept a bare profile ("myproject") or the full container name.
 case "$profile" in
   claude-agent-*) container="$profile" ;;
   *)              container="claude-agent-$profile" ;;

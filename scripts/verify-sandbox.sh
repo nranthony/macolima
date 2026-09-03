@@ -184,7 +184,7 @@ command -v socat >/dev/null && fail "socat present (should be uninstalled)" || p
 command -v ssh   >/dev/null && fail "ssh present (openssh-client should be purged)" || pass "ssh absent (intended)"
 
 # VS Code Dev Containers leakage — controls we documented after the
-# therapod audit. Each of these maps to a specific finding with a known
+# a real profile audit. Each of these maps to a specific finding with a known
 # regression risk (host VS Code settings can revert, copyGitConfig can
 # get re-enabled, etc.). Keep these tight — they're tripwires, not an
 # audit substitute.

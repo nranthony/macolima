@@ -85,7 +85,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Scopes the post-build image prune to images WE built (LABEL in Dockerfile).
 # An unfiltered `docker image prune` is daemon-wide, and this Colima daemon is
-# shared with the user's own projects (e.g. macolima-therapod-pipeline-api) as
+# shared with the user's own projects (e.g. macolima-myproject-pipeline-api) as
 # well as the digest-pinned postgres/mongo/squid pulls. Anything of theirs that
 # is untagged at the moment a build finishes would be reaped as collateral, and
 # a re-pull of the pinned DB/proxy images costs ~1 GB. Nothing on this daemon is
@@ -1012,7 +1012,7 @@ parse_flags() {
     [[ -f "$override" ]] || fail "--expose-dev: override not found: $override
        Create the override at the macolima repo root (a YAML file adding a
        'ports:' block under claude-agent), then rerun. See
-       docker-compose.therapod.expose-dev.yml for the canonical shape."
+       an existing profile's overlay for the canonical shape."
     COMPOSE_FILE_ARGS+=(-f "docker-compose.$PROFILE.expose-dev.yml")
     warn "UNSAFE: --expose-dev — layering $override (publishes ports to LAN)"
   fi
@@ -1062,7 +1062,7 @@ case "$CMD" in
   logs)
     # Pass COMPOSE_FILE_ARGS so overlay services (docker-compose.<PROFILE>.yml)
     # are tailed too, matching up/recreate/rebuild. (Profile-gated services
-    # still need their COMPOSE_PROFILE enabled to appear — for therapod that's
+    # still need their COMPOSE_PROFILE enabled to appear — for a postgres profile that's
     # auto-set from the overlay's depends_on trigger.)
     exec docker compose "${COMPOSE_FILE_ARGS[@]}" logs -f "$@"
     ;;

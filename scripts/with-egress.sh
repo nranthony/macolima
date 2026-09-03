@@ -59,10 +59,10 @@
 # --with pypi when [pypi] is already uncommented is a safe no-op.
 #
 # Examples:
-#   scripts/with-egress.sh therapod -- \
+#   scripts/with-egress.sh myproject -- \
 #     'cd /workspace/foo && uv pip install -e ".[dev]" --python .venv/bin/python'
 #
-#   scripts/with-egress.sh therapod --with playwright-install -- \
+#   scripts/with-egress.sh myproject --with playwright-install -- \
 #     'cd /workspace/foo && playwright install chromium'
 # =============================================================================
 
