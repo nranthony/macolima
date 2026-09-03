@@ -115,6 +115,27 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
  && mv /root/.local/bin/uv /usr/local/bin/uv \
  && mv /root/.local/bin/uvx /usr/local/bin/uvx
 
+# WHERE `uv tool install` PUTS THINGS — pinned, because both defaults are wrong
+# here in the same way. Probed inside this image (uv 0.12.8):
+#
+#   uv tool dir        -> /home/agent/.local/share/uv/tools
+#   uv tool dir --bin  -> /home/agent/.local/bin
+#
+# `/home/agent/.local` is a NOEXEC tmpfs (docker-compose.yml) recreated empty at
+# container start, and PATH puts it first (see the ENV block at the tail). So an
+# unpinned `uv tool install` builds green, prints a correct version in the build
+# log, and delivers nothing at runtime — the binary is both unrunnable and gone.
+# /opt is persistent and exec-allowed; /usr/local/bin is where every other baked
+# binary lives (agy, just, uv itself), and is on PATH for every user.
+#
+# These are RUNTIME env too, deliberately. The agent cannot write either path
+# (root-owned, UID 1000, cap_drop ALL), so an in-container `uv tool install`
+# fails closed rather than scattering a tool into the tmpfs. That matches the
+# `Bash(uv tool install:*)` deny in claude-settings.json: bumps are host-side —
+# vendor, `profile.sh build`, recreate.
+ENV UV_TOOL_DIR=/opt/uv/tools \
+    UV_TOOL_BIN_DIR=/usr/local/bin
+
 # ---------- GitHub CLI (gh) -------------------------------------------------
 RUN install -d -m 0755 /etc/apt/keyrings \
  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -356,6 +377,69 @@ RUN set -eux; \
     test -x "$GS_DIR/usrbin/$file"
 USER root
 RUN usermod -s /usr/bin/zsh agent
+
+# ---------- myclickup — vendored ClickUp CLI (OPTIONAL payload) --------------
+# Zero-dependency pure-Python wheel from the PRIVATE nranthony/myclickup repo,
+# delivered through the depot channel. `docker-compose.yml` sets
+# `build.context: .`, so a sibling checkout is unreachable from the build and the
+# artifact has to be inside the context; a network install would need a deploy
+# token inside the build of a security-critical image. Host-side
+# `scripts/vendor-tools.sh` puts it here, hash-gated against manifest.toml.
+#
+# THE PAYLOAD IS GITIGNORED — this repo is public, myclickup is not, and a
+# py3-none-any wheel is a zip of the .py files. Two consequences are encoded in
+# the two unusual things about this block:
+#
+#   1. DIRECTORY copy, not `COPY .../myclickup-*.whl`. A COPY whose glob matches
+#      nothing is a hard build failure, so the paste-ready form would break every
+#      clone that lacks the payload. The tracked `.gitkeep` keeps the directory
+#      in the context.
+#   2. CONDITIONAL install. No wheel => no myclickup, build still green. A clone
+#      of this repo therefore does NOT reproduce this image bit-for-bit; that is
+#      the accepted cost of not publishing a private tool.
+#
+# Two wheels is a REFUSAL, not a pick-one: the vendor script rotates the file on
+# every bump, so two means a failed rotation, and choosing silently would ship
+# the wrong version behind a correct-looking `myclickup --version`.
+#
+# --python /usr/bin/python3 + UV_PYTHON_DOWNLOADS=never are NOT belt-and-braces.
+# uv's python-downloads defaults to automatic, so an unpinned install may fetch a
+# managed CPython into a root-owned directory UID 1000 cannot read — a build that
+# passes and a runtime that does not. The system 3.12.3 satisfies the wheel's
+# `>=3.11`, so the correct interpreter is already here; pinning makes a surprise
+# a hard build failure instead.
+#
+# THE SECOND VERSION CHECK IS THE LOAD-BEARING ONE. windows-ai-sandbox runs the
+# agent as root, so its in-layer `myclickup --version` runs as its runtime user.
+# Here the runtime user is `agent` (UID 1000), and a root-only check would prove
+# nothing about who actually runs the tool — exactly the gap that lets a
+# permissions or interpreter mistake through with a green build log.
+#
+# Placed in the root interlude at the TAIL, below Gate 3 and the AI-CLI
+# cache-buster: pre-1.0 this is the most frequently re-vendored artifact in the
+# tree. Above the zsh block it would re-run oh-my-zsh, three plugin clones and
+# the gitstatusd release download on every bump; above the cache-buster it would
+# re-run the Claude Code/agy install and both gates. scripts/dockerfile-order.test.sh
+# locks the position.
+#
+# Verified 2026-09-02 in this image under `--network none`: the install needs no
+# network (zero Requires-Dist), passes Gate 3's `no-build = true` because a wheel
+# is never built, and resolves for both root and agent.
+COPY sandbox_templates/wheels/ /tmp/wheels/
+RUN set -eu; \
+    n="$(find /tmp/wheels -maxdepth 1 -name 'myclickup-*.whl' | wc -l)"; \
+    if [ "$n" -gt 1 ]; then \
+      echo "myclickup: $n wheels in sandbox_templates/wheels/ - refusing to guess" >&2; \
+      exit 1; \
+    elif [ "$n" -eq 1 ]; then \
+      whl="$(find /tmp/wheels -maxdepth 1 -name 'myclickup-*.whl')"; \
+      UV_PYTHON_DOWNLOADS=never uv tool install --python /usr/bin/python3 "$whl"; \
+      myclickup --version; \
+      su -s /bin/sh agent -c 'myclickup --version'; \
+    else \
+      echo "myclickup: no vendored wheel - skipping (run: just vendor-tools)"; \
+    fi; \
+    rm -rf /tmp/wheels
 
 USER agent
 WORKDIR /workspace

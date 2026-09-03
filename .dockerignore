@@ -1,9 +1,15 @@
 # Build-context pruning. Ported from windows-ai-sandbox (work/0001 A3).
 #
-# The Dockerfile COPYs exactly three paths, all under config/ (.zshrc,
-# .p10k.zsh, hooks/deny-destructive.sh). Everything else in this repo is
-# context that gets tarred and shipped to the Colima VM on every build for
-# nothing — 312M sent to deliver ~130K.
+# The Dockerfile COPYs exactly four paths, all under sandbox_templates/ (.zshrc,
+# .p10k.zsh, claude/hooks/deny-destructive.sh, and the wheels/ DIRECTORY).
+# Everything else in this repo is context that gets tarred and shipped to the
+# Colima VM on every build for nothing — 312M sent to deliver ~180K.
+#
+# sandbox_templates/wheels/ is deliberately NOT pruned here even though its .whl
+# is gitignored: .dockerignore does not inherit .gitignore (point 1 below), and
+# the wheel is a build INPUT. Pruning it would make the myclickup layer silently
+# take its no-wheel branch on a machine that has the payload — a green build that
+# ships an image without the tool.
 #
 # Two things to know before editing:
 #   1. .dockerignore does NOT inherit .gitignore. Anything that must stay out

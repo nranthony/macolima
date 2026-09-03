@@ -2,13 +2,17 @@
 # =============================================================================
 # dockerfile-order.test.sh — the build-layer ORDER is load-bearing
 # =============================================================================
-# Four separate comments in the Dockerfile each claim a position, and together
+# Five separate comments in the Dockerfile each claim a position, and together
 # they form one chain that must hold:
 #
 #   AI_CLI_REFRESH ARG  <  claude/agy install  <  npmrc (Gate 2)  <  uv+pip (Gate 3)
+#     <  myclickup wheel
 #
-# (windows-ai-sandbox also chains `beads` ahead of these; macolima deliberately
-# does not port it, so its chain is the tail of theirs.)
+# The two repos' chains overlap but neither contains the other. windows-ai-sandbox
+# chains `beads` ahead of all of these and macolima deliberately does not port it;
+# macolima chains the myclickup wheel behind them and windows-ai-sandbox does not,
+# because the two images put that layer in different places for the same stated
+# reason (see the wheel link below).
 #
 # Why each link matters:
 #
@@ -21,8 +25,18 @@
 #     re-runs the CLI install every time, a mis-order surfaces on a routine
 #     version bump rather than only on a cold rebuild.
 #
-#   Gate 3 (uv/pip) LAST — it is config-only and has no build-time dependency of
-#     its own, so it belongs at the end where a change rebuilds nothing above it.
+#   Gate 3 (uv/pip) BEFORE the wheel — it is config-only and has no build-time
+#     dependency of its own, and `no-build = true` is what makes installing the
+#     wheel safe to do at all.
+#
+#   myclickup wheel LAST — the position is a CACHE decision, and the one anchor
+#     windows-ai-sandbox does not have. Pre-1.0 this is the most frequently
+#     re-vendored artifact in the tree, and this image has five network fetches
+#     between Gate 3 and the tail (oh-my-zsh, three plugin clones, the gitstatusd
+#     release) that a wheel bump must not re-run. Above the AI_CLI_REFRESH
+#     cache-buster it would also re-run the Claude Code/agy install and both
+#     gates. Drifting upward costs minutes per bump and nothing else — silent,
+#     which is why it is anchored rather than left to the comment.
 #
 # Anchored on STRINGS, never line numbers: line numbers drift on every edit above
 # them, and a test that needs updating for unrelated edits gets updated
@@ -60,6 +74,7 @@ ANCHORS=(
   "Gate 2 npmrc write|> /usr/etc/npmrc"
   "Gate 3 uv write|> /etc/uv/uv.toml"
   "Gate 3 pip write|> /etc/pip.conf"
+  "myclickup wheel COPY|COPY sandbox_templates/wheels/"
 )
 
 echo "-- Dockerfile layer order --"
@@ -110,6 +125,28 @@ else
   bad "Gate 2 layer no longer self-checks" \
       "the RUN that writes /usr/etc/npmrc should end with an assertion, so a
        broken write fails the build instead of silently disabling the age gate"
+fi
+
+# The wheel layer verifies as the RUNTIME user, not just as the build user. This
+# image runs the agent as UID 1000; a root-only `myclickup --version` would pass
+# on a tool the agent cannot reach, which is precisely the shape of failure the
+# UV_TOOL_DIR pin exists to prevent. windows-ai-sandbox needs no equivalent line
+# because its runtime user IS root.
+if grep -qF "su -s /bin/sh agent -c 'myclickup --version'" "$DF"; then
+  ok "wheel layer verifies as the agent user, not only as root"
+else
+  bad "wheel layer no longer checks the tool as UID 1000" \
+      "a build-time check running as root proves nothing about the runtime user;
+       see the UV_TOOL_DIR block for what it is guarding against"
+fi
+
+# The pins that decide whether any of this survives to runtime.
+if grep -qF 'UV_TOOL_DIR=/opt/uv/tools' "$DF" && grep -qF 'UV_TOOL_BIN_DIR=/usr/local/bin' "$DF"; then
+  ok "uv tool dirs pinned off the noexec tmpfs"
+else
+  bad "UV_TOOL_DIR / UV_TOOL_BIN_DIR pin is gone" \
+      "unpinned, uv installs into /home/agent/.local — a noexec tmpfs wiped at
+       container start. The build stays green and the tool is absent at runtime."
 fi
 
 printf "\n  %d passed, %d failed\n" "$PASS" "$FAIL"
