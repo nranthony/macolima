@@ -124,6 +124,10 @@ vendor-tools *args:
 tools-check:
     {{vendortools_sh}} --check
 
+# report the channel's proposed tool permissions vs the template (READ-ONLY, never edits)
+check-permissions:
+    {{vendortools_sh}} --permissions
+
 # dashboard parser + render regression suite (needs dashboard/.venv; no docker required)
 test-dashboard:
     {{justfile_directory()}}/dashboard/.venv/bin/python {{justfile_directory()}}/dashboard/tests/test_allowlist_roundtrip.py

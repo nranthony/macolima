@@ -365,5 +365,113 @@ TOML
   fi
 fi
 
+# ---- --permissions: REPORT-ONLY, and it must not cry wolf ------------------
+# The security property is the one worth locking: an artifact must not widen
+# the sandbox by being vendored, so this path may never write to the policy
+# template. The rest guards the two ways a permissions report becomes useless —
+# reporting a gap that is already covered, and missing one that is real.
+mkperm_channel() {                 # a channel whose artifact carries proposals
+  local c="$WORK/permchan"; rm -rf "$c"
+  mkdir -p "$c/dist/wheels" "$c/dist/skills/demo"
+  printf 'WHEEL\n' > "$c/dist/wheels/demo-9.9.9-py3-none-any.whl"
+  printf 'SKILL\n' > "$c/dist/skills/demo/SKILL.md"
+  cat > "$c/manifest.toml" <<TOML
+schema = 1
+[artifact.demo]
+kind = "wheel+skill"
+version = "9.9.9"
+source_commit = "abcdef0123456789abcdef0123456789abcdef01"
+wheel = "dist/wheels/demo-9.9.9-py3-none-any.whl"
+wheel_sha256 = "$(sha "$c/dist/wheels/demo-9.9.9-py3-none-any.whl")"
+skill = "dist/skills/demo/SKILL.md"
+skill_sha256 = "$(sha "$c/dist/skills/demo/SKILL.md")"
+proposed_allow = ["Bash(demo read:*)", "Bash(demo list:*)"]
+proposed_ask = ["Bash(demo write:*)"]
+proposed_deny = ["Bash(demo destroy:*)"]
+TOML
+  printf '%s' "$c"
+}
+
+mkpolicy() {                        # <repo> <allow-json> <ask-json> <deny-json>
+  mkdir -p "$1/sandbox_templates/claude"
+  cat > "$1/sandbox_templates/claude/claude-settings.json" <<JSON
+{ "permissions": { "allow": [$2], "ask": [$3], "deny": [$4] } }
+JSON
+}
+
+run_perm() {
+  local r="$1"; shift
+  ( cd "$r" && env "$@" bash "$r/scripts/vendor-tools.sh" --permissions 2>&1 )
+}
+
+PC="$(mkperm_channel)"
+
+# no channel configured -> SKIP, exit 0 (the same three-state rule as --check)
+RP0="$(mkrepo p0)"; mkpolicy "$RP0" '' '' ''
+out="$(run_perm "$RP0" DEPOT_DIR= 2>&1)"; rc=$?
+if [[ $rc -eq 0 ]] && printf '%s' "$out" | grep -q 'SKIP'; then
+  ok "--permissions with no channel: SKIPs loudly, exit 0"
+else
+  bad "--permissions unconfigured should SKIP and exit 0" "rc=$rc out=$out"
+fi
+
+# THE LOCK: it reports, and the policy file is byte-identical afterwards
+RP1="$(mkrepo p1)"; mkpolicy "$RP1" '' '' ''
+before="$(sha "$RP1/sandbox_templates/claude/claude-settings.json")"
+out="$(run_perm "$RP1" DEPOT_DIR="$PC")"
+after="$(sha "$RP1/sandbox_templates/claude/claude-settings.json")"
+if [[ "$before" == "$after" ]]; then
+  ok "--permissions NEVER edits claude-settings.json  <-- LOCK"
+else
+  bad "--permissions wrote to the policy template" "an artifact must not widen the sandbox by being vendored"
+fi
+
+if printf '%s' "$out" | grep -q 'MISSING: Bash(demo destroy:\*)'; then
+  ok "a proposed deny absent from the template is reported MISSING"
+else
+  bad "an absent proposed deny was not reported" "$out"
+fi
+
+if printf '%s' "$out" | grep -q 'WRITE-SURFACE GAP'; then
+  ok "an ungated write is called out as a gap, not left in a column"
+else
+  bad "no write-surface gap reported for an ungated ask+deny" "$out"
+fi
+
+# already covered -> exact, NOT missing. A report that flags what is already
+# there is a report that gets ignored.
+RP2="$(mkrepo p2)"
+mkpolicy "$RP2" '"Bash(demo read:*)", "Bash(demo list:*)"' '"Bash(demo write:*)"' '"Bash(demo destroy:*)"'
+out="$(run_perm "$RP2" DEPOT_DIR="$PC")"
+if ! printf '%s' "$out" | grep -q 'MISSING:'; then
+  ok "a fully-adopted proposal reports nothing MISSING  <-- FALSE-FAIL LOCK"
+else
+  bad "a fully-adopted proposal still reported gaps" "$out"
+fi
+if ! printf '%s' "$out" | grep -q 'WRITE-SURFACE GAP'; then
+  ok "no write-surface gap once every write is gated"
+else
+  bad "gap reported although every write is gated" "$out"
+fi
+
+# an `ask` satisfied by the STRONGER `deny` counts as gated
+RP3="$(mkrepo p3)"
+mkpolicy "$RP3" '' '' '"Bash(demo write:*)", "Bash(demo destroy:*)"'
+out="$(run_perm "$RP3" DEPOT_DIR="$PC")"
+if ! printf '%s' "$out" | grep -q 'WRITE-SURFACE GAP'; then
+  ok "a proposed ask covered by deny is gated, not a gap  <-- FALSE-FAIL LOCK"
+else
+  bad "deny did not satisfy a proposed ask" "$out"
+fi
+
+# prefix coverage: a deployed shorter prefix covers a longer proposal
+RP4="$(mkrepo p4)"; mkpolicy "$RP4" '"Bash(demo r:*)"' '' ''
+out="$(run_perm "$RP4" DEPOT_DIR="$PC")"
+if printf '%s' "$out" | grep -q 'covered by prefix: Bash(demo read:\*)'; then
+  ok "a shorter deployed prefix is reported as covering, not missing"
+else
+  bad "prefix coverage not detected" "$out"
+fi
+
 printf "\n  %d passed, %d failed\n" "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

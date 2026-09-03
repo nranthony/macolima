@@ -368,19 +368,134 @@ do_check() {
   info "source_commit yet (see the header). That check lands with a later step."
 }
 
+# --- permissions (work/0002 V6) ----------------------------------------------
+#
+# INFORMATIONAL AND REPORT-ONLY. It never edits claude-settings.json, and that
+# is a hard rule rather than a default: an artifact must not widen the sandbox
+# by being vendored. A machine proposing an edit to the tool policy is the most
+# it may ever do; adopting any part of the proposal is a human decision, and
+# under ADR-0007 the way to adopt it is to edit the TEMPLATE.
+#
+# WHAT IT CANNOT SEE, stated up front, because a permissions check that implies
+# more coverage than it has is worse than none. This compares the manifest's
+# generated proposal against the TEMPLATE FILE. It cannot see:
+#   * what a running profile has. Policy converges on every `up` (ADR-0007),
+#     but a profile not brought up since a template edit is still behind it —
+#     `scripts/profile.sh <p> converge` closes that without touching containers.
+#   * what the RUNTIME does with a command on none of the three lists. Under
+#     defaultMode:auto that is decided by a classifier, not prompted by
+#     default. Which is exactly why `proposed_ask` exists, and why a WRITE that
+#     is merely ABSENT from every list is a gap rather than a policy.
+do_permissions() {
+  local cand root
+
+  cand="$(channel_candidate)"
+  if [[ -z "$cand" ]]; then
+    skip "no depot channel configured — no permission proposal to report.
+       set \$DEPOT_DIR, or: echo /path/to/depot > $REPO_ROOT/.depot-dir.local"
+    return 0
+  fi
+  root="$(resolve_channel)"
+
+  python3 - "$root/manifest.toml" "$TEMPLATES/claude/claude-settings.json" <<'PY'
+import json, re, sys, tomllib
+
+with open(sys.argv[1], "rb") as fh:
+    manifest = tomllib.load(fh)
+with open(sys.argv[2]) as fh:
+    perms = json.load(fh)["permissions"]
+
+def cmd(pattern):
+    """The command prefix a Bash(...) pattern denotes, or None."""
+    m = re.fullmatch(r"Bash\((.*?):?\*?\)", pattern)
+    return m.group(1) if m else None
+
+def covers(deployed, proposed):
+    """Claude Code's Bash matcher is a string prefix on the command, so a
+    deployed `myclickup status` pattern covers a proposed `myclickup statuses`.
+    That over-match is benign here (both are reads) and must not read as a
+    miss — a check that cries wolf on its first run is a check that gets
+    ignored."""
+    d, p = cmd(deployed), cmd(proposed)
+    return d is not None and p is not None and p.startswith(d)
+
+deployed = {k: perms.get(k, []) for k in ("allow", "ask", "deny")}
+rc_gaps = []
+reported = False
+
+for name, art in sorted(manifest.get("artifact", {}).items()):
+    proposals = {k: art.get("proposed_" + k, []) for k in ("allow", "ask", "deny")}
+    if not any(proposals.values()):
+        continue
+    reported = True
+    print("\n%s %s - manifest proposal vs sandbox_templates/claude/claude-settings.json"
+          % (name, art.get("version", "?")))
+    for kind in ("allow", "ask", "deny"):
+        wanted = proposals[kind]
+        # A write may be gated by `ask` OR by the stronger `deny`; either counts.
+        pool = deployed[kind] + (deployed["deny"] if kind == "ask" else [])
+        missing, via_prefix = [], []
+        for w in wanted:
+            if w in pool:
+                continue
+            hit = next((d for d in pool if covers(d, w)), None)
+            (via_prefix if hit else missing).append((w, hit))
+        print("  %-5s proposed %2d  exact %2d  by-prefix %2d  MISSING %2d"
+              % (kind, len(wanted), len(wanted) - len(missing) - len(via_prefix),
+                 len(via_prefix), len(missing)))
+        for w, hit in via_prefix:
+            print("        covered by prefix: %s  <-  %s" % (w, hit))
+        for w, _ in missing:
+            print("        MISSING: %s" % w)
+            if kind in ("ask", "deny"):
+                rc_gaps.append((name, kind, w))
+
+    # The deployed side may legitimately carry entries the manifest does not
+    # propose; report them rather than treating the proposal as exhaustive.
+    every_proposed = proposals["allow"] + proposals["ask"] + proposals["deny"]
+    for e in deployed["allow"] + deployed["ask"] + deployed["deny"]:
+        c = cmd(e)
+        if c and c.split()[0] == name and e not in every_proposed:
+            print("        deployed but not proposed: %s" % e)
+
+if not reported:
+    print("no artifact in the manifest carries a permission proposal.")
+
+print("\nInformational only - nothing was changed. claude-settings.json is on this")
+print("repo's security-sensitive list; an edit here is a human's, and it goes in")
+print("the TEMPLATE (ADR-0007), never straight into a profile.")
+if rc_gaps:
+    print("\n%d WRITE-SURFACE GAP(S): a write on neither `ask` nor `deny` is NOT"
+          % len(rc_gaps))
+    print("gated by absence - under defaultMode:auto a classifier decides.")
+print("\nThis compares the TEMPLATE, not any running profile: a template change")
+print("reaches profiles on their next `up` (or `scripts/profile.sh <p> converge`).")
+print("\nAdopting ANY line above also needs its command() twin in")
+print("sandbox_templates/antigravity/antigravity-settings.json - the two grammars")
+print("are diffed in both directions by scripts/agent-policy.test.sh, so a")
+print("one-sided edit fails offline rather than leaving agy ungated (ADR-0006).")
+PY
+}
+
 # --- entry point -------------------------------------------------------------
 mode="vendor"; dry=""
 for a in "$@"; do
   case "$a" in
     --check)   mode="check" ;;
+    --permissions) mode="permissions" ;;
     --dry-run) dry="--dry-run" ;;
     -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) die "unknown flag '$a' (valid: --check --dry-run)" ;;
+    *) die "unknown flag '$a' (valid: --check --permissions --dry-run)" ;;
   esac
 done
 
 if [[ "$mode" == "check" ]]; then
   do_check
+  exit 0
+fi
+
+if [[ "$mode" == "permissions" ]]; then
+  do_permissions
   exit 0
 fi
 
