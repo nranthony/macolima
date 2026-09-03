@@ -421,6 +421,23 @@ www.ncbi.nlm.nih.gov
 # sheets.googleapis.com
 
 
+# --- Google Fonts [google-fonts] ---
+# Web-dev font pulls, for a profile rendering HTML. fonts.googleapis.com serves
+# the CSS API (the `@import` / `<link href>` target); fonts.gstatic.com serves
+# the woff2 files that CSS then references. Both are needed or neither works:
+# the CSS resolves to gstatic URLs, so allowing only the API host yields a page
+# that loads its stylesheet and renders no font.
+#
+# Pinned, never `.googleapis.com` or `.gstatic.com` — those wildcards front
+# every Google API and every Google static host respectively, which is the
+# whole surface this list exists to avoid.
+#
+# Commented by default: nothing in this repo fetches fonts. Uncomment for the
+# duration of front-end work in a profile, then recomment.
+# fonts.googleapis.com
+# fonts.gstatic.com
+
+
 # =============================================================================
 # === DROPPED — explicitly NOT in the list ===================================
 # =============================================================================
@@ -429,3 +446,28 @@ www.ncbi.nlm.nih.gov
 #                        clients instead.
 # www.researchgate.net — paywall + auth wall + CAPTCHA. Returns near-zero
 #                        useful content unauthenticated.
+#
+# --- Considered 2026-09-03 from windows-ai-sandbox, and REFUSED -------------
+# openrouter.ai        — [openrouter] there. Its justification in that file is
+# api.openai.com         literally "# claude, fill in here", and both hosts sit
+#                        ALWAYS ON. Importing them would import a permanent
+#                        third-party LLM egress surface with no stated reason
+#                        and no consumer here — every host on this list is a
+#                        place the agent can POST to (ADR-0003). If a profile
+#                        ever needs one, it arrives as its own block with a
+#                        real justification, not as parity.
+#
+# [citation-tools]     — REFUSED AS A BLOCK, not as hosts. 14 of its 16 hosts
+#                        are ALREADY LIVE here under [paperbridge] (crossref,
+#                        openalex, unpaywall, base-search, eutils, ebi, zotero,
+#                        doi.org, arxiv/export.arxiv, bio/med/chemRxiv). A
+#                        second block naming them would mean a future removal
+#                        from one looks effective while the other still permits
+#                        the host — the same duplicate hazard [google-workspace]
+#                        above is written to avoid.
+#                        Its only two genuinely new hosts are the two worth
+#                        having least:
+# generativelanguage.googleapis.com  — a third-party LLM endpoint (POST).
+# api.smith.langchain.com            — LangSmith tracing: it UPLOADS prompts and
+#                        tool traces off-box by design. That is an exfil channel
+#                        with a friendly name. Neither has a consumer here.
