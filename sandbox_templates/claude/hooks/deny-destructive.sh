@@ -366,8 +366,10 @@ case "$tool_name" in
         if [ -n "$payload" ]; then
           old_blob=""
           [ -f "$rp" ] && old_blob=$(cat "$rp" 2>/dev/null)
-          _o=$(mktemp 2>/dev/null) || _o=""
-          _n=$(mktemp 2>/dev/null) || _n=""
+          # Explicit template: macOS mktemp ignores TMPDIR without one, and a failed
+          # mktemp here makes this rule fall through to pass (see the test suite).
+          _o=$(mktemp "${TMPDIR:-/tmp}/deny-destructive-dep.XXXXXX" 2>/dev/null) || _o=""
+          _n=$(mktemp "${TMPDIR:-/tmp}/deny-destructive-dep.XXXXXX" 2>/dev/null) || _n=""
           if [ -n "$_o" ] && [ -n "$_n" ]; then
             dep_names "$old_blob"  > "$_o" 2>/dev/null
             dep_names "$payload"   > "$_n" 2>/dev/null

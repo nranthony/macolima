@@ -237,7 +237,9 @@ out=$(printf '%s' '{"toolCall":{"name":"run_command","args":{"CommandLine":"ls -
 # ---------------------------------------------------------------------------
 # These run the REAL functions out of scripts/profile.sh, not a copy, so the
 # thing under test is the thing `up` executes.
-CTMP=$(mktemp -d) || { echo "mktemp failed"; exit 1; }
+# Explicit template: macOS mktemp ignores TMPDIR without one (bare and -t forms
+# both go to the per-user /var/folders dir), which a confined shell cannot write.
+CTMP=$(mktemp -d "${TMPDIR:-/tmp}/agent-policy-test.XXXXXX") || { echo "mktemp failed"; exit 1; }
 trap 'rm -rf "$CTMP"' EXIT
 
 policy_src() {

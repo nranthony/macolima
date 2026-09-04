@@ -33,7 +33,8 @@ CANON="$SCRIPT_DIR/sandbox_templates/common/agent-notice.md"
 [[ $# -ge 1 ]] || { echo "usage: $0 <target-file-or-dir> [...]" >&2; exit 2; }
 
 # Assemble the full block (markers + canonical content) once, in a temp file.
-block="$(mktemp)"
+# Explicit template: macOS mktemp ignores TMPDIR without one.
+block="$(mktemp "${TMPDIR:-/tmp}/agent-notice.XXXXXX")"
 trap 'rm -f "$block"' EXIT
 {
   printf '%s\n' "$BEGIN_MARK"
@@ -66,7 +67,7 @@ sync_one() {
 
   # Existing file WITH the marker → replace the region in place.
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/agent-notice.XXXXXX")"
   awk -v blockfile="$block" -v beg="$BEGIN_MARK" -v end="$END_MARK" '
     function dumpblock(  line){ while ((getline line < blockfile) > 0) print line; close(blockfile) }
     index($0, beg) == 1 { dumpblock(); skip=1; next }

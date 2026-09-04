@@ -63,7 +63,9 @@ lacks() {  # <label> <haystack> <needle>
   fi
 }
 
-TMP=$(mktemp -d) || exit 1
+# Explicit template: macOS mktemp ignores TMPDIR without one (bare and -t forms
+# both go to the per-user /var/folders dir), which a confined shell cannot write.
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/webfetch-test.XXXXXX") || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
 # ---------------------------------------------------------------------------

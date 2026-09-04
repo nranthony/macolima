@@ -82,7 +82,9 @@ check "notice names no host-side mechanism  <-- LOCK" \
   "$(mechanisms "$NOTICE" | tr '\n' ' ' | sed 's/ $//')" ""
 
 # --- the rules bite: a fixture carrying each defect must be caught ---
-FIX=$(mktemp -d) || exit 1
+# Explicit template: macOS mktemp ignores TMPDIR without one (bare and -t forms
+# both go to the per-user /var/folders dir), which a confined shell cannot write.
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/agent-notice-test.XXXXXX") || exit 1
 trap 'rm -rf "$FIX"' EXIT
 
 cat > "$FIX/relpath.md" <<'FIXTURE'

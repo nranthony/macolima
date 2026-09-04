@@ -11,7 +11,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 HOOK="$HERE/deny-destructive.sh"
 
 # Isolate warn-log writes from real container path.
-export DENY_DESTRUCTIVE_LOG="$(mktemp -t deny-destructive-test.XXXXXX.log)"
+# Explicit template: macOS mktemp ignores TMPDIR without one (bare and -t forms
+# both go to the per-user /var/folders dir), which a confined shell cannot write.
+export DENY_DESTRUCTIVE_LOG="$(mktemp "${TMPDIR:-/tmp}/deny-destructive-test.XXXXXX")"
 trap 'rm -f "$DENY_DESTRUCTIVE_LOG"' EXIT
 
 PASS=0
@@ -170,7 +172,7 @@ fi
 # rather than shipped. Fixtures are real files on disk because the rule
 # subtracts the manifest's CURRENT dependency set from the payload's.
 # ============================================================================
-FIX=$(mktemp -d -t deny-destructive-fix.XXXXXX)
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/deny-destructive-fix.XXXXXX")
 trap 'rm -f "$DENY_DESTRUCTIVE_LOG"; rm -rf "$FIX"' EXIT
 
 cat > "$FIX/package.json" <<'JSON'
@@ -543,7 +545,7 @@ printf "\n-- an unknown dialect FAILS LOUDLY (work/0009 is already scheduled) --
 # nothing reported. exit 2 with an empty stdout is the one answer that is safe
 # in every harness — claude treats 2 as "block and show stderr", agy blocks on
 # any non-zero exit, and an unknown harness gets no guessed decision.
-UNK_ERR=$(mktemp)
+UNK_ERR=$(mktemp "${TMPDIR:-/tmp}/deny-destructive-unk.XXXXXX")
 UNK_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls"}}' \
   | "$HOOK" --dialect=opencode 2>"$UNK_ERR"); UNK_RC=$?
 if [ "$UNK_RC" -eq 2 ]; then
