@@ -265,3 +265,15 @@ The handoff §9 asks for a report. Accumulated so far:
    (`docker-compose.<profile>.yml`), currently scoped out of
    `private-names-check.sh` with the reason recorded.
 5. **Send §3's fourteen items back to W.**
+6. **Three judgement calls from the 2026-09-03 re-scan, default no.** Not GPU
+   work despite where §2 files them; each is a per-profile need, not a port.
+   - ~~*Baked CPython 3.12/3.13 via uv*~~ — **ADOPTED 2026-09-03**, patch
+     level unpinned so rebuilds pick up security releases. Dockerfile block
+     sits above the myclickup wheel; §2's exclusion of it is superseded.
+   - *PDF stack* (pandoc + WeasyPrint + tesseract + poppler, metric-compatible
+     fonts, `common/pdf-styles/legal.css`) — travels as ONE unit; pairs with
+     `[google-fonts]`. Only if a profile needs document generation.
+   - *`[grants-gov]` / `[quarto-install]`* — profile-specific blocks. Add
+     `[grants-gov]` pinned to the `api.*` hosts when a profile needs it;
+     `[quarto-install]` is `[git]`'s hosts and needs nothing until Quarto is
+     installed.

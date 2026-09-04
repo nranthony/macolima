@@ -411,6 +411,47 @@ RUN set -eux; \
 USER root
 RUN usermod -s /usr/bin/zsh agent
 
+# ---------- managed CPython 3.12 + 3.13 (uv) --------------------------------
+# Ported from windows-ai-sandbox, adopted 2026-09-03 (work/0005 §8.6).
+#
+# BAKED rather than left to first use because the download needs the GitHub
+# release-asset hosts, which are CLOSED gated blocks in proxy/allowed_domains.txt.
+# The build bypasses Squid; a running container does not. Leaving it to runtime
+# means an egress window on every recreate — and a runtime `uv python install`
+# lands in the container's writable layer and dies on recreate anyway, while the
+# workspace .venv/bin/python is a SYMLINK into it, so the repo reads as broken
+# rather than the interpreter as missing.
+#
+# TWO versions so a workspace pinning either needs no egress: 3.13 for new work,
+# 3.12 at a current patch level beside the system /usr/bin/python3 (3.12.3),
+# which stays the interpreter for the vendored wheel below. ~130 MB each.
+# DELIBERATELY UNPINNED at the patch level: `uv python install 3.12` resolves
+# the newest patch uv knows, so a rebuild picks up security releases. What it
+# resolves is decided by the uv version installed above, so a `--no-cache`
+# rebuild is the way to move it. Integrity is uv's own: every
+# python-build-standalone archive is checked against the sha256 embedded in uv,
+# which is why there is no checksum step here (CLAUDE.md checklist).
+#
+# /opt for the same reason UV_TOOL_DIR uses it: exec-allowed and NOT shadowed by
+# a mount. /home/agent/.cache is the obvious-looking choice and is wrong — it is
+# the `cache` named volume, so anything baked there is invisible the instant the
+# container starts. UV_PYTHON_BIN_DIR is the same trap one level down: the
+# convenience symlinks default to ~/.local/bin, a tmpfs here, so they would be
+# baked and then hidden at container start, leaving working interpreters that
+# nothing on PATH points at. Pinned to /usr/local/bin, exactly as UV_TOOL_BIN_DIR.
+#
+# The `su … agent` check is the load-bearing one, as for myclickup below: root
+# writes these, UID 1000 runs them, and a mode mistake must fail the build.
+#
+# ABOVE the myclickup wheel deliberately: that payload is the most frequently
+# re-vendored artifact in the tree, and below it every bump would re-download
+# both interpreters.
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python \
+    UV_PYTHON_BIN_DIR=/usr/local/bin
+RUN uv python install 3.12 3.13 \
+ && uv python list --only-installed \
+ && su -s /bin/sh agent -c 'python3.12 --version && python3.13 --version'
+
 # ---------- myclickup — vendored ClickUp CLI (OPTIONAL payload) --------------
 # Zero-dependency pure-Python wheel from the PRIVATE nranthony/myclickup repo,
 # delivered through the depot channel. `docker-compose.yml` sets

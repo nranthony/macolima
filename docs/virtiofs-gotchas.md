@@ -13,6 +13,10 @@ Same root cause, same fix: named Docker volumes that live in the VM's ext4 and b
 
 If you ever add another package extracted by uv/pip/npm that explodes on permission errors during `--recreate`, **don't add it as another bind mount** — make it a named volume too, and pre-create the dir in the Dockerfile with `chown agent:agent`.
 
+## `.cache` being a named volume means uv cannot hardlink into `/workspace`
+
+Corollary of the above. uv fills a venv by hardlinking from `~/.cache/uv` (named volume, VM ext4) into the venv under `/workspace` (virtiofs bind mount). That is a cross-mount link, so the kernel returns EXDEV and uv warns `Failed to hardlink files; falling back to full copy` on every install. The copy is what happens either way; `UV_LINK_MODE=copy` in the agent's compose `environment` just stops uv trying the link first and misdirecting the reader toward a storage fault. Runtime only — not set in the Dockerfile, where there are no bind mounts and hardlinks work.
+
 ## `.claude.json` single-file bind mount needs chmod 644 AND valid JSON
 
 Single-file bind mounts on Colima virtiofs don't remap UIDs the same way directory mounts do. A 600 file on the host appears as `root:root 600` inside the container → agent can't read. 644 → appears as `agent:agent 644`.

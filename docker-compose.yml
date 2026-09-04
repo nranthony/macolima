@@ -136,6 +136,19 @@ services:
       # Route git's global config through the mounted .config/ dir so it persists
       # across container recreates AND avoids single-file bind-mount EBUSY.
       - GIT_CONFIG_GLOBAL=/home/agent/.config/git/config
+      # UV_LINK_MODE=copy: uv populates a venv by hardlinking out of its cache,
+      # and here that can NEVER work. The cache is a named volume (VM ext4) and
+      # every workspace venv sits on the virtiofs bind mount at /workspace, so
+      # the link is cross-mount and Linux returns EXDEV. uv's default then
+      # emits "Failed to hardlink files; falling back to full copy" on EVERY
+      # install in EVERY profile, and its suggested causes ("different
+      # filesystems") send the reader looking for a storage problem that does
+      # not exist. The copy happens regardless; this only stops uv attempting
+      # the link first and warning about it. Runtime only — the build has no
+      # bind mounts, so hardlinking works there and this is deliberately not
+      # in the Dockerfile. Ported from windows-ai-sandbox; see
+      # docs/virtiofs-gotchas.md.
+      - UV_LINK_MODE=copy
     depends_on:
       - egress-proxy
 
