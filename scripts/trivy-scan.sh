@@ -37,7 +37,7 @@ run_secret() {
   # (db.env), lives outside this repo in practice, but skip here too in
   # case a symlink or stray file ends up under the repo root.
   trivy fs --scanners secret \
-    --skip-dirs "profiles,temp_audit_package" \
+    --skip-dirs "profiles,temp_audit_package,dashboard/.venv" \
     --exit-code 0 "$REPO_DIR"
 }
 

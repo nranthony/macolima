@@ -14,27 +14,48 @@
 # =============================================================================
 
 vulnerabilities:
-  # --- mongosh-bundled transitive deps -------------------------------------
-  # mongosh ships vendored node_modules and rolls them up slowly. In this
-  # sandbox mongosh only talks to the per-profile mongo:27017 sibling on
-  # sandbox-internal (a DB we control) — none of these CVEs have a reachable
-  # exploit path: no untrusted FTP server, no untrusted template input, no
-  # HTTP router, no attacker-supplied glob patterns. Re-check in 90 days.
-  - id: CVE-2026-39983
-    statement: "mongosh-bundled basic-ftp 5.2.0 CRLF injection; agent only talks to internal mongo, no FTP."
-    expired_at: 2026-07-21
-  - id: GHSA-6v7q-wjvx-w8wg
-    statement: "mongosh-bundled basic-ftp CRLF arbitrary FTP command; same reasoning as CVE-2026-39983."
-    expired_at: 2026-07-21
-  - id: GHSA-rp42-5vxx-qpwr
-    statement: "mongosh-bundled basic-ftp DoS via Client.list(); no external FTP use."
-    expired_at: 2026-07-21
-  - id: CVE-2026-4800
-    statement: "mongosh-bundled lodash 4.17.23 template injection; no untrusted template input path."
-    expired_at: 2026-07-21
-  - id: CVE-2026-4926
-    statement: "mongosh-bundled path-to-regexp 8.3.0 ReDoS; mongosh exposes no HTTP router."
-    expired_at: 2026-07-21
+  # --- npm / pnpm bundled transitive deps ----------------------------------
+  # npm and pnpm each vendor their own node_modules; the fixes exist upstream
+  # in the libraries but neither tool has cut a release carrying them. Both
+  # are installed at build time from `npm@latest` / `pnpm@10`, so a rebuild
+  # picks the fix up the moment a release lands — nothing to pin. Exposure is
+  # a malicious package hanging an install (DoS) or an SSRF whose only
+  # reachable hosts are the Squid allowlist. Re-check in 30 days.
+  - id: CVE-2026-14257
+    statement: "npm/pnpm-bundled brace-expansion DoS via expand(); install-time only, no untrusted glob input."
+    expired_at: 2026-10-04
+  - id: CVE-2026-69152
+    statement: "npm/pnpm-bundled brace-expansion DoS, follow-up to CVE-2026-14257; same reasoning."
+    expired_at: 2026-10-04
+  - id: CVE-2026-69192
+    statement: "npm/pnpm-bundled ip-address SSRF via inconsistent parsing; all egress is Squid-allowlisted."
+    expired_at: 2026-10-04
+  - id: CVE-2026-73566
+    statement: "npm/pnpm-bundled node-tar DoS via crafted long-path archive; install-time only."
+    expired_at: 2026-10-04
+  # --- gh (gobinary) ---------------------------------------------------------
+  # gh 2.100.0 statically links golang.org/x/mod v0.39.0; the fix is v0.40.0
+  # and only a new gh release can carry it. gh never consults GOSUMDB at
+  # runtime — the vulnerable sumdb/tlog code path is dead in this binary.
+  - id: CVE-2026-56864
+    statement: "gh-linked golang.org/x/mod GOSUMDB module-content forgery; gh does not use sumdb at runtime."
+    expired_at: 2026-10-04
+  - id: CVE-2026-56865
+    statement: "gh-linked golang.org/x/mod sumdb/tlog verification bypass; same reasoning as CVE-2026-56864."
+    expired_at: 2026-10-04
+  # --- pip vendored inside the uv-managed CPython 3.12 / 3.13 ----------------
+  # python-build-standalone ships pip 26.2.1 under /opt/uv/python/*/site-packages
+  # and pip vendors msgpack. `uv venv` creates environments WITHOUT pip, so
+  # agent projects never import this copy; it exists only for a direct
+  # `python3.1x -m pip`, which the uv workflow does not use. setuptools 70.3.0
+  # is reported alongside it with no path — no file at that version was found
+  # in the image, so it is likely a SBOM attribution; re-check with the pip bump.
+  - id: GHSA-6v7p-g79w-8964
+    statement: "pip-vendored msgpack OOB read on Unpacker reuse; uv venvs ship no pip, path unused."
+    expired_at: 2026-10-04
+  - id: CVE-2025-47273
+    statement: "setuptools PackageIndex path traversal; PackageIndex is the legacy easy_install path, unused by uv/pip installs."
+    expired_at: 2026-10-04
 
 misconfigurations:
   # --- Dockerfile cosmetic -------------------------------------------------
