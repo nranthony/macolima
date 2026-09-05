@@ -21,22 +21,26 @@ This directory contains the design plans, operational recipes, and architectural
 *   **[vscode-leakage.md](./vscode-leakage.md)**: Dev Containers leakage hardening — in-container `openssh-client` purge, `remoteEnv`, `ensure_state` scrub, tripwire posture.
 *   **[virtiofs-gotchas.md](./virtiofs-gotchas.md)**: Colima virtiofs failure modes — named volumes for `.cache`/`.vscode-server`, `.claude.json` perms, `.gitconfig` EBUSY, tmpfs uid.
 *   **[compose-network-ipam.md](./compose-network-ipam.md)**: Why IPAM changes need `down`+`rebuild`, and the DNS-exfil side channel the static subnet closes.
+*   **[deny-destructive-hook-plan.md](./deny-destructive-hook-plan.md)**: The `PreToolUse` hook's ruleset and maintenance record — the file the hook script, the settings template and the audit probe all cite. Shipped; kept here because extending the ruleset starts from it.
 *   **[permissions-model.md](./permissions-model.md)**: Two-phase planning/autonomous workflow, deny list as defense-in-depth, `WebFetch` exfil channel, `with-egress.sh`.
 *   **[web-read-broker.md](./web-read-broker.md)**: The `webfetch` broker — why the agent reads the web through a hosted reader API instead of a wider allowlist, the backends, and key handling.
 *   **[sibling-repo-relationship.md](./sibling-repo-relationship.md)**: `windows-ai-sandbox` — what is shared, what diverges, and which rows cause a flaw if copied across. Includes the bash 3.2 filter every ported script must pass.
 *   **[sandbox-design-notes.md](./sandbox-design-notes.md)**: Background on rootfs writability, disabled bwrap, commit identity workflow, Colima VM lifecycle, gh/glab integrity pinning, bash 3.2 compat.
 
-## 🚀 Active Implementation Plans
-*   **[deny-destructive-hook-plan.md](./deny-destructive-hook-plan.md)**: `PreToolUse` hook closing command-bypass holes the prefix matcher can't see (`find -delete`, `dd of=`, `git clean -fdx`, hook/settings tamper). v1 host-side shipped 2026-05-14; image rebuild + per-profile `reset-settings` pending.
-*   **[add-gemini-plan.md](./add-gemini-plan.md)**: Strategy for integrating the Google Gemini CLI alongside Claude Code in the sandbox.
-*   **[control-dashboard-plan.md](./control-dashboard-plan.md)**: Design for a host-side Streamlit dashboard to manage profile lifecycle and proxy settings.
+## 🚀 Plans
+*   **[control-dashboard-plan.md](./control-dashboard-plan.md)**: Design for the host-side Streamlit dashboard that manages profile lifecycle and proxy settings (`just dashboard`).
+*   **[../work/](../work/README.md)**: In-flight implementation items, one folder each (`spec.md` → `plan.md` → `notes.md`). Merged items move to `work/archive/`; the README indexes both.
 
 ## 🧬 Profile Seeds & Templates
 *   **[numerai-profile-seed.md](./numerai-profile-seed.md)**: Hardening and setup guidance for a Numerai tournament research profile.
 *   **[profile-seed-database.md](./profile-seed-database.md)**: Worked example of seeding a profile's databases — schema setup, a backfill pipeline run, and the db-reset protocol.
 
 ## ⏳ Future & Deferred Plans
+*   **[_future/db-least-privilege-plan.md](./_future/db-least-privilege-plan.md)**: Staged, decisions locked, not executed — split the agent off the DB superuser creds it holds via `db.env`. Execute before a profile holds real data.
 *   **[_future/overlay-project-plan.md](./_future/overlay-project-plan.md)**: Architectural design for per-profile image customization (overlays) to handle heavy dependencies.
+
+## 🗄️ Archive
+*   **[_archive/](./_archive/)**: Shipped plans and closed handoffs, kept for provenance — the Gemini CLI plan (superseded by `agy`), the two `MACOLIMA_in-transit_*` port-forward handoffs (verified 2026-07-02), and an April 2026 in-container audit report. Nothing here is current intent.
 
 ---
 *For core system invariants and security boundaries, always refer to [CLAUDE.md](../CLAUDE.md) in the project root.*

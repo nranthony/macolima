@@ -183,7 +183,7 @@ pane that survives reruns via `st.session_state`:
 - `build` (rebuild shared image — affects all profiles)
 - `rebuild` (this profile's containers)
 - `clean`, `clean --deep`
-- `reset-settings`, `reset-skills`
+- `converge` (replaced `reset-settings` / `reset-skills`, ADR-0007)
 - `wipe --yes` (gated behind a typed-name confirm step, same as the
   script)
 
@@ -252,7 +252,7 @@ Edits via a structured form (toggles for `defaultMode`,
 `sandbox.enabled`, allow/deny pattern lists) with a raw-JSON fallback.
 Validates as JSON before writing. After save: prompt to restart the
 agent container so the change takes effect. Surfaces the
-`sandbox_templates/claude/claude-settings.json` template and `reset-settings` button.
+`sandbox_templates/claude/claude-settings.json` template and `converge` button.
 
 ### Verify & audit
 

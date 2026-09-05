@@ -80,6 +80,14 @@ written against 5.x. Three hazards, all measured in this repo:
    double-quoted command substitution terminates the OUTER quote in 3.2.57,
    leaving the result unquoted and brace-expanded. Found in one assertion of a
    ported test, where it silently split one argument into two.
+4. **Apple `mktemp` ignores `TMPDIR` unless given an explicit template.** Both
+   the bare form and `mktemp -t prefix` resolve through `confstr` to the
+   per-user `/var/folders/…/T` dir, so a confined shell (Claude Code's own
+   sandbox, for one) gets EPERM and a test suite reports the fixture failure as
+   a rule failure. Always write `mktemp -d "${TMPDIR:-/tmp}/name.XXXXXX"` —
+   GNU `mktemp` in the container accepts the same form. Measured 2026-09-04
+   across seven sites; the cross-device staging hazard in `profile.sh` is the
+   same tool, different trap.
 
 ## How to mine the sibling for flaws we might miss
 
@@ -130,7 +138,7 @@ Note the two `comm` invocations use temp files rather than process substitution:
 
 ## The live backlog in both directions
 
-- [`work/0005`](../work/0005-w-parity-backlog/spec.md) — sibling → here. The
+- [`work/0005`](../work/archive/0005-w-parity-backlog/spec.md) — sibling → here. The
   ranked port backlog, re-validated against what has already landed rather than
   restating their handoff. Its §2 records what is **deliberately excluded** (the
   whole GPU/ML stack, `glab`, `beads`, the PDF/OCR stack) so absence is not

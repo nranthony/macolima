@@ -78,6 +78,8 @@ scripts/trivy-scan.sh                    # all three (default)
 scripts/trivy-scan.sh config             # Dockerfile/compose misconfig only
 scripts/trivy-scan.sh image              # CVE scan of macolima:latest
 scripts/trivy-scan.sh 2>&1 | tee /tmp/trivy-$(date +%Y%m%d).log  # keep a record
+# NOTE: the wrapper passes --exit-code 0 to every scan, so it ALWAYS exits 0.
+# Read the log's Total: lines (or --format json) — the exit code carries no signal.
 
 # Stage sandbox config into a profile workspace for an in-container audit
 scripts/stage-audit-package.sh <p>              # stage /workspace/temp_audit_package/

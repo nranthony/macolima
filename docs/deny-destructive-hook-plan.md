@@ -5,7 +5,12 @@ posture" and the gotcha "find -delete and the hook self-protection model".
 This file is the design-and-maintenance record for the `PreToolUse` hook
 that closes a class of deny-list bypasses the prefix matcher cannot see.
 
-## Status (2026-05-14)
+## Status (2026-05-14; addendum 2026-09-04)
+
+> **2026-09-04:** every item under "What's pending" below has shipped. The hook is
+> in the image, `verify-sandbox.sh` checks it, and the harness is now 207
+> assertions across two dialects (`deny-destructive.test.sh`, `agent-policy.test.sh`).
+> The list is kept as the record of what v1 still owed at the time.
 
 **v1 host-side shipped.** Code, settings wiring, in-image install path,
 verify-sandbox tripwire, and audit probe all landed. End-to-end runtime
@@ -29,7 +34,7 @@ What's pending:
 - `scripts/profile.sh build` (rebuild base image with the hook baked in).
 - `scripts/profile.sh <p> rebuild` per running profile (so they pick up the
   new image).
-- `scripts/profile.sh <p> reset-settings` per existing profile (so the
+- `scripts/profile.sh <p> converge` (was `reset-settings`, removed by ADR-0007) per existing profile (so the
   `hooks` block in `sandbox_templates/claude/claude-settings.json` is copied into the live
   per-profile `claude-home/settings.json` — `ensure_state()` only seeds
   if the file is absent, preserving customizations). New profiles pick it

@@ -141,7 +141,7 @@ test-dashboard:
 # `just` aborts the recipe on the first failing line, so a red suite stops the
 # run and names itself. Run one directly if you want the rest to continue.
 
-# every offline suite (ten files; the run prints the per-file totals)
+# every offline suite (eleven commands: nine test files, the name gate, and the CLAUDE.md sync check; the run prints per-file totals)
 test-offline:
     bash {{justfile_directory()}}/sandbox_templates/claude/hooks/deny-destructive.test.sh
     bash {{justfile_directory()}}/scripts/depaudit.test.sh

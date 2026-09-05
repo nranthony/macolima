@@ -73,7 +73,7 @@ Iterate over `audit.json`'s `results`. The verdict semantics are:
 |---|---|
 | `OK` | Don't enumerate. Summarize as "§N — N invariants OK." |
 | `DRIFT` | Cross-reference CLAUDE.md. Decide: real regression / tripwire bug / cosmetic. Cite file:line. Propose minimum-diff fix. Tag with audit-letter (H*/M*/L*) when matching a prior round. |
-| `WEAK` | Known weak spot. Reference the upstream TODO if there is one (e.g. DB superuser cred → TODO.md "agent_rw split"). Don't elevate. |
+| `WEAK` | Known weak spot. Reference the upstream TODO if there is one (e.g. DB superuser cred → `docs/_future/db-least-privilege-plan.md`). Don't elevate. |
 | `UNKNOWN` | The probe couldn't disambiguate. May warrant ONE small targeted Python snippet in `/tmp` to disambiguate; cite it. |
 | `N/A` | Optional component absent (DB sibling not running, etc.). Note, don't elevate. |
 | `INFO` | Descriptive (per-profile additions, env shape). Pass through to the report if user-relevant. |

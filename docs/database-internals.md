@@ -36,7 +36,7 @@ Keep the compose mount as `postgres-data:/var/lib/postgresql:rw` (NOT `.../data`
 
 ## DB caps are dropped, not default
 
-Both `postgres` and `mongo` services run with `cap_drop: ALL` + `cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]` — the four the entrypoints actually need (chown the data dir on init, drop privs from root → postgres / mongodb). Don't fall back to the default Docker cap set "for safety"; the default includes `CAP_NET_RAW`, which is never needed here and is a soft landing pad if the agent's superuser creds get misused (the `TODO.md` least-privilege split is the upstream fix for that misuse vector).
+Both `postgres` and `mongo` services run with `cap_drop: ALL` + `cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]` — the four the entrypoints actually need (chown the data dir on init, drop privs from root → postgres / mongodb). Don't fall back to the default Docker cap set "for safety"; the default includes `CAP_NET_RAW`, which is never needed here and is a soft landing pad if the agent's superuser creds get misused (the `docs/_future/db-least-privilege-plan.md` split is the upstream fix for that misuse vector).
 
 ## `db.env` permissions
 
@@ -89,4 +89,4 @@ Set both when adding a service. Do not "tidy" one away.
 
 ## TODO — least-privilege split
 
-The agent currently holds DB admin creds via `db.env`. See `TODO.md`.
+The agent currently holds DB admin creds via `db.env`. See `docs/_future/db-least-privilege-plan.md`.
