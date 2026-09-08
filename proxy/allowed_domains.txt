@@ -41,6 +41,12 @@ statsig.anthropic.com
 api.claude.com
 platform.claude.com
 claude.ai
+# Docs. Verified 2026-09-08: it is a pure redirector — GET docs.claude.com/en/home
+# 301s to platform.claude.com/docs/en/home, which is the line above. Listed
+# anyway because every doc link in the wild is written against docs.claude.com,
+# and Squid denies the FIRST hop: without it the agent sees a TCP_DENIED on a
+# URL whose real target is already allowed.
+docs.claude.com
 
 # --- ClickUp API [clickup] ---
 # ALWAYS ON for the same reason [antigravity] is: the `myclickup` CLI is baked
@@ -248,9 +254,9 @@ api.github.com
 # .files.pythonhosted.org
 # .astral.sh
 # # --- Node.js / npm [npm] ---
-# registry.npmjs.org
-# nodejs.org
-# deb.nodesource.com
+registry.npmjs.org
+nodejs.org
+deb.nodesource.com
 # --- OS packages — only if apt-get inside the container [apt] ---
 # Pinned hosts (per CLAUDE.md discipline). The Ubuntu archive infrastructure
 # is well-known and fixed: apt-get only hits the two hosts below. Add Debian
@@ -436,6 +442,76 @@ sheets.googleapis.com
 # duration of front-end work in a profile, then recomment.
 # fonts.googleapis.com
 # fonts.gstatic.com
+
+
+# --- Cloudflare: docs, Wrangler, Workers/Pages deploys [cloudflare] ---
+# Everything a profile needs to build, deploy and debug a site on Cloudflare:
+# read the docs, run `wrangler login`, push a Worker/Pages build, tail its
+# logs, and fetch the deployed URL back. Pinned hosts only — never
+# `.cloudflare.com`, which fronts the dashboard, every product API, the
+# community forum (UGC) and the marketing site in one line.
+#
+# Verified live 2026-09-08: developers 200, api /client/v4/user 401-class
+# (exists, needs auth), dash 403 (bot-blocked at the root; the OAuth endpoint
+# under it is what Wrangler uses), tail.developers.workers.dev 400 (exists,
+# rejects a bare GET — it is a websocket endpoint).
+#
+# READ-ONLY. Safe on its own; the docs site is static vendor content.
+developers.cloudflare.com
+#
+# WRITE SURFACE — read this before uncommenting the next two.
+# api.cloudflare.com/client/v4 is the whole Cloudflare control plane behind one
+# token: DNS records, zone settings, Workers/Pages/D1/R2/KV, cache purge, and
+# deletion of any of them. dash.cloudflare.com is where `wrangler login` runs
+# the OAuth dance (/oauth2/auth, /oauth2/token). Together they are how a deploy
+# happens — and how a mistake or a prompt-injected instruction reaches your
+# production DNS. Scope the API token to the one zone/account and the specific
+# permissions the work needs (Workers Scripts:Edit, Pages:Edit, DNS:Edit only
+# if the task is DNS); do NOT put a Global API Key in secrets.env.
+# api.cloudflare.com
+# dash.cloudflare.com
+#
+# `wrangler tail` streams a deployed Worker's live logs. Separate host because
+# the API only hands back a websocket URL under this parent; without it, tail
+# fails after a successful API call, which reads like a broken token.
+# tail.developers.workers.dev
+#
+# THE DEPLOYED SITE ITSELF. `*.workers.dev` and `*.pages.dev` are SHARED UGC
+# namespaces — any Cloudflare user can publish under them, so the wildcards
+# would hand the agent an open publishing platform to read from and POST to.
+# Do not uncomment a bare `.workers.dev` / `.pages.dev`. Pin YOUR OWN
+# deployment host instead, one line, replacing the placeholders:
+# <project>.<subdomain>.workers.dev
+# <project>.pages.dev
+#
+# --- Cloudflare hosts deliberately NOT enabled, each for a stated reason -----
+# sparrow.cloudflare.com — Wrangler's telemetry endpoint. It uploads command
+#                        usage off-box. Turn it OFF at the source instead:
+#                        `wrangler telemetry disable` (or WRANGLER_SEND_METRICS
+#                        =false). A TCP_DENIED here is the correct outcome and
+#                        does not fail a deploy.
+# community.cloudflare.com — forum, i.e. user-generated content the agent would
+#                        read as instructions. Route it through the `webfetch`
+#                        broker like any other UGC page ([web-read] above).
+# www.cloudflarestatus.com — outage checking is a human's job in a browser; the
+#                        agent has no action to take on the answer.
+# blog.cloudflare.com    — marketing/announcements. The docs site is canonical.
+# <account>.r2.cloudflarestorage.com — R2's S3-compatible endpoint. Only needed
+#                        if the project talks to R2 with an S3 client rather
+#                        than through the API/bindings. Add the exact account
+#                        host if so; never `.r2.cloudflarestorage.com`, which
+#                        fronts every tenant's bucket endpoint.
+# challenges.cloudflare.com — Turnstile widget host. A browser needs it; a
+#                        deploy does not. Add it only for a profile actually
+#                        rendering a Turnstile-protected page in Playwright.
+#
+# WHAT THIS BLOCK DOES NOT COVER: installing Wrangler at all. `npm i -D
+# wrangler` (and the workerd binary it pulls) needs registry.npmjs.org from the
+# PLANNING-MODE [npm] block above — uncomment that for the install, recomment
+# after. Same for cloning a starter template ([git]).
+#
+# Commented by default apart from the docs host: nothing in this repo deploys
+# to Cloudflare. Uncomment for the duration of the work, then recomment.
 
 
 # =============================================================================
