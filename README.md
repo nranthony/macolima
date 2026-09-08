@@ -302,13 +302,13 @@ COMPOSE_PROFILES=db-all scripts/profile.sh <p> up
 
 **Multiple projects in one profile:** one Postgres server hosts many databases. The default `postgres` database is created automatically; create project databases explicitly with `CREATE DATABASE <name> OWNER agent;` (run via `psql -U agent -d postgres`) and add one DSN per project in `db.env` — same host/user/password, just different database name at the end. See `sandbox_templates/common/db.env.template` for examples.
 
-Inside the agent the DBs are reachable as `postgres:5432` and `mongo:27017`; `psql` and `mongosh` are preinstalled, and the creds come in via env. For host GUI access (TablePlus, Compass), uncomment the `ports:` block on the relevant service — loopback-only, never `0.0.0.0`.
+Inside the agent the DBs are reachable as `postgres:5432` and `mongo:27017`; `psql` and `mongosh` are preinstalled, and the creds come in via env. For host GUI access (TablePlus, Compass), see "Web UIs" below — the DB services sit on the same `internal: true` network as the agent, so the commented `ports:` blocks in `docker-compose.yml` do NOT work as written; they need the service on a non-internal network first. Either way: loopback-only, never `0.0.0.0`.
 
 Backups: `pg_dump` / `mongodump` into `/workspace`, which is the one bind mount on the external drive and survives a VM rebuild. Current caveat: the agent holds DB **admin** creds — see `CLAUDE.md` for the planned least-privilege split. The DB containers themselves run with `cap_drop: ALL` and only the four caps their entrypoints actually need (`CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID`); `CAP_NET_RAW` and the rest of Docker's default cap set are dropped, so a worst-case in-DB compromise has fewer kernel surfaces to push on.
 
 ## Web UIs (Streamlit, Dash, Jupyter, dashboards)
 
-Default path is **VS Code Dev Containers port forwarding** — when attached, any port a process binds inside the container is auto-forwarded to `localhost:<same-port>` on your Mac via the `docker exec` channel. No compose changes, no open host ports. Bind to `0.0.0.0` inside the container so VS Code sees the listener:
+Default path is **VS Code Dev Containers port forwarding** — when attached, any port a process binds inside the container is auto-forwarded to `localhost:<same-port>` on your Mac via the `docker exec` channel. No compose changes, no open host ports. Bind to `0.0.0.0` inside the container so VS Code reliably auto-detects the listener (a `127.0.0.1` bind is still reachable — the forwarder runs inside the container — but detection is less dependable):
 
 ```bash
 streamlit run app.py --server.address 0.0.0.0
@@ -316,7 +316,13 @@ streamlit run app.py --server.address 0.0.0.0
 # jupyter:       jupyter lab --ip 0.0.0.0 --no-browser
 ```
 
-For non-VS Code use, add a loopback port to the `claude-agent` service: `ports: ["127.0.0.1:8501:8501"]`. This is inbound from your Mac only; it does not grant the agent any new outbound capability.
+Verified end-to-end 2026-09-08: `http://127.0.0.1:5173` on the Mac served a Vite dev server running inside `claude-agent-<profile>`, with no `ports:` block anywhere in the compose file — `lsof` showed VS Code itself holding the host-side listener.
+
+That channel is the ONLY thing that reaches the agent, and the reason it works is that it is not Docker networking at all — VS Code tunnels over `docker exec`, so `internal: true` never sees it. Set `strictPort` (Vite) or the equivalent: VS Code forwards the port you named, so a server that silently slides to the next free port forwards nothing.
+
+**Do NOT add `ports:` to `claude-agent` — it is a silent no-op.** `sandbox-internal` is `internal: true`, and Docker discards a published port on a container attached only to an internal network. Verified 2026-09-08 with two identical containers: on a normal bridge `docker ps` shows `127.0.0.1:18174->8000/tcp` and curl from the Mac returns 200; on an internal network the same `-p` yields `8000/tcp` with no host binding and nothing to connect to. No error is printed either time.
+
+For non-VS Code host access, put a **relay container** between the two worlds — dual-homed on `sandbox-internal` and a normal bridge, publishing the loopback port and forwarding to the agent's `172.30.${SANDBOX_OCTET}.x:<port>`. The relay is the only thing on a routable network; the agent keeps `internal: true` and gains no outbound capability, because the relay carries ingress only. Verified working 2026-09-08 against a Vite server in a live profile.
 
 ## Authentication inside a profile
 

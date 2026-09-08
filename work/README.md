@@ -15,7 +15,9 @@ Numbering continues from the highest archived item.
 
 ## Current items
 
-_None in flight._
+| # | Item | State |
+|---|---|---|
+| [0006](0006-pnpm-11-12-upgrade/spec.md) | pnpm 10 → 12 upgrade (config relocation is the real cost) | spec only, not scheduled |
 
 ## Archived
 
@@ -26,6 +28,7 @@ _None in flight._
 | [0003](archive/0003-google-workspace-egress/plan.md) | `[google-workspace]` allowlist block for the Docs / Sheets APIs | 2026-09-04 |
 | [0004](archive/0004-vendored-deployment/plan.md) | Deploying the vendored artifacts — wheel layer, skills convergence (V4–V5) | 2026-09-04 |
 | [0005](archive/0005-w-parity-backlog/spec.md) | The windows-ai-sandbox parity backlog (P1–P11) | 2026-09-04 |
+| [0007](archive/0007-agent-port-access/spec.md) | Host access to ports inside a profile — `ports:` is a no-op under `internal: true`; docs only | 2026-09-08 |
 
 **Still live inside an archived item:** `0005` §3 "What W is owed back" (twelve
 defects found in the sibling's code) and §8 "Still open" are the current

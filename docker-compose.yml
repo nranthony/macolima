@@ -187,7 +187,13 @@ services:
         # Fixed IP so claude-agent's extra_hosts entry resolves it without
         # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
         ipv4_address: 172.30.${SANDBOX_OCTET:-0}.20
-    # Uncomment to expose to host GUI tools (TablePlus, DBeaver, psql on mac).
+    # NOT SUFFICIENT ON ITS OWN — see README "Web UIs". This service sits only on
+    # sandbox-internal, which is `internal: true`, and Docker DISCARDS a published
+    # port on a container attached only to an internal network: no host binding is
+    # created and no error is printed (verified 2026-09-08). Reaching this DB from
+    # host GUI tools (TablePlus, DBeaver, psql on mac) needs the service on a
+    # non-internal network as well, or a dual-homed relay container — which is a
+    # deliberate change to the isolation model, not a comment toggle.
     # Loopback-only — do not bind 0.0.0.0.
     # ports:
     #   - "127.0.0.1:5432:5432"
@@ -237,7 +243,13 @@ services:
         # Fixed IP so claude-agent's extra_hosts entry resolves it without
         # falling back to a forwarding DNS resolver. See "DNS lockdown" above.
         ipv4_address: 172.30.${SANDBOX_OCTET:-0}.30
-    # Uncomment to expose to host GUI tools (Compass, mongosh on mac).
+    # NOT SUFFICIENT ON ITS OWN — see README "Web UIs". This service sits only on
+    # sandbox-internal, which is `internal: true`, and Docker DISCARDS a published
+    # port on a container attached only to an internal network: no host binding is
+    # created and no error is printed (verified 2026-09-08). Reaching this DB from
+    # host GUI tools (Compass, mongosh on mac) needs the service on a
+    # non-internal network as well, or a dual-homed relay container — which is a
+    # deliberate change to the isolation model, not a comment toggle.
     # ports:
     #   - "127.0.0.1:27017:27017"
     security_opt:
