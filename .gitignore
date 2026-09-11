@@ -224,6 +224,19 @@ docker-compose.override.yml
 secrets.env
 **/secrets.env
 
+# `.local` means machine-local and never committed, whatever the file is. Two
+# shapes, because the suffix sits in two places by convention: the pointer/list
+# files below end in it (`.depot-dir.local`), while documents keep their real
+# extension after it (`AGENTS.local.md`, work/0008's `scan.local.md`, which
+# holds every profile's repo list and so must never reach this public repo).
+# The specific entries below predate this and stay — their comments carry the
+# reasons. The negation keeps a committed EXAMPLE of a local file
+# (`hub.local.example.yaml`) visible: it is documentation meant for every clone,
+# and `*.local.*` would otherwise hide every new one silently (work/0008 scan).
+*.local
+*.local.*
+!*.local.example*
+
 # The private-name list for scripts/private-names-check.sh. NEVER commit it —
 # a tracked list of the names we scan for would re-introduce exactly what the
 # check exists to prevent. Same gitignored-pointer convention as

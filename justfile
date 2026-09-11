@@ -21,8 +21,10 @@
 # (scripts/start.sh, scripts/stop.sh), not profile.sh/setup.sh; and the
 # `test-*` recipes, which run host-side offline suites that take no profile and
 # need no VM. `code` is a pass-through too, but to scripts/code-attach.sh — a
-# host-side VS Code addressing helper that starts nothing. All still thin
-# pass-throughs; still no `docker compose`.
+# host-side VS Code addressing helper that starts nothing. `workspace-scan` fronts
+# scripts/workspace-scan.py — host-side and read-only, it walks every profile's
+# workspace, which no container can see. All still thin pass-throughs; still no
+# `docker compose`.
 # =============================================================================
 
 profile_sh := justfile_directory() / "scripts" / "profile.sh"
@@ -128,6 +130,12 @@ tools-check:
 check-permissions:
     {{vendortools_sh}} --permissions
 
+# ---- workspace scan (host-side, read-only, no profile arg) -------------------
+
+# every repo in every profile vs the work/0008 conventions. The report names every repo: `--out` must be a *.local* path
+workspace-scan *args:
+    python3 {{justfile_directory()}}/scripts/workspace-scan.py {{args}}
+
 # dashboard parser + render regression suite (needs dashboard/.venv; no docker required)
 test-dashboard:
     {{justfile_directory()}}/dashboard/.venv/bin/python {{justfile_directory()}}/dashboard/tests/test_allowlist_roundtrip.py
@@ -141,10 +149,11 @@ test-dashboard:
 # `just` aborts the recipe on the first failing line, so a red suite stops the
 # run and names itself. Run one directly if you want the rest to continue.
 
-# every offline suite (eleven commands: nine test files, the name gate, and the CLAUDE.md sync check; the run prints per-file totals)
+# every offline suite (twelve commands: ten test files, the name gate, and the CLAUDE.md sync check; the run prints per-file totals)
 test-offline:
     bash {{justfile_directory()}}/sandbox_templates/claude/hooks/deny-destructive.test.sh
     bash {{justfile_directory()}}/scripts/depaudit.test.sh
+    bash {{justfile_directory()}}/scripts/workspace-scan.test.sh
     bash {{justfile_directory()}}/scripts/with-egress.test.sh
     bash {{justfile_directory()}}/scripts/dockerfile-order.test.sh
     bash {{justfile_directory()}}/scripts/vendor-tools.test.sh
