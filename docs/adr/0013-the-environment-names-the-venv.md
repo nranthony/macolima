@@ -49,8 +49,12 @@ Repos follow from that:
 - they pin a tracked `.python-version`, to a minor every environment has. This
   image bakes 3.12 and 3.13; unpinned, uv takes the newest.
 
-That repo-side half is the `agentic-conventions` rule (its own ADR), vendored
-here as `myconv`.
+That repo-side half is the `agentic-conventions` rule, its **ADR-0017** "The
+environment names the venv", Accepted 2026-09-11 and shipped in **myconv 0.9.0**,
+vendored here as `myconv`. Its permission-rule guidance (allow rules in the
+`uv run …` form; ask/deny rules naming every spelling) rests on Claude Code
+behaviours quoted verbatim in `docs/permissions-model.md` §"How a Bash rule
+matches".
 
 **The one exception:** two *hosts* sharing one checkout, e.g. Windows-native
 Python and WSL both working in `/mnt/c`, or a folder synced between machines.

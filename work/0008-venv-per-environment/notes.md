@@ -125,6 +125,48 @@ handoff-depot amended (third time) with **T0**, the one-shell test, and
 re-delivered. The owner will run the depot agent in the `nranthony` container.
 Results are to come back as handoff §6 item 0; PR-2's merge waits on them.
 
+## 2026-09-11 — depot T1–T4 done; myconv 0.9.0 re-vendored
+
+The reply is at `agentic-conventions/work/0022-venv-per-environment/reply-to-macolima-work-0008.md`
+(tracked there; that file is the record).
+- **The rule:** agentic-conventions **ADR-0017**, shipped in **myconv 0.9.0**
+  (`1a6df64`, published).
+- **Pins:** myclickup and paperbridge pinned **3.12**. myclickup's
+  `.venv-sandbox` was rebuilt offline on 3.12, 309 passed, host `.venv`
+  untouched. The `.gitignore` lines (`.venv*/`, the `.local` trio) went into all
+  four depot repos, and no tracked file was affected.
+- **Not republished:** neither wheel changed.
+- **No objection to §1.** Everything is committed in their repos, nothing pushed.
+
+What they flagged for macolima:
+1. **Permission-rule semantics were unverifiable from the sandbox** (docs
+   blocked). → Quoted verbatim into `docs/permissions-model.md` §"How a Bash
+   rule matches" (fetched host-side 2026-09-11), and cited from ADR-0013 and
+   `workspace-scan.py`. The docs add two things: matching happens "after
+   Claude Code splits compound commands and strips wrappers", and an ask/deny
+   rule "isn't a security boundary around the program".
+2. **`/tmp` being `noexec` breaks `just` shebang recipes** (`Permission denied`).
+   Their workaround: `TMPDIR=/home/agent/.cache/just-tmp`. just has a scoped
+   knob, `JUST_TEMPDIR` (host just 1.58 shows it; the image pins **1.51.0** —
+   confirm it's honoured there). → **Owner approved; done:**
+   `JUST_TEMPDIR=/home/agent/.cache` in compose. Also a behavioural
+   `verify-sandbox.sh` check that runs a shebang recipe, so the recreate
+   sitting's `just verify` proves the image's just honours it. After the
+   switch, depot AGENTS.md's `TMPDIR=` workaround is unnecessary; tell the
+   depot agent with the T5 signal.
+3. **paperbridge's hand-maintained notice block** (its own markers, "mirrors
+   windows-ai-sandbox") names `/root/.cache/uv`. It's paperbridge's text, not a
+   macolima-managed block. → Suggest the depot agent reword it
+   sandbox-neutrally (`~/.cache/uv`); relay with the T5 signal.
+
+ADR-0013 now cites ADR-0017 and myconv 0.9.0. **myconv 0.9.0 re-vendored**
+(`vendor-tools.sh`; lock `--check` green; only the skill tree changed, wheels
+identical). Skills converge on recreate, so **no image build**.
+
+paperbridge's gitignored `.claude/settings.local.json`: its three
+`.venv/bin/pytest …` allow rules became `uv run pytest …` (owner-approved).
+They now work on both sides.
+
 ## 2026-09-11 — stage 3 built (uncommitted, awaiting review)
 
 Branch `dev/0008-venv-per-environment`. `just test-offline` is green: hook

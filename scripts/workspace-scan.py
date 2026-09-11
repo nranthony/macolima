@@ -345,7 +345,9 @@ def rule_regex(pattern: str) -> re.Pattern:
     """Claude Code Bash rule → regex over the whole command text.
     `:*` is only a suffix and equals a trailing ` *`; a trailing ` *` also
     matches the bare command; any other `*` matches any text
-    (code.claude.com/docs/en/permissions.md, "Wildcard patterns")."""
+    (code.claude.com/docs/en/permissions.md, "Wildcard patterns"; the sentences
+    this rests on are quoted in docs/permissions-model.md §"How a Bash rule
+    matches")."""
     p = pattern
     if p.endswith(":*"):
         p = p[:-2] + " *"
