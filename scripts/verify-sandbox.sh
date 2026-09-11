@@ -475,6 +475,23 @@ case "${UV_PROJECT_ENVIRONMENT:-}" in
   *)             fail "UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT, expected .venv-sandbox — hosts, the deletion hook and workspace-scan all key on that name (ADR-0013)" ;;
 esac
 
+# `just` shebang recipes execute a temp file; /tmp is noexec here, so compose
+# points JUST_TEMPDIR at the exec-capable cache volume. BEHAVIOURAL, for the
+# same reason as the uv gate probe above: the variable being set proves nothing
+# if this image's just (pinned in the Dockerfile) ignored it. So run one.
+if command -v just >/dev/null 2>&1; then
+  _jp="${HOME:-/home/agent}/.just-shebang-probe"
+  rm -rf "$_jp"; mkdir -p "$_jp"
+  printf 'probe:\n    #!/usr/bin/env sh\n    echo just-shebang-ok\n' > "$_jp/justfile"
+  _jout=$(cd "$_jp" && just probe 2>&1)
+  if printf '%s' "$_jout" | grep -q 'just-shebang-ok'; then
+    pass "just shebang recipes run (JUST_TEMPDIR=${JUST_TEMPDIR:-unset})"
+  else
+    fail "a just shebang recipe failed — /tmp is noexec, so JUST_TEMPDIR must name an exec-capable dir (compose); got: $(printf '%s' "$_jout" | tail -1)"
+  fi
+  rm -rf "$_jp"
+fi
+
 if [[ -f /etc/pip.conf ]]; then
   if grep -qE '^[[:space:]]*only-binary[[:space:]]*=[[:space:]]*:all:' /etc/pip.conf; then
     # An exemption is legitimate but must be visible — same discipline as npm's

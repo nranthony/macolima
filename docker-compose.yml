@@ -164,6 +164,16 @@ services:
       # only, like UV_LINK_MODE: a change is a recreate, not a rebuild.
       # verify-sandbox.sh asserts the exact value.
       - UV_PROJECT_ENVIRONMENT=.venv-sandbox
+      # JUST_TEMPDIR: `just` runs a shebang recipe by writing it to a temp file
+      # and EXECUTING it, and its default temp dir is /tmp — mounted `noexec`
+      # here (tmpfs above), so every shebang recipe failed with
+      # "Permission denied (os error 13)" (found 2026-09-11: `just check`, and
+      # with it a depot publish). /home/agent/.cache is the `cache` named
+      # volume: already agent-writable and exec-capable, so pointing just there
+      # grants nothing new. Scoped to just on purpose — moving TMPDIR itself
+      # would take /tmp's noexec away from every tool. verify-sandbox.sh runs a
+      # shebang recipe to prove it.
+      - JUST_TEMPDIR=/home/agent/.cache
     depends_on:
       - egress-proxy
 
