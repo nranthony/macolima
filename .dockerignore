@@ -43,6 +43,10 @@ images/
 .env
 .env.*
 **/secrets.env
+# Machine-local files (.gitignore explains the two shapes). .private-names.local
+# is the client-name list — it has no business in a build context.
+**/*.local
+**/*.local.*
 
 # --- The dashboard's venv: 307M of the 312M context, i.e. nearly all of it ---
 dashboard/.venv

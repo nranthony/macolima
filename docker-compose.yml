@@ -149,6 +149,21 @@ services:
       # in the Dockerfile. Ported from windows-ai-sandbox; see
       # docs/virtiofs-gotchas.md.
       - UV_LINK_MODE=copy
+      # UV_PROJECT_ENVIRONMENT=.venv-sandbox: THE ENVIRONMENT NAMES THE VENV
+      # (ADR-0013). /workspace is the host's checkout, so every repo's plain
+      # `.venv` is the HOST's venv, built against a macOS interpreter. uv, finding
+      # a project env whose interpreter it can't run, DELETES AND RECREATES it —
+      # so with uv's default the container and the host destroyed each other's
+      # venv on alternate `uv run`s. With this set, uv here builds and uses
+      # `<repo>/.venv-sandbox` and never touches `.venv`; hosts leave the
+      # variable unset and keep `.venv`. A RELATIVE value resolves against each
+      # project's root (verified in this image, uv 0.12.9: from a subdirectory,
+      # and via `uv run --project`), so one value serves every repo — never make
+      # it absolute, which would put every repo in one venv. NOT `UV_PYTHON`: that
+      # is `--python`, and would override every repo's `.python-version`. Runtime
+      # only, like UV_LINK_MODE: a change is a recreate, not a rebuild.
+      # verify-sandbox.sh asserts the exact value.
+      - UV_PROJECT_ENVIRONMENT=.venv-sandbox
     depends_on:
       - egress-proxy
 

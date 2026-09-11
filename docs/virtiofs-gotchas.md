@@ -17,6 +17,8 @@ If you ever add another package extracted by uv/pip/npm that explodes on permiss
 
 Corollary of the above. uv fills a venv by hardlinking from `~/.cache/uv` (named volume, VM ext4) into the venv under `/workspace` (virtiofs bind mount). That is a cross-mount link, so the kernel returns EXDEV and uv warns `Failed to hardlink files; falling back to full copy` on every install. The copy is what happens either way; `UV_LINK_MODE=copy` in the agent's compose `environment` just stops uv trying the link first and misdirecting the reader toward a storage fault. Runtime only — not set in the Dockerfile, where there are no bind mounts and hardlinks work.
 
+Its neighbour in the same `environment` block, `UV_PROJECT_ENVIRONMENT=.venv-sandbox`, is the other consequence of `/workspace` being the host's checkout: the host's `.venv` is visible here but built for another machine, so the container's uv gets its own venv name. See [ADR-0013](adr/0013-the-environment-names-the-venv.md).
+
 ## `.claude.json` single-file bind mount needs chmod 644 AND valid JSON
 
 Single-file bind mounts on Colima virtiofs don't remap UIDs the same way directory mounts do. A 600 file on the host appears as `root:root 600` inside the container → agent can't read. 644 → appears as `agent:agent 644`.
