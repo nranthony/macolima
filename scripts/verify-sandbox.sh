@@ -459,6 +459,22 @@ if command -v uv >/dev/null 2>&1; then
   fi
 fi
 
+# ADR-0013: the environment names the venv. Compose sets
+# UV_PROJECT_ENVIRONMENT=.venv-sandbox so this container's uv builds and uses
+# <repo>/.venv-sandbox and never touches <repo>/.venv — the HOST's venv, which
+# uv would otherwise delete and recreate on sight (its interpreter is a macOS
+# one). Exact value, and RELATIVE: unset is the destructive state; an absolute
+# path would put every repo in one shared venv; any other name is a venv slot
+# the hosts, the hook's disposable carve-out and the scan don't know about.
+# A per-command override by the agent is possible and not visible from here —
+# this proves the container-wide default, which is what compose owns.
+case "${UV_PROJECT_ENVIRONMENT:-}" in
+  .venv-sandbox) pass "UV_PROJECT_ENVIRONMENT=.venv-sandbox (uv here never touches the host's .venv)" ;;
+  "")            fail "UV_PROJECT_ENVIRONMENT is unset — uv here would target each repo's .venv, the HOST's venv, and recreate it (ADR-0013; set in docker-compose.yml, needs a recreate)" ;;
+  /*)            fail "UV_PROJECT_ENVIRONMENT is absolute ($UV_PROJECT_ENVIRONMENT) — every repo would share one venv; it must be the relative .venv-sandbox (ADR-0013)" ;;
+  *)             fail "UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT, expected .venv-sandbox — hosts, the deletion hook and workspace-scan all key on that name (ADR-0013)" ;;
+esac
+
 if [[ -f /etc/pip.conf ]]; then
   if grep -qE '^[[:space:]]*only-binary[[:space:]]*=[[:space:]]*:all:' /etc/pip.conf; then
     # An exemption is legitimate but must be visible — same discipline as npm's

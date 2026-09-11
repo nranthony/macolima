@@ -9,9 +9,10 @@ Convention: `/Volumes/DataDrive/repo/<profile>/dist/` holds local `.whl` files (
 cd /Volumes/DataDrive/repo/nranthony/<lib> && uv build
 cp dist/<lib>-*.whl /Volumes/DataDrive/repo/<profile>/dist/
 
-# container: install into the project venv
-cd /workspace/<project> && source .venv-linux/bin/activate
-uv pip install /workspace/dist/<lib>-*.whl
+# container: install into the project venv, which here is .venv-sandbox (ADR-0013).
+# `uv pip` does NOT read UV_PROJECT_ENVIRONMENT — without --python it picks the
+# repo's .venv, which is the host's venv. Name the target explicitly.
+cd /workspace/<project> && uv pip install --python .venv-sandbox /workspace/dist/<lib>-*.whl
 ```
 
 The directory is per-profile (no sharing) and lives on the external drive — survives container recreate AND VM rebuild. `dist/` matches the standard Python `.gitignore` entry, so wheels won't get committed by accident if a workspace is itself a git repo. This is the lightest of the three project-customization options; the heavier overlay Dockerfile pattern is in `overlay-project-plan.md`.

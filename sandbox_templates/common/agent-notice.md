@@ -65,8 +65,8 @@ Don't decompose a blocked bulk delete into one-file-at-a-time calls; that
 decomposition is the specific thing these rules were written for.
 
 Ordinary cleanup is deliberately left alone and never prompts: anything under
-`/tmp`, `/var/tmp` or `/home/agent/.cache`, and anything inside a `.venv`,
-`node_modules`, `__pycache__`, a `.pytest_cache` / `.mypy_cache` /
+`/tmp`, `/var/tmp` or `/home/agent/.cache`, and anything inside a `.venv-sandbox`
+(not a plain `.venv`: that is the host's), `node_modules`, `__pycache__`, a `.pytest_cache` / `.mypy_cache` /
 `.ruff_cache`, a `build` or `dist` directory, or any `*.pyc`. If you're clearing
 scratch or build output, use those paths and it will just work. Note that one
 non-disposable path anywhere in the argument list makes the whole command ask.
@@ -122,6 +122,17 @@ deny-list are the controls. Following them means the controls fire less often.
   `WebSearch` is allowed too (server-side, no key). `WebFetch` on a domain this
   repo has scoped is fine; on any other domain it prompts — accept the prompt
   or use `webfetch`, don't ask for a bare `WebFetch` allow.
+- **A repo's venv here is `.venv-sandbox`; its `.venv` is the host's.** This
+  container sets `UV_PROJECT_ENVIRONMENT=.venv-sandbox`, so `uv run` and
+  `uv sync` build and use each repo's `.venv-sandbox` on their own. A plain
+  `.venv` belongs to the host and was built for another machine: never run it,
+  activate it, sync into it or delete it, however broken it looks from here.
+  Don't set `UV_PROJECT_ENVIRONMENT` yourself. The `uv pip` commands ignore it
+  and fall back to `.venv`, so give them `--python .venv-sandbox`. In anything you write (scripts,
+  justfiles, settings rules, docs), don't hard-code a venv path and never pick
+  one by OS: use `uv run …`, or read the path from `UV_PROJECT_ENVIRONMENT` with
+  `.venv` as the fallback. Whose venv a directory is shows in its `pyvenv.cfg`
+  `home` line.
 - **Databases aren't on `localhost`.** If this profile enabled the DB siblings,
   reach Postgres at host `postgres:5432` and Mongo at `mongo:27017` (compose
   service names on the internal network). Credentials come from the injected

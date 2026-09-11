@@ -12,7 +12,7 @@ All commands below run **inside the agent container** (`scripts/profile.sh thera
   COMPOSE_PROFILES=db-postgres scripts/profile.sh therapod up
   ```
 - `db.env` in place with `POSTGRES_USER=agent`, `POSTGRES_PASSWORD=<hex>`, and the three DSN vars (`WEARDATA_PG_DSN`, `PIPELINE_PG_DSN`, `DATABASE_URL`). See `sandbox_templates/common/db.env.template` for the shape.
-- `.venv-linux` built in both `/workspace/wearable_data_testing` and `/workspace/pipeline`.
+- Each repo's venv built with `uv sync` in both `/workspace/wearable_data_testing` and `/workspace/pipeline` (in the sandbox that is `.venv-sandbox` — ADR-0013).
 
 ## 1. Create project databases
 
@@ -39,7 +39,7 @@ cd /workspace/wearable_data_testing
 psql "$WEARDATA_PG_DSN" -f db/schema.sql
 
 # Seed from CSVs (upsert — safe to re-run)
-.venv-linux/bin/python -m weardata.reference.seed
+uv run python -m weardata.reference.seed
 ```
 
 Sanity check (tables live in the `wearables_ref` schema, not `public`):
@@ -58,7 +58,7 @@ Alembic manages the pipeline schema. `DATABASE_URL` must be set in the environme
 
 ```bash
 cd /workspace/pipeline
-.venv-linux/bin/alembic upgrade head
+uv run alembic upgrade head
 ```
 
 Verify:
@@ -73,7 +73,7 @@ This replays 24 Polar H10 participants through the full Bronze/Silver/Gold stack
 
 ```bash
 cd /workspace/pipeline
-.venv-linux/bin/python scripts/run_pipeline_h10.py \
+uv run python scripts/run_pipeline_h10.py \
     --participants 1-24 \
     --data-dir data/dev \
     --intent baseline
@@ -94,7 +94,7 @@ Postgres `pipeline` database receives: session rows, event log entries, gold man
 ### Verify
 
 ```bash
-.venv-linux/bin/python scripts/verify_pipeline_run.py
+uv run python scripts/verify_pipeline_run.py
 # checks: SMOKE (artifacts exist), PLAUSIBILITY (medians in healthy bands), THROUGHPUT
 ```
 

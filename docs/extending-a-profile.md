@@ -59,7 +59,7 @@ or run time.
 | Agent tool policy (allow/deny/hooks) | per-profile | `sandbox_templates/claude/` **and** `sandbox_templates/antigravity/` → converged | yes |
 | Standing instructions for every repo in a profile | per-profile | `claude-home/CLAUDE.md` via `scripts/sync-agent-notice.sh` | yes |
 | Standing instructions for one repo | workspace | that repo's `AGENTS.md` / `.claude/` | yes |
-| A Python dependency of a project | workspace | the project's `.venv` + manifest, in a `with-egress.sh` window | yes (`.venv` is in the bind mount) |
+| A Python dependency of a project | workspace | the manifest + the project's `.venv-sandbox` (`uv sync`, in a `with-egress.sh` window). The repo's plain `.venv` is the host's — ADR-0013 | yes (`.venv-sandbox` is in the bind mount) |
 | A Python lib not on PyPI | workspace | `/Volumes/DataDrive/repo/<p>/dist/*.whl` — [local-wheels.md](local-wheels.md) | yes |
 | A private CLI the whole fleet needs | image | a vendored wheel — [ADR-0004](adr/0004-python-wheels-only.md) | yes |
 | An API key | per-profile | `profiles/<p>/secrets.env` | yes, but read at container **create** only |
@@ -164,11 +164,13 @@ each half is load-bearing. Two things bite in practice:
 
 - **Zero runtime dependencies is an invariant, not a starting point.** The agent
   cannot repair a broken dependency; every installer is denied to it.
-- If the tool's source repo is bind-mounted into a profile, its `.venv` may have
-  been created **in-container**, where console scripts carry an absolute
-  `#!/workspace/...` shebang. A host-side build then fails with "Failed to spawn:
-  pytest", which reads as a missing dev dependency rather than a path mismatch.
-  Point `UV_PROJECT_ENVIRONMENT` outside the checkout.
+- If the tool's source repo is bind-mounted into a profile, the container builds
+  its venv at `.venv-sandbox` and the host keeps `.venv` (ADR-0013), so neither
+  side's build touches the other's. A **leftover** `.venv` created in-container
+  before ADR-0013 still carries `#!/workspace/...` shebangs; a host-side build
+  then fails with "Failed to spawn: pytest", which reads as a missing dev
+  dependency rather than a path mismatch. Rebuild the host's `.venv`, or point a
+  host script's `UV_PROJECT_ENVIRONMENT` outside the checkout.
 
 **A vendored artifact must not widen the sandbox.** The channel manifest ships a
 *proposed* permission set. `just check-permissions` reports it against the

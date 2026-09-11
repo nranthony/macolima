@@ -18,6 +18,7 @@ one; the old text stays as written.
 | [0009](0009-public-repo-names-are-searchable-not-absent.md) | A private name is searchable, not absent |
 | [0011](0011-web-read-backends-are-peers-with-no-default.md) | Web-read backends are peers; no default |
 | [0012](0012-web-read-backends-get-read-hosts-only.md) | A backend gets its READ hosts only |
+| [0013](0013-the-environment-names-the-venv.md) | The environment names the venv: `.venv-sandbox` in every sandbox, `.venv` on every host |
 
 ## Why the numbering starts at 0003, and why 0010 is missing
 
@@ -41,7 +42,8 @@ and the closing of its `docs/rfcs/` tier. They describe migrations this repo
 never went through. The numbers are reserved rather than reused, so that
 "ADR-0002" means one thing across both repos.
 
-New decisions here continue from **0013**.
+New decisions here continue from **0014**. 0013 is shared with the sibling by
+intent: its copy of the same decision takes the same number.
 
 ## See also
 
