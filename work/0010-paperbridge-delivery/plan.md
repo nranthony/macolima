@@ -353,6 +353,15 @@ zero-dependency sentence verbatim and would otherwise contradict the new ADR;
    does not rebuild.
 4. `just verify <p>` per profile: the P2.4 checks green.
 5. Record the image size delta and the new trivy findings in `notes.md`.
+6. **OSV over the pinned set, flagging and never blocking (spec D4).**
+   `python3 scripts/depaudit.py deps <paperbridge checkout>` before the build,
+   and again whenever the constraints file is bumped. It needs the host's
+   network and takes about a minute. Report `BLOCK`/`INFO` findings in
+   `notes.md` beside the size delta; a finding is a decision for the owner, not
+   a build failure. Ask the depot to re-check package **age** when it generates
+   the constraints (P0), since the image build has no equivalent of
+   `with-egress.sh`'s 7-day quarantine: on 2026-09-12 the pinned set included
+   packages 2 and 5 days old.
 
 ## Phase P3 — consumer handoffs
 

@@ -67,6 +67,15 @@ the container. What it lacks is a supply.
   condition that versions are pinned from channel-published constraints,
   installed wheels-only, and verified as `agent` at build.
 - **D3.** The sibling adopts the same answers; ferried.
+- **D4 (2026-09-12) — the dependency set is checked at build, and a finding
+  flags rather than blocks.** `scripts/depaudit.py deps` (OSV, host-side,
+  network) runs over the pinned set as part of the bake, and reports. It never
+  fails the build: OSV is reactive, so a clean result is "nothing known yet",
+  and a scanner that can block on someone else's database entry is a scanner
+  that gets bypassed on a deadline. First run, 2026-09-12, over paperbridge's
+  lock: **100 packages, 0 malicious records**. Age was measured at the same
+  time — 15 of the 61 were published within 90 days, the youngest `regex` at 2
+  days and `numpy` at 5 — which the constraints file then freezes.
 
 **Also considered and declined (2026-09-11): replacing the `[docs]` stack with
 docling.** Docling is better at tables and multi-column layout, but `docling`
