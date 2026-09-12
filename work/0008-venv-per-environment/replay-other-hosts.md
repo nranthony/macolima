@@ -126,7 +126,10 @@ compose `UV_PROJECT_ENVIRONMENT=.venv-sandbox`. Compose rather than Dockerfile
 `ENV`, for the same recreate-not-rebuild reason, even though W's `UV_LINK_MODE`
 sits in the Dockerfile; if W prefers `ENV`, record why. Then: the hook carve-out
 and tests; the notice's disposable list plus the new "Python environments"
-section (root paths); a `verify-sandbox.sh` assertion; W's own copy of the ADR,
+section (root paths). Then **re-sync the notice block into every repo whose
+AGENTS.md carries W's copy**: those blocks say "anything inside a `.venv` is
+disposable", which now describes the host's venv. The pipeline agent reported
+it, 2026-09-11. Then a `verify-sandbox.sh` assertion; W's own copy of the ADR,
 **numbered ADR-0013 like macolima's**, because the two repos share ADR numbers
 (0003–0012 are the same decisions in both); if W has used 0013 since, record the
 mapping in both ADR indexes. It cites the agentic-conventions ADR; `AGENTS.md`; the §3.4 doc rewrites; the `.local` pair

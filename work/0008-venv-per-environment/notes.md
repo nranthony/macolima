@@ -125,6 +125,122 @@ handoff-depot amended (third time) with **T0**, the one-shell test, and
 re-delivered. The owner will run the depot agent in the `nranthony` container.
 Results are to come back as handoff §6 item 0; PR-2's merge waits on them.
 
+## 2026-09-11 — stage 6: pipeline done ([notes-pipeline.md](notes-pipeline.md))
+
+The hand-back is filed as the owner pasted it; a few of its closing lines were
+mangled by terminal wrapping. Checked host-side:
+- **Commits:** `c06ea66` (executed files, CI, settings, skill, AGENTS.md,
+  `.python-version` 3.12) and `7d9a8a2` (docs, script hints, `src/`
+  messages, notebooks, `.gitignore`).
+- **`uv.lock` unchanged:** last touched `4551275`, before this work.
+- **The venv:** `.venv-sandbox` on 3.12, built `--frozen --extra dev --extra truth`
+  (118 downloads through the window).
+- **Code checks:** `vars.just` uses `join()`; CI sets `UV_FROZEN: '1'`.
+- **Gate:** ruff and mypy clean; 644 passed, 79 skipped, 2 xfailed. The mitdb
+  corpus isn't in the sandbox, so its truth tests skip even with wfdb
+  installed; BACKLOG says to run `mitdb_beat_report.py --check` on a host
+  before the next tag.
+- **The scan:** only `DOC-VENV-LINUX`, which is recorded notebook outputs and
+  work/0005, so history. **Pipeline no longer blocks the done-check.**
+
+**Pipeline and wearable_data_testing now have neither a host `.venv` nor a
+`.venv-linux`.** The owner confirmed deleting both, deliberately, to start
+clean. (misc_code's and core's host `.venv` are intact.)
+
+**wearable_data_testing is blocked on paperbridge → [work/0010](../0010-paperbridge-delivery/spec.md).**
+- Its `uv.lock` (2026-03-31) has no paperbridge entry: the `../dist` index
+  pointer came 2026-05-01 and was never re-locked. So `--frozen` installs no
+  paperbridge, and its preflight import fails.
+- The only wheel in `therapod/dist/` is a hand-copied 0.1.0.
+- `vendor-tools` plus a recreate never touches that folder: vendored wheels go
+  to image-build staging, and the image installs only myclickup.
+- Unblock (0010 §4): copy the channel's 0.3.0 wheel into `dist/` with its hash
+  checked, `uv lock` on the Mac without deleting, then `uv sync --frozen`.
+  The owner had considered deleting the lock and resyncing; advised against,
+  since that re-resolves every dependency. Either way the host needs `uv sync` on the Mac
+before its next use there, and `.venv-linux` retirement is done early for these
+two. wearable_data_testing's `.venv-sandbox` exists on **3.13**, unpinned, and
+predates its handoff. Pipeline's lessons were relayed to its agent before it
+continues:
+- pin before building;
+- `--frozen`, with like-for-like extras;
+- `uv pip` hints;
+- `subprocess` calls on venv paths;
+- grep `.venv/bin` too.
+
+## 2026-09-11 — stages 5–6 in progress
+
+**Stage 5 (the recreate sitting).** `nranthony` was recreated and `just verify`
+passed, including both new checks. The "just shebang recipes run" check
+passing means the image's **just 1.51.0 honours `JUST_TEMPDIR`**, so no
+justfile fallback is needed. The other three profiles were being recreated as
+of this entry. The VS Code image config (B6) is in: paperbridge shows
+`.venv-sandbox` as its interpreter, and `.venv` as broken, which is correct
+inside the container.
+
+**Findings from the sitting:**
+- **VS Code remembers each workspace's interpreter choice, and the default
+  doesn't override it.** pipeline still had `.venv-linux` selected and
+  auto-activated it in new terminals. So `python`/`pytest` there ran the old
+  venv even though uv, correctly, ignored `VIRTUAL_ENV=.venv-linux` and
+  targeted `.venv-sandbox`. Fix, once per workspace: `deactivate`, then
+  **Python: Select Interpreter → `.venv-sandbox`**. Expect it in
+  wearable_data_testing and jeremy_dahl_analytics too. Never `uv sync --active`.
+- **Repos with only a host `.venv`** show "could not resolve `.venv-sandbox`".
+  That's expected until they're built. Build lazily, only for repos used in
+  the sandbox:
+  - repo has a `uv.lock`: `with-egress.sh <p> --with pypi -- 'cd … && uv sync --frozen'`;
+  - `pyproject.toml` but no lock: run `uv lock` on the **host**, commit, then as above;
+  - no `pyproject.toml` (therapod/financials): `uv venv` plus
+    `uv pip install --python .venv-sandbox -r requirements.txt`, or leave it host-only.
+- **Pylance "too many files" in pipeline:** `data/` holds 418,034 parquet
+  files, and `workspaces/` is data too. Dot-folders are excluded by Pylance's
+  defaults. Recommended for pipeline's untracked `.vscode/settings.json`:
+  `python.analysis.exclude` = `**/node_modules`, `**/__pycache__`, `**/.*`,
+  `data`, `workspaces` (restating the defaults, since setting it may replace
+  them), plus `files.watcherExclude` for `data/` and `workspaces/`.
+- **An unpinned `uv sync` in pipeline** (run by hand at 18:11) built a
+  half-populated `.venv-sandbox` on **3.13**: runtime packages only, no dev
+  extra. The owner deleted it to start clean.
+- **`uv.lock` was deleted along with it, by mistake. Restored from git before
+  any sync ran.** Syncing without the lock would have re-resolved everything
+  against today's PyPI, with egress opened by hand, so no age gate and no
+  audit record. Worth remembering when "starting over": the venv is
+  disposable; the lock is the record.
+
+**Egress state (standing reminder).** `[pypi]` was opened **by hand** for
+pipeline's build: `.pypi.org` and `.files.pythonhosted.org` uncommented, not
+via `with-egress.sh`, so no sentinel, age gate or `depgate.jsonl` line.
+**Re-comment and `squid -k reconfigure` when the builds are done.** `[npm]` has
+also been open since `cc98519` (2026-09-08, wrangler); the owner hasn't decided.
+
+**The pipeline agent's pre-flight review.** Eight points and five questions
+were raised against `handoff-pipeline.md`, and all were accepted. They're
+handoff gaps worth carrying into the wave for the remaining repos:
+1. Pin `.python-version` **before** the build (one build, on 3.12, not 3.13
+   then a rebuild).
+2. **CI:** every `${{ matrix.venv }}/bin/…` step, not just the version step →
+   `UV_FROZEN: 1` at job level plus `uv run`. A plain `uv run` re-locks when
+   `pyproject.toml` and `uv.lock` disagree, so CI could quietly test a
+   different tree.
+3. **Docs:** plain `uv run …`, with the convention stated once in AGENTS.md;
+   `--frozen` where results are validated (the mitdb skill, and CI through
+   `UV_FROZEN`).
+4. **A real executed reference the grep had missed:**
+   `scripts/backfill_h10.py:389` runs `subprocess.run([".venv-linux/bin/alembic", …])`
+   → `[sys.executable, "-m", "alembic", …]`, which needs no venv name at all.
+5. **`uv pip` also appears in `src/` runtime error messages.** The fix hint is
+   `uv sync --frozen --extra dev --extra <x>`, because `uv sync` removes any
+   extra you don't name, dev tools included.
+6. **The gate needs the same extras as before** (`--extra truth`), or the
+   mitdb tests skip and the comparison with `.venv-linux` isn't like-for-like.
+7. **`root / venv` in just doubles an absolute path**; `join()` handles it
+   (the agent tested it).
+8. **Host reset script:** `reset_host.sh` removes only `.venv` (the host's).
+   The notebook kernelspec display name becomes neutral. W's notice block in
+   AGENTS.md ("anything inside a `.venv` is disposable") is left for W's
+   refresh and reported in the hand-back.
+
 ## 2026-09-11 — depot T1–T4 done; myconv 0.9.0 re-vendored
 
 The reply is at `agentic-conventions/work/0022-venv-per-environment/reply-to-macolima-work-0008.md`
