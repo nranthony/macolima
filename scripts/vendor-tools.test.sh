@@ -508,8 +508,9 @@ fi
 # one belongs to the CONSUMERS: `dist/` is append-only, because a consumer's
 # uv.lock pins a wheel by FILENAME and hash — so a delivery that deletes or
 # rewrites a same-named file breaks `uv sync --frozen` in a repo this script
-# never reads and cannot see. Identical is a skip, different is an error, an
-# old version survives a bump, and no profile gets anything it did not ask for.
+# never reads and cannot see. Identical is a skip, different is an error, and an
+# old version survives a bump. Delivery is ON by default for every profile; a
+# `dist-wheels` file only ever narrows, and listing nothing means nothing.
 #
 # Everything here runs against a throwaway SANDBOX_DRIVE (profile.sh's seam),
 # so the live profile root and real workspaces are never touched.
@@ -544,7 +545,7 @@ echo "-- vendor-tools: wheel delivery into per-profile dist/ --"
 
 WHEEL="demo-1.0.0-py3-none-any.whl"
 
-# ---- opted in receives it; not opted in receives NOTHING -------------------
+# ---- a restricted profile gets what it names; an unrestricted one gets all --
 RD1="$(mkrepo d1)"; CD1="$(mkchan2 d1)"; DD1="$(mkdrive 1 alpha beta)"
 # Comments, a blank line, indentation and a CR: the state-file format itself is
 # the contract here, and it is the one .depot-dir.local already uses.
@@ -564,10 +565,10 @@ else
   bad "delivery not reported per profile" "out=$out"
 fi
 
-if [[ ! -e "$DD1/repo/beta/dist" ]] && printf '%s' "$out" | grep -q 'not opted in'; then
-  ok "a profile with no dist-wheels file gets NOTHING, and is said to  <-- OPT-IN LOCK"
+if [[ -f "$DD1/repo/beta/dist/$WHEEL" ]] && printf '%s' "$out" | grep -q 'no dist-wheels restriction'; then
+  ok "a profile with NO dist-wheels file receives every published wheel  <-- DEFAULT-ON LOCK"
 else
-  bad "a non-opted-in profile was written to" "$(find "$DD1/repo/beta" 2>/dev/null | head -3)"
+  bad "delivery is not default-on for an unrestricted profile" "$(find "$DD1/repo/beta" 2>/dev/null | head -3) out=$out"
 fi
 
 # ---- an identical file is skipped, not re-copied ---------------------------
@@ -655,6 +656,19 @@ if [[ $st -eq 0 ]] && [[ ! -e "$DD5/repo/zeta/dist" ]] \
   ok "--dry-run names the profile and the wheel, and creates no dist/"
 else
   bad "--dry-run delivered or stayed silent" "status=$st out=$out"
+fi
+
+# ---- a restriction file listing NOTHING delivers nothing -------------------
+# Default-on makes an empty file the only way to say "this profile takes none",
+# so it has to mean that rather than falling back to everything.
+RD7="$(mkrepo d7)"; CD7="$(mkchan2 d7)"; DD7="$(mkdrive 7 eta)"
+printf '# deliberately none\n\n' > "$DD7/.claude-colima/profiles/eta/dist-wheels"
+out="$(vend_d "$RD7" "$DD7" DEPOT_DIR="$CD7")"; st=$?
+if [[ $st -eq 0 ]] && [[ ! -e "$DD7/repo/eta/dist" ]] \
+   && printf '%s' "$out" | grep -q 'lists nothing'; then
+  ok "an empty dist-wheels file means none, not everything  <-- RESTRICTION LOCK"
+else
+  bad "an empty restriction file did not mean none" "status=$st out=$out"
 fi
 
 # ---- no profile root at all: an INFO line, and the mirror still succeeds ---

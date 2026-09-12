@@ -65,17 +65,24 @@
 #                         # (the image is wheels-only), no private index to
 #                         # widen the proxy for.
 #
-# OPT-IN, PER PROFILE. A profile receives a wheel only if it names it in
+# ON BY DEFAULT, EVERY PROFILE (owner decision, 2026-09-12). Every profile with
+# a workspace receives every wheel the channel publishes, so `../dist` means the
+# same thing in every profile and there is no per-profile step to remember. A
+# profile that wants less says so in
 #
 #   <profiles>/<profile>/dist-wheels   — one ARTIFACT name per line, exactly as
 #                                        the manifest spells it; '#' comments,
-#                                        blanks and CRs skipped.
+#                                        blanks and CRs skipped. The file only
+#                                        ever NARROWS: listing nothing delivers
+#                                        nothing, and there is no way to widen
+#                                        past what the channel published.
 #
-# No file means no delivery, and that is not timidity. `dist/` is on a repo's
-# resolver path: a wheel appearing there is one `uv sync` away from being
-# imported. Vendoring must not push a dependency into a workspace whose owner
-# did not ask for it, for the same reason --permissions never edits the policy
-# template — an artifact must not change a boundary by being vendored.
+# Delivering to a workspace nobody asked about is safe for one reason worth
+# stating: ARRIVAL IS NOT ADOPTION. A wheel in `dist/` changes no environment by
+# itself — every build here is `uv sync --frozen`, which installs what the lock
+# already names. A repo takes a new version only when someone re-locks it
+# deliberately and reviews the diff. The cost of an unused wheel is disk;
+# the cost of a missing one was an afternoon (work/0010 §1).
 #
 # APPEND-ONLY, WHICH IS THE OPPOSITE OF THE MIRROR ABOVE, deliberately.
 # `sandbox_templates/wheels/` ROTATES (two wheels there is a build refusal);
@@ -341,6 +348,16 @@ optin_artifacts() {   # <opt-in file>
          if ($0 != "" && $0 !~ /^#/) print }' "$1"
 }
 
+# Every wheel-bearing artifact the channel publishes — what a profile receives
+# when it carries no restriction file, which is the ordinary case.
+all_wheel_artifacts() {   # <flat manifest>
+  local a
+  while read -r a; do
+    [[ "$(mf "$1" "$a" kind)" == "wheel+skill" ]] && printf '%s\n' "$a"
+  done < <(cut -f1 <<<"$1" | sort -u)
+  return 0
+}
+
 # deliver_dist <channel root> <flat manifest> [--dry-run]
 #
 # Called ONLY with the table verify_all returned, and only after the mirror: an
@@ -353,8 +370,8 @@ optin_artifacts() {   # <opt-in file>
 # information the output does not.
 deliver_dist() {
   local root="$1" flat="$2" dry="${3:-}"
-  local d p profile optin art kind rel want ver file dest ddir tmp got n
-  local rc=0 idle="" nrows=0
+  local d p profile optin arts art kind rel want ver file dest ddir tmp got n
+  local rc=0 idle="" defaulted="" nrows=0
 
   if [[ ! -d "$PROFILES_ROOT" ]]; then
     info "no profile root at $PROFILES_ROOT — nothing to deliver to (ordinary
@@ -369,7 +386,14 @@ deliver_dist() {
     [[ -d "$d" ]] || continue
     p="${d%/}"; profile="$(basename "$p")"
     optin="$p/$OPTIN_NAME"
-    if [[ ! -f "$optin" ]]; then idle="$idle $profile"; continue; fi
+    if [[ -f "$optin" ]]; then
+      arts="$(optin_artifacts "$optin")"
+      # A file listing nothing is a deliberate "none", not a typo to guess at.
+      [[ -n "$arts" ]] || { idle="$idle $profile"; continue; }
+    else
+      arts="$(all_wheel_artifacts "$flat")"
+      defaulted="$defaulted $profile"
+    fi
 
     ddir="$WORKSPACES_ROOT/$profile/dist"
     if [[ ! -d "$WORKSPACES_ROOT/$profile" ]]; then
@@ -442,10 +466,10 @@ deliver_dist() {
       chmod 644 "$tmp"
       mv "$tmp" "$dest"
       ok "$profile: delivered $file ($art $ver)"
-    done < <(optin_artifacts "$optin")
+    done < <(printf '%s\n' "$arts" | grep -v '^[[:space:]]*$' || true)
 
     if [[ "$n" -eq 0 ]]; then
-      info "$profile: $OPTIN_NAME lists no artifacts (all blank or comments)"
+      info "$profile: nothing to deliver (this channel publishes no wheel artifact)"
     fi
   done
 
@@ -453,10 +477,13 @@ deliver_dist() {
   # than as "nothing to do" — and on the machine where nobody has opted in yet,
   # that is the ORDINARY case, so it has to say so in words.
   if [[ "$dry" == "--dry-run" && "$nrows" -eq 0 ]]; then
-    printf '  (nothing — no profile has opted into a wheel this channel publishes)\n'
+    printf '  (nothing — every wheel this channel publishes is already in place)\n'
+  fi
+  if [[ -n "$defaulted" ]]; then
+    info "delivered every published wheel (no $OPTIN_NAME restriction):$defaulted"
   fi
   if [[ -n "$idle" ]]; then
-    info "not opted in, delivered nothing (no $OPTIN_NAME file):$idle"
+    info "$OPTIN_NAME lists nothing, so nothing was delivered:$idle"
   fi
   return "$rc"
 }
