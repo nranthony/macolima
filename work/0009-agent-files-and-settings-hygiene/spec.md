@@ -69,17 +69,38 @@ on the Mac host. Narrow it to the paths actually needed.
 - **CLAUDE-NOT-TRACKED** — commit it (as a stub, after the CLAUDE-ONLY fix) or
   state why it stays local.
 
-## 4. Open decisions (owner)
+## 4. Decisions (owner, 2026-09-12)
 
-1. **Which repos are live?** Several of the 20 look dormant or archival (course
-   repos, a `…_delete_or_not`). Migrating a dead repo costs a commit and buys
-   nothing. A live/dormant list turns the 20 into the real work.
-2. **Bundle with 0008 wave 2?** Most of these repos also receive a 0008 wave-2
-   handoff (`.venv*/`, `.local` pair, `.python-version`). One handoff per repo
-   covering both items means one pass and one review instead of two. Recommended.
-3. **Who executes:** each repo's own agent (in its profile's container, via a
-   handoff) or one host-side pass. The BOTH-SUBSTANTIVE merges want the repo's
-   own agent; the CLAUDE-ONLY moves could be batched.
+1. **Live = a commit in the last six months.** Measured 2026-09-12 against a
+   2026-03-12 cutoff, from each repo's last commit date.
+2. **Bundle with 0008 wave 2.** One handoff per repo covers both items, so each
+   repo is opened, reviewed and committed once.
+3. **A host-side pass**, by me, for the mechanical work. The two
+   `BOTH-SUBSTANTIVE` merges need the repo's own agent and its context — the
+   owner starts those separately (see §4.1).
+
+### 4.1 The live subset
+
+**Live `CLAUDE-ONLY` (10 of 20)** — the host pass:
+fluidmomenta/takeaction, fluidmomenta/website · nranthony/VoiceInk,
+nranthony/ikigai · therapod/app_zero, therapod/core, therapod/engine,
+therapod/financials, therapod/misc_code, therapod/web.
+
+**Dormant, skipped (10):** fluidmomenta/clickup (2026-03-08) · nranthony:
+arxivqml, ikigai_delete_or_not, job_search_agent (2026-03-08), lifetime,
+mercor_boilerplate, my-agentic-tools, quantum-computing-fundamentals-2833097,
+research-assist · therapod/reference_agentic (2026-03-06). Three sit within a
+week of the cutoff (clickup, job_search_agent, reference_agentic): if any comes
+back to life, it joins the pass rather than being re-argued.
+
+**Needs its own repo agent, both live:** nranthony/shrec (2026-06-02),
+nranthony/webridge (2026-04-23). Merging two substantive instruction files is a
+judgement about which rules survive, not a rename.
+
+**Also live, so in scope:** the nested cases (nranthony/mac_docker, and
+therapod/core's `core/`) and all four `TRACKED-LOCAL` repos (therapod/app_blast,
+app_zero, wearable_data_testing; nranthony/VoiceInk's Xcode exception).
+research-assist's untracked CLAUDE.md is dormant, so it stays as it is.
 
 ## 5. Exit
 
