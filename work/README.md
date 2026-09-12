@@ -18,7 +18,7 @@ name *its* items, not ours.** `work/0008 item 1` (the Python dependency gates,
 in `verify-sandbox.sh`, `depaudit.*`, `with-egress.*`), `work/0009` (opencode)
 and `work/0010` (the agy guardrails) in `deny-destructive.*` and the antigravity
 templates are W's. They were kept verbatim so parity diffs against the sibling
-stay clean. This repo's 0008 and 0009 are the items below. ADR numbers, by
+stay clean. This repo's 0008, 0009 and 0010 are the items below. ADR numbers, by
 contrast, are shared on purpose: both repos number the same decision the same way.
 
 ## Current items
@@ -28,6 +28,7 @@ contrast, are shared on purpose: both repos number the same decision the same wa
 | [0006](0006-pnpm-11-12-upgrade/spec.md) | pnpm 10 → 12 upgrade (config relocation is the real cost) | spec only, not scheduled |
 | [0008](0008-venv-per-environment/spec.md) | One venv per environment — `.venv-sandbox` in every sandbox, `.venv` on every host | stages 0–4 done 2026-09-11 (scan, T0, switch built and merged locally); next: recreate every profile, then the repo handoffs |
 | [0009](0009-agent-files-and-settings-hygiene/spec.md) | AGENTS.md as source + CLAUDE.md stub, and no committed local settings, across every repo | spec only — split from 0008's scan |
+| [0010](0010-paperbridge-delivery/spec.md) | paperbridge delivery — one route for the library (git source vs hand-copied `dist/` wheel vs the unused channel wheel), and whether the image carries the CLI its skill describes | spec only; wearable_data_testing's lock unblock in flight (§4) |
 
 ## Archived
 
