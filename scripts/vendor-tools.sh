@@ -48,6 +48,51 @@
 # Pointer sources, in order:
 #   $DEPOT_DIR
 #   .depot-dir.local   (gitignored, one line, comment-tolerant)
+#
+# -----------------------------------------------------------------------------
+# WHEEL DELIVERY INTO PER-PROFILE dist/  (work/0010 D1-A)
+# -----------------------------------------------------------------------------
+# After the mirror succeeds, selected channel wheels are ALSO copied into
+# <drive>/repo/<profile>/dist/ — the workspace root, which the container sees as
+# /workspace/dist. A consumer repo then depends on the wheel through the flat
+# index it already declares, and nothing is hand-copied:
+#
+#   [[tool.uv.index]]
+#   name = "<something>-dist"
+#   url = "../dist"       # relative to the repo, so it resolves identically on
+#   format = "flat"       # the host and in the container. No host-absolute path
+#   explicit = true       # (unreachable in-container), no git source build
+#                         # (the image is wheels-only), no private index to
+#                         # widen the proxy for.
+#
+# OPT-IN, PER PROFILE. A profile receives a wheel only if it names it in
+#
+#   <profiles>/<profile>/dist-wheels   — one ARTIFACT name per line, exactly as
+#                                        the manifest spells it; '#' comments,
+#                                        blanks and CRs skipped.
+#
+# No file means no delivery, and that is not timidity. `dist/` is on a repo's
+# resolver path: a wheel appearing there is one `uv sync` away from being
+# imported. Vendoring must not push a dependency into a workspace whose owner
+# did not ask for it, for the same reason --permissions never edits the policy
+# template — an artifact must not change a boundary by being vendored.
+#
+# APPEND-ONLY, WHICH IS THE OPPOSITE OF THE MIRROR ABOVE, deliberately.
+# `sandbox_templates/wheels/` ROTATES (two wheels there is a build refusal);
+# `dist/` ACCUMULATES. A consumer's uv.lock pins a wheel by FILENAME and hash,
+# so deleting the version it pinned turns `uv sync --frozen` into a resolution
+# failure in every repo still on it — a break this script would cause in a repo
+# it never reads. Old versions cost a few hundred KB and are retired by hand
+# once no lock names them. A same-named file is therefore never overwritten:
+# byte-identical (sha256) is a skip, different is an ERROR that prints both
+# hashes and carries on to the next profile rather than half-delivering.
+#
+# HASH-GATED BY THE SAME GATE AS EVERYTHING ELSE. Only artifacts `verify_all`
+# has already verified are eligible, so no unverified byte reaches a workspace;
+# the copy lands on a temp file inside the destination and is re-hashed before
+# the `mv`, so a truncated copy can never become a permanent "differs" error in
+# a directory this script refuses to overwrite. `--dry-run` reports the same
+# per-profile verdicts and copies nothing.
 # =============================================================================
 set -euo pipefail
 
@@ -56,6 +101,22 @@ REPO_ROOT="$(cd "$HERE/.." && pwd)"
 TEMPLATES="$REPO_ROOT/sandbox_templates"
 WHEEL_DIR="$TEMPLATES/wheels"
 LOCK="$TEMPLATES/VENDORED.lock"
+
+# --- where the profiles and their workspaces live ----------------------------
+# SPELLED EXACTLY AS scripts/profile.sh SPELLS IT, test seam included. That
+# script owns these paths; a second spelling here is drift waiting to happen,
+# and the seam most of all — a suite that cannot redirect the profile root
+# either writes into live profiles or re-implements the thing it is testing.
+#
+# NAME COLLISION, DELIBERATE AND WRITTEN DOWN: profile.sh calls $DRIVE/repo
+# REPO_ROOT, but in THIS file REPO_ROOT is already the macolima checkout. The
+# workspace root is therefore WORKSPACES_ROOT here. Renaming either would be a
+# larger edit than the mismatch is worth; discovering the mismatch by surprise
+# is the part worth preventing.
+DRIVE="${SANDBOX_DRIVE:-/Volumes/DataDrive}"
+PROFILES_ROOT="$DRIVE/.claude-colima/profiles"
+WORKSPACES_ROOT="$DRIVE/repo"
+OPTIN_NAME="dist-wheels"
 
 # ALL diagnostics go to stderr, without exception. `verify_all` returns the flat
 # manifest table on STDOUT and the caller captures it — so a single progress line
@@ -67,7 +128,11 @@ LOCK="$TEMPLATES/VENDORED.lock"
 info() { printf '\033[0;36m[INFO]\033[0m  %s\n' "$*" >&2; }
 ok()   { printf '\033[0;32m[ OK ]\033[0m  %s\n' "$*" >&2; }
 skip() { printf '\033[1;35m[SKIP]\033[0m  vendor-tools: %s\n' "$*" >&2; }
-die()  { printf '\033[0;31m[FAIL]\033[0m  vendor-tools: %s\n' "$*" >&2; exit 1; }
+# err is die's body without the exit — ONE spelling of a failure line, so a
+# reported-and-continue error is indistinguishable in the output from a fatal
+# one. Delivery uses it to finish every profile before returning non-zero.
+err()  { printf '\033[0;31m[FAIL]\033[0m  vendor-tools: %s\n' "$*" >&2; }
+die()  { err "$*"; exit 1; }
 
 # --- where the channel is ----------------------------------------------------
 # awk rather than `head -n1` because a pointer file may carry a comment header,
@@ -263,9 +328,142 @@ write_lock() {
   rm -f "$tmp"
 }
 
+# --- wheel delivery into per-profile dist/ (work/0010 D1-A) ------------------
+# The header carries the why: opt-in, append-only, hash-gated, and what the
+# consumer's pyproject.toml looks like on the other side.
+
+# The artifact names a profile has opted into. Same one-per-line, comment- and
+# CR-tolerant convention as .depot-dir.local and .private-names.local — this
+# repo has ONE state-file format, not three, and awk rather than `head`/`grep`
+# for the reason recorded above channel_candidate.
+optin_artifacts() {   # <opt-in file>
+  awk '{ gsub(/\r/, ""); sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "")
+         if ($0 != "" && $0 !~ /^#/) print }' "$1"
+}
+
+# deliver_dist <channel root> <flat manifest> [--dry-run]
+#
+# Called ONLY with the table verify_all returned, and only after the mirror: an
+# artifact reaching here has had its hash checked against the manifest, so the
+# copy is of a verified byte-for-byte source. It still re-hashes the copy.
+#
+# Returns non-zero if ANY profile failed, AFTER trying every other one. A typo
+# in one profile's opt-in must not decide whether a different profile gets its
+# wheel, and every verdict is printed — the exit status never carries
+# information the output does not.
+deliver_dist() {
+  local root="$1" flat="$2" dry="${3:-}"
+  local d p profile optin art kind rel want ver file dest ddir tmp got n
+  local rc=0 idle="" nrows=0
+
+  if [[ ! -d "$PROFILES_ROOT" ]]; then
+    info "no profile root at $PROFILES_ROOT — nothing to deliver to (ordinary
+       on a machine that has never brought a profile up)"
+    return 0
+  fi
+  if [[ "$dry" == "--dry-run" ]]; then
+    printf '\nwould deliver (profile, artifact, version, destination):\n'
+  fi
+
+  for d in "$PROFILES_ROOT"/*/; do
+    [[ -d "$d" ]] || continue
+    p="${d%/}"; profile="$(basename "$p")"
+    optin="$p/$OPTIN_NAME"
+    if [[ ! -f "$optin" ]]; then idle="$idle $profile"; continue; fi
+
+    ddir="$WORKSPACES_ROOT/$profile/dist"
+    if [[ ! -d "$WORKSPACES_ROOT/$profile" ]]; then
+      err "$profile opted in ($optin) but has no workspace at
+       $WORKSPACES_ROOT/$profile — refusing to create one. That directory is
+       reachable from a container only as /workspace, so a delivery beside a
+       workspace nothing mounts is a no-op with a green tick on it."
+      rc=1; continue
+    fi
+
+    n=0
+    while read -r art; do
+      n=$((n + 1))
+      kind="$(mf "$flat" "$art" kind)"
+      rel="$(mf "$flat" "$art" wheel)"
+      want="$(mf "$flat" "$art" wheel_sha256)"
+      ver="$(mf "$flat" "$art" version)"
+      if [[ -z "$kind" ]]; then
+        err "$profile: $OPTIN_NAME names '$art', which this channel does not
+       publish. Correct the name or drop the line — an opt-in matching nothing
+       delivers nothing, and would do it quietly."
+        rc=1; continue
+      fi
+      if [[ "$kind" != "wheel+skill" || -z "$rel" || -z "$want" ]]; then
+        err "$profile: '$art' is kind '$kind' and publishes no wheel. Only a
+       wheel-bearing artifact can be delivered to a flat index."
+        rc=1; continue
+      fi
+      file="$(basename "$rel")"; dest="$ddir/$file"
+
+      # APPEND-ONLY. Same name is never overwritten: identical is a skip,
+      # different is reported and left exactly as it was found.
+      if [[ -e "$dest" ]]; then
+        got="$(sha_of "$dest")"
+        if [[ "$got" == "$want" ]]; then
+          info "$profile: $file already present, byte-identical — skipped"
+        else
+          err "$profile: $file EXISTS with DIFFERENT content — NOT overwritten.
+       on disk: $got
+       channel: $want
+       A consumer uv.lock may pin the file that is already there, by name AND
+       hash. Compare them and move the local one aside by hand; replacing a
+       pinned wheel is a decision this script does not get to make."
+          rc=1
+        fi
+        continue
+      fi
+
+      if [[ "$dry" == "--dry-run" ]]; then
+        printf '  %-16s %-14s %-8s -> %s\n' "$profile" "$art" "$ver" "$dest"
+        nrows=$((nrows + 1))
+        continue
+      fi
+
+      mkdir -p "$ddir"
+      # Temp-then-mv INSIDE the destination (same filesystem, so the mv is
+      # atomic): a truncated copy must never land under the real name, because
+      # the rule above would then refuse to correct it for the life of the
+      # profile. Explicit mktemp template — macOS ignores TMPDIR without one.
+      tmp="$(mktemp "$ddir/.$file.XXXXXX")" || die "$profile: cannot write into $ddir"
+      cp "$root/$rel" "$tmp"
+      got="$(sha_of "$tmp")"
+      if [[ "$got" != "$want" ]]; then
+        rm -f "$tmp"
+        die "$profile: $file was corrupted in flight
+       channel: $want
+       copied:  $got
+       nothing was left behind in $ddir."
+      fi
+      chmod 644 "$tmp"
+      mv "$tmp" "$dest"
+      ok "$profile: delivered $file ($art $ver)"
+    done < <(optin_artifacts "$optin")
+
+    if [[ "$n" -eq 0 ]]; then
+      info "$profile: $OPTIN_NAME lists no artifacts (all blank or comments)"
+    fi
+  done
+
+  # An empty table under a printed heading reads as truncated output rather
+  # than as "nothing to do" — and on the machine where nobody has opted in yet,
+  # that is the ORDINARY case, so it has to say so in words.
+  if [[ "$dry" == "--dry-run" && "$nrows" -eq 0 ]]; then
+    printf '  (nothing — no profile has opted into a wheel this channel publishes)\n'
+  fi
+  if [[ -n "$idle" ]]; then
+    info "not opted in, delivered nothing (no $OPTIN_NAME file):$idle"
+  fi
+  return "$rc"
+}
+
 # --- vendor ------------------------------------------------------------------
 do_vendor() {
-  local dry="${1:-}" root flat art kind rel ver
+  local dry="${1:-}" root flat art kind rel ver rc=0
 
   root="$(resolve_channel)"
   ok "channel: $root  (from $(channel_origin))"
@@ -286,8 +484,11 @@ do_vendor() {
       esac
     done < <(cut -f1 <<<"$flat" | sort -u)
     printf '\nwould write: %s\n' "${LOCK#"$REPO_ROOT"/}"
-    printf 'nothing was copied (--dry-run)\n'
-    return 0
+    # Same verdicts as a real run, including the errors: a dry run that is
+    # quieter than the run it predicts is not a pre-flight.
+    deliver_dist "$root" "$flat" --dry-run || rc=1
+    printf '\nnothing was copied (--dry-run)\n'
+    return "$rc"
   fi
 
   # Past this line every hash has already been checked. Mirror.
@@ -319,6 +520,17 @@ do_vendor() {
 
   write_lock "$flat"
   ok "wrote ${LOCK#"$REPO_ROOT"/}"
+
+  # Delivery runs AFTER the mirror and the lock, never instead of them: the
+  # image side is this script's primary job, and a profile-side error must not
+  # leave sandbox_templates/ half-updated with no lock to say so.
+  if ! deliver_dist "$root" "$flat"; then
+    die "wheel delivery reported the error(s) above. The mirror and
+       VENDORED.lock are COMPLETE — fix the profile(s) named and re-run;
+       delivery is append-only, so a re-run costs nothing and overwrote
+       nothing."
+  fi
+
   printf '\nNext: just build             (the wheel is baked in; `up` does not rebuild)\n'
   printf 'Then: just recreate <p>      (per running profile)\n'
 }
@@ -502,7 +714,12 @@ for a in "$@"; do
     --check)   mode="check" ;;
     --permissions) mode="permissions" ;;
     --dry-run) dry="--dry-run" ;;
-    -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # Print the WHOLE header block, the way profile.sh's usage() does. The old
+    # hard-coded `2,40p` range silently truncated the moment the header grew —
+    # profile.sh carries the same scar in its own comment, so this is a known
+    # failure mode rather than a guess.
+    -h|--help) awk 'NR<3{next} /^[^#]/{exit} {sub(/^# ?/,""); print}' \
+                 "${BASH_SOURCE[0]}"; exit 0 ;;
     *) die "unknown flag '$a' (valid: --check --permissions --dry-run)" ;;
   esac
 done

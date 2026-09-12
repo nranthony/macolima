@@ -65,9 +65,17 @@ TOML
   printf '%s' "$c"
 }
 
+# Every invocation below points SANDBOX_DRIVE — profile.sh's test seam, which
+# vendor-tools.sh mirrors — at a path that does not exist, so the pointer/mirror
+# cases never see the live profile root and the wheel-delivery step stands down
+# with an INFO line. The delivery suite at the bottom passes a real throwaway
+# drive instead. Without this, `vend` against a machine that has profiles would
+# write into real workspaces.
+NODRIVE="$WORK/nodrive"
+
 run() {  # run <repo> [env-assignment...] -- the monitor form, output+status
   local r="$1"; shift
-  ( cd "$r" && env "$@" bash "$r/scripts/vendor-tools.sh" --check 2>&1 )
+  ( cd "$r" && env SANDBOX_DRIVE="$NODRIVE" "$@" bash "$r/scripts/vendor-tools.sh" --check 2>&1 )
 }
 
 # Pointer resolution is asserted through --dry-run, not --check: since V3,
@@ -76,7 +84,7 @@ run() {  # run <repo> [env-assignment...] -- the monitor form, output+status
 # which is the path that proves the pointer actually reached the channel.
 run_dry() {
   local r="$1"; shift
-  ( cd "$r" && env "$@" bash "$r/scripts/vendor-tools.sh" --dry-run 2>&1 )
+  ( cd "$r" && env SANDBOX_DRIVE="$NODRIVE" "$@" bash "$r/scripts/vendor-tools.sh" --dry-run 2>&1 )
 }
 
 echo "-- vendor-tools: the channel pointer contract --"
@@ -203,7 +211,8 @@ TOML
   printf '%s' "$c"
 }
 
-vend() { local r="$1"; shift; ( cd "$r" && env "$@" bash "$r/scripts/vendor-tools.sh" 2>&1 ); }
+vend() { local r="$1"; shift
+  ( cd "$r" && env SANDBOX_DRIVE="$NODRIVE" "$@" bash "$r/scripts/vendor-tools.sh" 2>&1 ); }
 
 echo
 echo "-- vendor-tools: the hash gate, the mirror, the lock --"
@@ -489,6 +498,173 @@ if printf '%s' "$out" | grep -q 'covered by prefix: Bash(demo read:\*)'; then
   ok "a shorter deployed prefix is reported as covering, not missing"
 else
   bad "prefix coverage not detected" "$out"
+fi
+
+# =============================================================================
+# work/0010 D1-A — wheel delivery into per-profile dist/
+# =============================================================================
+# Two properties are under test, and they pull in opposite directions on
+# purpose. V3's is unchanged: nothing unverified is copied, anywhere. The new
+# one belongs to the CONSUMERS: `dist/` is append-only, because a consumer's
+# uv.lock pins a wheel by FILENAME and hash — so a delivery that deletes or
+# rewrites a same-named file breaks `uv sync --frozen` in a repo this script
+# never reads and cannot see. Identical is a skip, different is an error, an
+# old version survives a bump, and no profile gets anything it did not ask for.
+#
+# Everything here runs against a throwaway SANDBOX_DRIVE (profile.sh's seam),
+# so the live profile root and real workspaces are never touched.
+
+# mkdrive <n> <profile>... -> a drive with BOTH halves of the real layout for
+# each profile: the state dir under .claude-colima/profiles/ and the workspace
+# under repo/. Opt-in files are added per test.
+mkdrive() {
+  local d="$WORK/drive$1"; shift; rm -rf "$d"
+  local p
+  for p in "$@"; do mkdir -p "$d/.claude-colima/profiles/$p" "$d/repo/$p"; done
+  printf '%s' "$d"
+}
+
+optin() {  # optin <drive> <profile> <line>...
+  local d="$1" p="$2"; shift 2
+  printf '%s\n' "$@" > "$d/.claude-colima/profiles/$p/dist-wheels"
+}
+
+vend_d() {  # vend_d <repo> <drive> [env...] -- a real vendor against a fake drive
+  local r="$1" dr="$2"; shift 2
+  ( cd "$r" && env SANDBOX_DRIVE="$dr" "$@" bash "$r/scripts/vendor-tools.sh" 2>&1 )
+}
+
+dry_d() {   # the same, --dry-run
+  local r="$1" dr="$2"; shift 2
+  ( cd "$r" && env SANDBOX_DRIVE="$dr" "$@" bash "$r/scripts/vendor-tools.sh" --dry-run 2>&1 )
+}
+
+echo
+echo "-- vendor-tools: wheel delivery into per-profile dist/ --"
+
+WHEEL="demo-1.0.0-py3-none-any.whl"
+
+# ---- opted in receives it; not opted in receives NOTHING -------------------
+RD1="$(mkrepo d1)"; CD1="$(mkchan2 d1)"; DD1="$(mkdrive 1 alpha beta)"
+# Comments, a blank line, indentation and a CR: the state-file format itself is
+# the contract here, and it is the one .depot-dir.local already uses.
+printf '# what this profile asked for\n\n   demo   \r\n  # demo2, later\n' \
+  > "$DD1/.claude-colima/profiles/alpha/dist-wheels"
+out="$(vend_d "$RD1" "$DD1" DEPOT_DIR="$CD1")"; st=$?
+if [[ $st -eq 0 ]] && [[ -f "$DD1/repo/alpha/dist/$WHEEL" ]] \
+   && [[ "$(sha "$DD1/repo/alpha/dist/$WHEEL")" == "$(sha "$CD1/dist/wheels/$WHEEL")" ]]; then
+  ok "an opted-in profile receives the wheel, byte-identical to the channel"
+else
+  bad "opted-in delivery did not land" "status=$st out=$out"
+fi
+
+if printf '%s' "$out" | grep -q "alpha: delivered $WHEEL"; then
+  ok "the delivery line names the profile and the file"
+else
+  bad "delivery not reported per profile" "out=$out"
+fi
+
+if [[ ! -e "$DD1/repo/beta/dist" ]] && printf '%s' "$out" | grep -q 'not opted in'; then
+  ok "a profile with no dist-wheels file gets NOTHING, and is said to  <-- OPT-IN LOCK"
+else
+  bad "a non-opted-in profile was written to" "$(find "$DD1/repo/beta" 2>/dev/null | head -3)"
+fi
+
+# ---- an identical file is skipped, not re-copied ---------------------------
+# Inode equality, not just content: a re-copy would satisfy a content check
+# while still rewriting a file a consumer's lock is pinning.
+ino1="$(ls -i "$DD1/repo/alpha/dist/$WHEEL" | awk '{print $1}')"
+out="$(vend_d "$RD1" "$DD1" DEPOT_DIR="$CD1")"; st=$?
+ino2="$(ls -i "$DD1/repo/alpha/dist/$WHEEL" | awk '{print $1}')"
+if [[ $st -eq 0 ]] && [[ "$ino1" == "$ino2" ]] \
+   && printf '%s' "$out" | grep -q 'already present, byte-identical'; then
+  ok "a second run skips the identical wheel and does not rewrite it"
+else
+  bad "identical file was not skipped" "status=$st ino $ino1/$ino2 out=$out"
+fi
+
+# ---- APPEND-ONLY: a version bump leaves the OLD wheel in place -------------
+# The deliberate inverse of the sandbox_templates/wheels rotation asserted
+# above: there two wheels are a build refusal, here the old one is what an
+# existing uv.lock still resolves against.
+CD1b="$WORK/chd1b"; rm -rf "$CD1b"; cp -R "$CD1" "$CD1b"
+mv "$CD1b/dist/wheels/$WHEEL" "$CD1b/dist/wheels/demo-2.0.0-py3-none-any.whl"
+sed -i.bak 's/demo-1\.0\.0-py3-none-any\.whl/demo-2.0.0-py3-none-any.whl/; s/version = "1.0.0"/version = "2.0.0"/' "$CD1b/manifest.toml"
+rm -f "$CD1b/manifest.toml.bak"
+out="$(vend_d "$RD1" "$DD1" DEPOT_DIR="$CD1b")"; st=$?
+n_dist="$(find "$DD1/repo/alpha/dist" -name 'demo-*.whl' | wc -l | tr -d ' ')"
+n_tpl="$(find "$RD1/sandbox_templates/wheels" -name 'demo-*.whl' | wc -l | tr -d ' ')"
+if [[ $st -eq 0 ]] && [[ "$n_dist" -eq 2 ]] && [[ -f "$DD1/repo/alpha/dist/$WHEEL" ]] \
+   && [[ -f "$DD1/repo/alpha/dist/demo-2.0.0-py3-none-any.whl" ]] && [[ "$n_tpl" -eq 1 ]]; then
+  ok "a bump ADDS to dist/ and keeps the old wheel, while the mirror rotates  <-- APPEND-ONLY LOCK"
+else
+  bad "dist/ did not accumulate across a bump" "status=$st dist=$n_dist templates=$n_tpl"
+fi
+
+# ---- a DIFFERENT file of the same name is an error, and is left alone ------
+RD2="$(mkrepo d2)"; CD2="$(mkchan2 d2)"; DD2="$(mkdrive 2 gamma)"
+optin "$DD2" gamma demo
+mkdir -p "$DD2/repo/gamma/dist"
+printf 'A DIFFERENT WHEEL\n' > "$DD2/repo/gamma/dist/$WHEEL"
+before="$(sha "$DD2/repo/gamma/dist/$WHEEL")"
+out="$(vend_d "$RD2" "$DD2" DEPOT_DIR="$CD2")"; st=$?
+after="$(sha "$DD2/repo/gamma/dist/$WHEEL")"
+if [[ $st -ne 0 ]] && [[ "$before" == "$after" ]] \
+   && printf '%s' "$out" | grep -q 'DIFFERENT content'; then
+  ok "a same-name wheel with different content is an ERROR and is NOT overwritten"
+else
+  bad "a differing wheel was overwritten or not reported" "status=$st out=$out"
+fi
+
+if [[ -f "$RD2/sandbox_templates/VENDORED.lock" ]] \
+   && printf '%s' "$out" | grep -q 'VENDORED.lock are'; then
+  ok "the mirror and the lock still completed — delivery fails AFTER them, and says so"
+else
+  bad "a delivery error left the mirror ambiguous" "out=$out"
+fi
+
+# ---- an opt-in naming something the channel does not publish ---------------
+RD3="$(mkrepo d3)"; CD3="$(mkchan2 d3)"; DD3="$(mkdrive 3 delta)"
+optin "$DD3" delta nosuchthing
+out="$(vend_d "$RD3" "$DD3" DEPOT_DIR="$CD3")"; st=$?
+if [[ $st -ne 0 ]] && printf '%s' "$out" | grep -q "names 'nosuchthing'"; then
+  ok "an opt-in naming an unpublished artifact fails loudly, never silently"
+else
+  bad "an unknown opt-in name was swallowed" "status=$st out=$out"
+fi
+
+# ---- the hash gate covers dist/ too: a tampered wheel delivers NOTHING -----
+RD4="$(mkrepo d4)"; CD4="$(mkchan2 d4)"; DD4="$(mkdrive 4 epsilon)"
+optin "$DD4" epsilon demo
+printf 'TAMPERED' > "$CD4/dist/wheels/$WHEEL"
+out="$(vend_d "$RD4" "$DD4" DEPOT_DIR="$CD4")"; st=$?
+if [[ $st -ne 0 ]] && printf '%s' "$out" | grep -q 'HASH MISMATCH' \
+   && [[ ! -e "$DD4/repo/epsilon/dist" ]]; then
+  ok "a tampered payload reaches no workspace either  <-- VERIFY-BEFORE-COPY"
+else
+  bad "an unverified wheel reached a workspace" "status=$st out=$out"
+fi
+
+# ---- --dry-run reports the delivery and copies nothing ---------------------
+RD5="$(mkrepo d5)"; CD5="$(mkchan2 d5)"; DD5="$(mkdrive 5 zeta)"
+optin "$DD5" zeta demo
+out="$(dry_d "$RD5" "$DD5" DEPOT_DIR="$CD5")"; st=$?
+if [[ $st -eq 0 ]] && [[ ! -e "$DD5/repo/zeta/dist" ]] \
+   && printf '%s' "$out" | grep -q 'would deliver' \
+   && printf '%s' "$out" | grep -q "zeta" && printf '%s' "$out" | grep -q "$WHEEL"; then
+  ok "--dry-run names the profile and the wheel, and creates no dist/"
+else
+  bad "--dry-run delivered or stayed silent" "status=$st out=$out"
+fi
+
+# ---- no profile root at all: an INFO line, and the mirror still succeeds ---
+RD6="$(mkrepo d6)"; CD6="$(mkchan2 d6)"
+out="$(vend_d "$RD6" "$WORK/no-such-drive" DEPOT_DIR="$CD6")"; st=$?
+if [[ $st -eq 0 ]] && printf '%s' "$out" | grep -q 'no profile root' \
+   && [[ -f "$RD6/sandbox_templates/VENDORED.lock" ]]; then
+  ok "an absent profile root skips delivery with an INFO line, mirror unaffected"
+else
+  bad "absent profile root was not a clean skip" "status=$st out=$out"
 fi
 
 printf "\n  %d passed, %d failed\n" "$PASS" "$FAIL"
