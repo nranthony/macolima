@@ -125,6 +125,28 @@ handoff-depot amended (third time) with **T0**, the one-shell test, and
 re-delivered. The owner will run the depot agent in the `nranthony` container.
 Results are to come back as handoff §6 item 0; PR-2's merge waits on them.
 
+## 2026-09-12 — stage 6: misc_code done
+
+Hand-back verified host-side: commit **`eedeb9b`**, clean tree,
+`git grep` finds no `.venv-linux` and no `UV_PROJECT_ENVIRONMENT=`, and
+`.python-version` is 3.12 tracked. It **no longer blocks the done-check**.
+
+- `setup-linux-venv.sh` was **removed** (`git rm`) rather than reduced:
+  `uv sync --locked` builds `.venv-sandbox` unaided, so the script had no job
+  left.
+- **The build needed no egress** — the registries are closed and it installed
+  from the profile's uv cache. `uv run python requirements_to_gsheet.py --help`
+  imported gspread, google-auth, google-auth-oauthlib, loguru and python-dotenv.
+  The agent noted pandas and openpyxl are **not** exercised by that script, so
+  they remain unproven here.
+- `README.md` was **not** in the handoff's table but carried the same
+  `.venv-linux` export and pointed at the deleted script; the agent found and
+  fixed it. Another instance of the §3 tables being a starting point, not the
+  set.
+- `.gitignore`: `.venv/` and `.venv-linux/` → `.venv*/`, plus the `.local`
+  trio; `git check-ignore` re-confirmed `.env`, `credentials.json` and
+  `token.json` stay ignored.
+
 ## 2026-09-11 — stage 6: pipeline done ([notes-pipeline.md](notes-pipeline.md))
 
 The hand-back is filed as the owner pasted it; a few of its closing lines were
