@@ -42,6 +42,21 @@ and grants to every clone and container.
 | `CLAUDE-NOT-TRACKED` | 1 | nranthony/research-assist: its CLAUDE.md exists but isn't committed |
 | `NO-AGENT-FILES` | 17 | informational: course material, dotfiles, archived sites. **In scope only if the owner says the repo is live** (§4) |
 
+**A machine-wide ignore hides this class of file on THIS Mac (found 2026-09-12).**
+`/Users/neilanthony/.config/git/ignore` contains `**/.claude/settings.local.json`,
+and `core.excludesfile` is unset — so git is using its *default* global path and
+nothing in any repo reveals the rule. Consequences, both measured:
+
+- `git status` never shows those files here, so they are never committed **on
+  this machine**. fluidmomenta/website and nranthony/VoiceInk each carry one.
+- The rule does **not** travel: not to a clone, not into a container, not to the
+  sibling's machines. A repo that reads clean here can leak the same file
+  elsewhere.
+- So `TRACKED-LOCAL` counts only what already slipped through (four repos,
+  §2) and understates the exposure. The repo-level `*.local.*` line is the fix
+  that travels, and it now attributes those two files to the repo's own
+  `.gitignore` rather than the global one.
+
 **Security, outside the file-shape rule but found by the same scan:**
 therapod/project-mgmt's *local* (gitignored) settings allow
 `Read(//Users/neilanthony/**)`. That makes the whole home directory readable,
