@@ -103,7 +103,11 @@ NESTED_EXCLUDE_PARTS = {"archive", "_archive", "node_modules", "vendor",
                         # payload stamped INTO other repos (a conventions
                         # template, a built plugin tree) — measured on the first
                         # real run: three false NESTED-AGENTS-NO-STUB hits.
-                        "templates", "dist"}
+                        # claude_init_files/ is the same shape, found 2026-09-12:
+                        # a CLAUDE.md beside a Dockerfile, a compose file and an
+                        # allowlist, i.e. a set for standing up ANOTHER machine,
+                        # not guidance for the repo carrying it.
+                        "templates", "dist", "claude_init_files"}
 
 # Files whose contents get EXECUTED — by a shell, a task runner, CI, or an agent
 # following instructions (an instruction file is an executable surface: the next
