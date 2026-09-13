@@ -117,9 +117,35 @@ therapod/core's `core/`) and all four `TRACKED-LOCAL` repos (therapod/app_blast,
 app_zero, wearable_data_testing; nranthony/VoiceInk's Xcode exception).
 research-assist's untracked CLAUDE.md is dormant, so it stays as it is.
 
-## 5. Exit
+## 5. Done, 2026-09-12 — the live set
 
-For every repo the owner marks live:
-`just workspace-scan --fail-on CLAUDE-ONLY,BOTH-SUBSTANTIVE,NESTED-CLAUDE-ONLY,TRACKED-LOCAL`
-exits 0, or each remaining hit has a recorded reason. The project-mgmt home-dir
-grant is narrowed.
+Every live repo is migrated and the scan agrees. Two of the ten needed nothing:
+**engine** and **ikigai** had already been done (AGENTS.md plus a stub), which is
+why the pass was seven renames rather than ten.
+
+| Repo | Commit | Beyond the move + stub |
+|---|---|---|
+| therapod/financials | `9397a14` | heading; "a local `.venv` exists — activate it" became the host/sandbox rule |
+| fluidmomenta/takeaction | `1229a91` | **nothing** — no Claude-specific phrasing, no venv lines |
+| fluidmomenta/website | `15d8143` | heading only; `.venv*/` added (a Next.js repo had none) |
+| nranthony/VoiceInk | `3f99dcb` | first two lines; the Xcode exception below |
+| therapod/app_zero | `2e45fa8` | opening line; `.venv-linux/bin/pytest` → `uv run pytest` |
+| therapod/core | `d3b898c` | opening line; the activation block became the rule, so the bare `ruff`/`pytest` lines became `uv run …`; `.python-version` 3.12; **and its nested `core/`** got the same move + stub |
+| therapod/web | `eadda34` | opening note; "Notes for Claude" → "Notes for agents" |
+| therapod/misc_code | `810682a` | move + stub only — `eedeb9b` (0008) had already fixed its venv text |
+| therapod/app_blast | `4198960` | settings-only: `settings.local.json` untracked, `*.local.*` added |
+
+All carry `.venv*/` and the `.local` trio, verified with the trailing-slash
+probe; no already-tracked file is caught by the new rules.
+
+**The one permanent exception.** `nranthony/VoiceInk` still reports
+`TRACKED-LOCAL` for `VoiceInk/VoiceInk.local.entitlements`. That is deliberate:
+Xcode entitlements belong in the repo, so the file stays tracked and
+`.gitignore:113` carries `!VoiceInk/VoiceInk.local.entitlements` to keep it
+visible. The scan will report it on every run; this is its recorded reason.
+
+**Still owed:** `nranthony/shrec` and `nranthony/webridge`
+(`BOTH-SUBSTANTIVE`). Merging two substantive instruction files decides which
+rules survive, so each needs its own agent in the `nranthony` profile, with the
+repo's context. The dormant ten are out of scope until one wakes up (§4.1), and
+therapod/project-mgmt's home-directory grant is still to be narrowed (§2).
