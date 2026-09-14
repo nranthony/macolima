@@ -125,6 +125,56 @@ handoff-depot amended (third time) with **T0**, the one-shell test, and
 re-delivered. The owner will run the depot agent in the `nranthony` container.
 Results are to come back as handoff §6 item 0; PR-2's merge waits on them.
 
+## 2026-09-14 — stage 6: ikigai done; the done-check is down to the sibling's notice block
+
+Hand-back at `/Volumes/DataDrive/repo/nranthony/inbox/0008/handback-ikigai.md`,
+verified host-side: `9c4d5e3` (policy, `.python-version` 3.12, `.gitignore`)
+and `eac3448` (sweep, ADR-0022, work items 0023 archived and 0011 reduced to
+its §3). Clean tree apart from the owner's `.vscode/launch.json`. Not pushed.
+`.venv-sandbox` on 3.12.14 under `/opt/uv`; gate 565/565 validate, 328 passed,
+0 integrity errors. Both `.venv*/` and the `.local` shapes check-ignore.
+
+- **The build needed the network**: 54 cold cache entries in nranthony. Warm
+  now.
+- **ADR number was 0022, not 0021** — the handoff read the tree at `64a9b4b`,
+  the agent applied it at `f989f86`, and the owner had used 0021 and added a
+  `.venv-host` rule in between. Six table rows named archived files. Same
+  lesson as the earlier repos, sharper: a handoff written days before it is
+  applied must say which commit it read, and the applier re-derives from
+  `HEAD`.
+- **Policy first needed the owner's hand**: the auto-mode classifier blocked
+  the agent's own `.claude/settings.json` edit (self-modification), so the
+  gate ran once after the sweep rather than before and after.
+- **Owner chose catch-all denies over the four-spelling fence**:
+  `Bash(*load_blocks.py*--w*)` and `Bash(*ikigai.db.load_blocks*)`. Observed
+  over-match: a `git commit` whose message quoted the loader and its flag was
+  denied.
+- **Side finding**: a LangSmith key with tracing on in the environment makes
+  the test suite POST traces; the proxy refuses (403), tests pass, output is
+  noisy. Left for the owner.
+
+**Scan after the hand-back** (`--fail-on HARDCODED-VENV-LINUX,OS-VENV-SELECT`
+still exits 1): ikigai's summary row is clean, and its two remaining findings
+are both owner-side:
+1. `HARDCODED-VENV-LINUX` at `AGENTS.md:27` — inside **windows-ai-sandbox's
+   managed notice block** (`managed by windows-ai-sandbox — do not edit here`).
+   The repo agent correctly left it. macolima's `sync-agent-notice.sh` writes
+   a `managed by macolima` marker, so running it here would append a second
+   block, not replace W's. One repo, two sandboxes, one block slot: either
+   the block is re-synced from the sibling clone after W's R1 (its notice
+   still says the old thing today), or the marker is switched to macolima's
+   and W's machines lose their sync target. Owner decision; recorded in the
+   replay §3a.11.
+2. `ASK-GAP` — the scanner models a fenced script as needing every plain
+   spelling fenced; ikigai's fence is deliberately flag-scoped (`*--w*`), so
+   a dry run falls through to the allow. Either the scanner learns
+   flag-scoped fences or this is an accepted finding. Owner decision.
+
+Wave-2 residue in the nranthony profile, none of it a gate blocker:
+`VENV-PATH-IN-CODE` numerai, project_zenbu, webridge; `VENV-PATH-ALLOW`
+project_zenbu; `DOC-VENV-LINUX` jeremy_dahl_analytics, therapod/core, and
+pipeline's notebook history.
+
 ## 2026-09-13 — stage 6: wearable_data_testing done, two venvs re-pinned, ikigai surfaced
 
 Run as three parallel host-side agents; hand-backs verified against the scan.

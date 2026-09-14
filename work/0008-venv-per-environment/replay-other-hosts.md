@@ -209,6 +209,26 @@ changes.
 17. **Hosts confirmed clean on the Mac, with one near-miss**: the shell profile
     exports `UV_PYTHON_INSTALL_DIR`, which is harmless, but it is the kind of
     `UV_*` line R6's grep must read rather than count.
+18. **A handoff names the commit it read; the applier re-derives from `HEAD`**
+    (R4). ikigai's handoff was written at one commit and applied three days
+    later at another: the ADR number it reserved was taken, a rule it did not
+    know about had been added, and six table rows named files since archived.
+    Nothing broke, because the agent checked, but only because it checked.
+19. **The repo agent cannot apply its own policy** (R4). The auto-mode
+    classifier blocks an agent editing `.claude/settings.json` in the repo it
+    runs in, so step "policy first" waits on the owner. Sequence the handoff so
+    the sweep proceeds meanwhile and the gate runs after both.
+20. **Catch-all denies over-match on prose** (R1, R4). `Bash(*load_blocks.py*--w*)`
+    is airtight for the loader and also denied a `git commit` whose message
+    quoted it. Acceptable, but say so in the fence's comment so the next
+    denial is not read as a bug. And the scanner's `ASK-GAP` reads a
+    flag-scoped fence as a gap for the flagless spellings; decide per repo
+    whether that is a real hole (dry runs allowed) or a scanner limit.
+21. **One repo, two sandboxes, one notice slot** (R1). A repo worked in both a
+    macolima profile and a W profile carries whichever sandbox wrote its
+    notice block last, and the other sandbox's sync script writes a different
+    marker, so it appends rather than replaces. Decide who owns the block in
+    such repos before R1's re-sync, or the two syncs will stack two blocks.
 
 ## 4. Steps (for W's own work item)
 
