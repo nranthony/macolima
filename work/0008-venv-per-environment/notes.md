@@ -125,6 +125,14 @@ handoff-depot amended (third time) with **T0**, the one-shell test, and
 re-delivered. The owner will run the depot agent in the `nranthony` container.
 Results are to come back as handoff §6 item 0; PR-2's merge waits on them.
 
+## 2026-09-14 — the done-check exits 0
+
+work/0011 C1 stripped the sibling's notice block from ikigai's AGENTS.md
+(and nine other repos). `just workspace-scan --fail-on HARDCODED-VENV-LINUX,OS-VENV-SELECT`
+→ exit 0. Stages 0–7 are complete; open are the replay (stage 8, ferried by
+the owner, `replay-other-hosts.md`) and the soak-then-retire of
+`depot/myclickup/.venv` (stage 9). Archive when the machines have reported.
+
 ## 2026-09-14 — stage 6: ikigai done; the done-check is down to the sibling's notice block
 
 Hand-back at `/Volumes/DataDrive/repo/nranthony/inbox/0008/handback-ikigai.md`,

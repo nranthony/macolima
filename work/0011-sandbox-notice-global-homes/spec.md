@@ -1,6 +1,6 @@
 # 0011 — The sandbox notice: one neutral text, delivered to each agent's global home, never into a repo
 
-**State:** spec + plan, checked against the code 2026-09-14; not started.
+**State:** built, delivered and stripped 2026-09-14; open: A2 (agy measurement, needs a sign-in), the depot handoff and the sibling replay reports.
 **Opened:** 2026-09-14, from 0008's ikigai hand-back (a stale sibling-managed
 notice block was the last line failing 0008's done-check).
 **Plan:** [plan.md](plan.md). **Sibling side:** plan §D, ferried.

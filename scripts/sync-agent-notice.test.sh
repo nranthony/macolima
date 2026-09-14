@@ -194,5 +194,15 @@ out=$(bash "$SYNC" --strip "$D" 2>&1)
 check "--strip on a directory arg maps the same way" "${out##* }" "$D/AGENTS.md"
 check "  …and the block is gone" "$(begins "$D/AGENTS.md")" "0"
 
+
+# --- modes: update and strip keep the target's mode (a repo AGENTS.md is 644) ---
+MODEFIX="$T/mode.md"
+printf '# T\n\n%s\nold\n%s\n\nbody\n' "$NEUTRAL" "$END_MARK" > "$MODEFIX"
+chmod 644 "$MODEFIX"
+bash "$SYNC" "$MODEFIX" >/dev/null
+check "update keeps mode 644" "$(stat -f %Lp "$MODEFIX" 2>/dev/null || stat -c %a "$MODEFIX")" "644"
+bash "$SYNC" --strip "$MODEFIX" >/dev/null
+check "strip keeps mode 644" "$(stat -f %Lp "$MODEFIX" 2>/dev/null || stat -c %a "$MODEFIX")" "644"
+
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -108,11 +108,12 @@ sync_one() {
   target="$(resolve_target "$1")"
 
   # New file (or empty) → just drop the block in.
-  # NOTE ON MODES: this create path leaves the file at the umask default (644),
-  # while the update path below is mktemp+mv and so lands at 600. That is why an
-  # existing claude-home/CLAUDE.md reads 600 and a freshly created one 644. Both
-  # are fine in-container (the mount is owned by the agent uid and only the
-  # agent reads these); do not add a chmod to "fix" it.
+  # NOTE ON MODES: the create path leaves the file at the umask default (644).
+  # The update and strip paths write the new content INTO the existing file
+  # (`cat tmp > target`, never `mv tmp target`) so the target keeps its mode,
+  # owner and inode. An earlier mv version landed every updated file at 600
+  # (mktemp's mode) — harmless for the home files, wrong for a repo AGENTS.md
+  # that a container reads under a different uid.
   if [[ ! -s "$target" ]]; then
     mkdir -p "$(dirname "$target")"
     cat "$block" > "$target"
@@ -139,7 +140,7 @@ sync_one() {
     skip { next }
     { print }
   ' "$target" > "$tmp"
-  mv "$tmp" "$target"
+  cat "$tmp" > "$target" && rm -f "$tmp"
   echo "updated  $target"
 }
 
@@ -165,7 +166,7 @@ strip_one() {
     ateblank { ateblank=0; if ($0 == "") next }
     { print }
   ' "$target" > "$tmp"
-  mv "$tmp" "$target"
+  cat "$tmp" > "$target" && rm -f "$tmp"
   echo "stripped $target"
 }
 

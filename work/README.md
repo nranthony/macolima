@@ -26,10 +26,10 @@ contrast, are shared on purpose: both repos number the same decision the same wa
 | # | Item | State |
 |---|---|---|
 | [0006](0006-pnpm-11-12-upgrade/spec.md) | pnpm 10 → 12 upgrade (config relocation is the real cost) | spec only, not scheduled |
-| [0008](0008-venv-per-environment/spec.md) | One venv per environment — `.venv-sandbox` in every sandbox, `.venv` on every host | switch live in all four profiles; every flagged repo migrated by 2026-09-14; done-check blocked only on a sibling notice block in one repo → 0011 C1 |
+| [0008](0008-venv-per-environment/spec.md) | One venv per environment — `.venv-sandbox` in every sandbox, `.venv` on every host | done-check exits 0 as of 2026-09-14; open: the sibling replay's report and the soak-then-retire of one leftover venv |
 | [0009](0009-agent-files-and-settings-hygiene/spec.md) | AGENTS.md as source + CLAUDE.md stub, and no committed local settings, across every repo | done 2026-09-12 — nine repos migrated, one recorded exception |
 | [0010](0010-paperbridge-delivery/spec.md) | paperbridge delivery — one route for the library (git source vs hand-copied `dist/` wheel vs the unused channel wheel), and whether the image carries the CLI its skill describes | spec + plan; §4 unblock done 2026-09-13 (wearable_data_testing on paperbridge 0.3.0) |
-| [0011](0011-sandbox-notice-global-homes/spec.md) | The sandbox notice — one neutral text, written into each agent's global home on every `up`/`converge`, never into a repo; strip the eight stale sibling blocks | spec + plan, checked 2026-09-14; C1 (the strip) is what closes 0008's last done-check line |
+| [0011](0011-sandbox-notice-global-homes/spec.md) | The sandbox notice — one neutral text, written into each agent's global home on every `up`/`converge`, never into a repo; strip the eight stale sibling blocks | built, delivered to all four profiles and stripped from ten repos, 2026-09-14; open: the agy measurement (needs a sign-in), the depot handoff and the sibling replay |
 
 ## Archived
 

@@ -15,11 +15,11 @@ script exist (A1, B1–B2). Everything else in 0011 is independent of 0008.
 
 | Stage | What | Who | Done when |
 |---|---|---|---|
-| A1 | Land the neutral notice + neutral marker + tolerant sync script (B1–B3), offline gate green | me | `just test-offline` |
+| A1 | Land the neutral notice + neutral marker + tolerant sync script (B1–B3), offline gate green | me | **done 2026-09-14** ([notes](notes.md)) |
 | A2 | **Measure agy's global rules** (needs a sign-in) | owner signs in; me | agy repeats a word from `~/.gemini/config/rules/sandbox-notice.md` |
-| B | profile.sh writes both targets; verify asserts both; scanner flag; docs; ADR — one PR with A1 | me | `just verify <p>` green on one profile |
-| C1 | **H** strip the eight repo blocks, commit per repo | owner | `just workspace-scan --fail-on NOTICE-IN-REPO` exits 0 → **0008's done-check exits 0 too** |
-| C2 | `converge` all four profiles | owner | four verifies green |
+| B | profile.sh writes both targets; verify asserts both; scanner flag; docs; ADR — one PR with A1 | me | **done 2026-09-14**, verify green on three profiles |
+| C1 | strip the repo blocks (ten, not eight), commit per repo | agent, on the owner's answers | **done 2026-09-14**: both done-checks exit 0 |
+| C2 | `converge` all four profiles | agent | **done 2026-09-14**; fluidmomenta verifies at its next `up` |
 | D | Replay section ferried to the sibling | owner | its report back |
 | E | Archive: 0008 first (its exit criteria are met at C1 + its own replay), then 0011 after D | me | ADRs distilled |
 
