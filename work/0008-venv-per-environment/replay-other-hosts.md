@@ -178,6 +178,10 @@ changes.
     not to edit inside the markers, so **R1's re-sync of the block is what
     fixes those repos**, and it must happen before their handoffs are applied,
     not after. Name those three claims in W's notice rewrite.
+    **Superseded 2026-09-14 by work/0011 (ADR-0015):** the blocks are not
+    re-synced, they are STRIPPED — the notice now lives only in the agent
+    homes. What fixes those repos is 0011's replay, R2, run before the
+    handoffs.
 12. **Repos have competing drafts of the same change** (R3). Found so far: an
     `os()` selector, an `export UV_PROJECT_ENVIRONMENT=.venv-linux` in a
     CLAUDE.md plus a setup script, and a four-phase in-repo proposal with open
@@ -229,6 +233,9 @@ changes.
     notice block last, and the other sandbox's sync script writes a different
     marker, so it appends rather than replaces. Decide who owns the block in
     such repos before R1's re-sync, or the two syncs will stack two blocks.
+    **Superseded 2026-09-14 by work/0011 (ADR-0015):** nobody owns a block in
+    a repo any more; the sync script writes one neutral marker and recognises
+    both old ones, and repos carry none. See 0011's replay.
 
 ## 4. Steps (for W's own work item)
 
@@ -252,10 +259,12 @@ compose `UV_PROJECT_ENVIRONMENT=.venv-sandbox`. Compose rather than Dockerfile
 `ENV`, for the same recreate-not-rebuild reason, even though W's `UV_LINK_MODE`
 sits in the Dockerfile; if W prefers `ENV`, record why. Then: the hook carve-out
 and tests; the notice's disposable list plus the new "Python environments"
-section (root paths). Then **re-sync the notice block into every repo whose
-AGENTS.md carries W's copy**: those blocks say "anything inside a `.venv` is
-disposable", which now describes the host's venv. The pipeline agent reported
-it, 2026-09-11. Then a `verify-sandbox.sh` assertion; W's own copy of the ADR,
+section (the text is sandbox-neutral now — `~`, never `/root` — and comes
+verbatim from macolima, see 0011's replay R1). The repo blocks are **not
+re-synced, they are stripped** (0011's replay R2, ADR-0015): they say
+"anything inside a `.venv` is disposable", which now describes the host's
+venv, and the fix is that no repo carries the block at all. The pipeline
+agent reported the wrong claim, 2026-09-11. Then a `verify-sandbox.sh` assertion; W's own copy of the ADR,
 **numbered ADR-0013 like macolima's**, because the two repos share ADR numbers
 (0003–0012 are the same decisions in both); if W has used 0013 since, record the
 mapping in both ADR indexes. It cites the agentic-conventions ADR; `AGENTS.md`; the §3.4 doc rewrites; the `.local` pair

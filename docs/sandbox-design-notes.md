@@ -23,7 +23,7 @@ Do **not** "re-harden" by re-enabling `sandbox.enabled` or re-adding `bubblewrap
 
 ## Per-profile Claude Code skills are seeded from `sandbox_templates/skills/`
 
-Skills live at `sandbox_templates/skills/<name>/SKILL.md` and are seeded into each profile's `claude-home/skills/<name>/` by `ensure_state()` on first `up` — copy only if absent, so user customisations survive subsequent `up`s. To force-refresh from template: `scripts/profile.sh <p> reset-skills` (backs up to `<name>.bak.<stamp>/`; `clean --deep` sweeps those).
+Skills live at `sandbox_templates/skills/<name>/SKILL.md` and are CONVERGED into each profile's `claude-home/skills/<name>/` on every `up` and `converge` (ADR-0005, ADR-0007): the template tree is the source of truth and the profile copy is a derived cache, so a divergent copy is replaced (with a WARN), never preserved and never backed up — a `<name>.bak.<stamp>/` beside the live copy is itself a second live skill under the same `name:`. `git` is the backup. The old `reset-skills` verb is gone; `scripts/profile.sh <p> converge` is the refresh.
 
 The shipped `audit-sandbox` skill points at the staged `claude_internal_audit.md` rather than duplicating it — so when you edit the audit prompt, no skill change is needed; just re-run `scripts/stage-audit-package.sh <profile>`. README §"Self-audit" covers user invocation.
 

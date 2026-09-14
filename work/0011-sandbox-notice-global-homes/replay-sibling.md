@@ -51,9 +51,45 @@ shared number.
 
 ## 3. What the Mac rollout learned
 
-Filled in at C2. Until then, the 0008 replay's §3a items 11 and 21 are the
-relevant history (the managed block was where the wrong instruction lived;
-one repo, two sandboxes, one slot).
+Filled in after C2, 2026-09-14. The 0008 replay's §3a items 11 and 21 are
+the history (the managed block was where the wrong instruction lived; one
+repo, two sandboxes, one slot); both now carry a supersession note pointing
+here. Read the two replays together: 0008's R1 no longer re-syncs anything.
+
+1. **Ten repos, not eight.** The scan counted marker LINES of the two known
+   spellings. Two depot members (`myclickup`, `paperbridge`) carried a
+   hand-written block whose BEGIN comment wraps across four lines, so no
+   whole-line match saw it. Detection is now by PREFIX (`<!-- BEGIN
+   sandbox-notice`) plus "skip through the END line"; W's copy of the sync
+   script and its scan must do the same or they will miss the same two.
+2. **Four of ten regions held repo text inside the markers.** ikigai: live
+   Postgres documentation (host, port, role, DSN, how the password reaches
+   `psql`). app_blast: a webfetch operating rule. myclickup and paperbridge:
+   one golden-rules bullet each on lockfile discipline. Every one had to be
+   moved BELOW the markers before the strip, or the strip would have deleted
+   repo knowledge. Read the region first, always; diff the strip.
+3. **`--strip` and update must write INTO the target, never `mv` over it.**
+   The first strip landed every repo `AGENTS.md` at mode 600 (mktemp's mode),
+   which a container reading the file under another uid cannot open.
+   `cat "$tmp" > "$target"` keeps mode, owner and inode. A test locks it;
+   port the test with the script.
+4. **Prose outside the markers points at the block.** Three repos said "the
+   sandbox notice above"; once the block is gone that points at nothing.
+   grep for `notice above` / `notice block` after the strip and reword to
+   `~/.claude/CLAUDE.md`. One commit per repo, the prose fix separate from
+   the strip.
+5. **The scaffold is the source.** The hand-placed blocks all came from
+   `myconv`'s `apply-conventions` scaffold, which templates a block into a
+   new repo's `AGENTS.md`. Until the depot handoff lands and the plugin is
+   re-vendored, a fresh scaffold will plant a new block; the scanner flag
+   (`NOTICE-IN-REPO`) is the tripwire.
+6. **agy's global rules are still unmeasured.** The path is documented in
+   agy's embedded docs (global customisation root `~/.gemini/config/`,
+   `rules/*.md`, "applies to all projects"), not yet observed loading; it
+   needs an interactive sign-in. R4 stands.
+7. **Two commits, not one, on the Mac.** The feature landed as one commit
+   (script, targets, verify, scanner, ADR, docs) and the strip's mode fix
+   plus the work-item paper as a second. W can take both in one PR.
 
 ## 4. Report back
 
