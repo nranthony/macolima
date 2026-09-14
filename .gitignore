@@ -260,3 +260,4 @@ secrets.env
 # untracked it is the ONLY committed evidence of what an image was built from.
 sandbox_templates/wheels/*.whl
 sandbox_templates/skills/myclickup/
+scratch-prompt.md

@@ -1,6 +1,6 @@
 # 0008 — replaying the venv rule on the WSL and bare-Linux hosts
 
-**State:** waiting on macolima. **Written:** 2026-09-11.
+**State:** waiting on macolima — one repo (ikigai) still to land; the Mac rollout's corrections are folded in (§3a, 2026-09-13). **Written:** 2026-09-11.
 **Carrier:** human-ferried. Every non-Mac machine runs **windows-ai-sandbox**
 (W), and no macolima container or host session can reach them. The executing
 tier is W: it opens its own work item from this file (numbering continues from
@@ -104,6 +104,112 @@ machines and the order to do it in.
    macolima uses `/home/agent/.cache` (L724 carve-out, L732 message). The new
    `*/.venv-sandbox/*` entry and its three test cases are identical.
 
+## 3a. What the Mac rollout learned (folded in 2026-09-13, per §0.3)
+
+Everything below was measured while executing stages 2–6 on the Mac (notes.md,
+2026-09-11 → 13). None of it is Mac-specific; each item names the R-step it
+changes.
+
+1. **Pin `.python-version` before the first build** (R4). Unpinned, the image's
+   uv takes the newest baked interpreter, 3.13. Three repos were built on 3.13
+   and had to be rebuilt after their pins landed. The rebuild needs no deletion:
+   once the pin says 3.12, the next `uv sync` recreates `.venv-sandbox` itself.
+2. **`--frozen`, with like-for-like extras** (R4). `uv sync` removes every extra
+   you don't name, dev tools included, so a gate run against the new venv is
+   only comparable if it names the extras the old venv had. CI sets
+   `UV_FROZEN: '1'` at job level, because a plain `uv run` re-locks when
+   `pyproject.toml` and `uv.lock` disagree and would quietly test a different
+   tree.
+3. **The lock is the record; the venv is disposable** (R4, R5). One "start over"
+   deleted `uv.lock` along with the venv; it was restored from git before any
+   sync ran. Syncing without the lock re-resolves everything against today's
+   index through a hand-opened egress window, with no age gate and no audit
+   line.
+4. **`uv pip` ignores the variable** (R1 docs, R4). It targets a `.venv` in the
+   CWD, the host's. So `uv pip …` needs `--python .venv-sandbox`, and any
+   `just install` or doc line built on `uv pip install -e .` moves to
+   `uv sync --extra …`. Runtime error messages in `src/` that print a
+   `uv pip` hint are in scope too.
+5. **Container-absolute paths in `pyproject.toml` break the host** (R3, R4).
+   One repo carried `[tool.uv] find-links = ["/workspace/dist"]` from a
+   hand-copy workflow; `uv lock` on the host failed outright. A relative flat
+   index (`../dist`, `format = "flat"`) resolves identically on both sides.
+   On W the workspace is `${HOME}/repo/<p>`, so the same leftover fails the
+   same way. Add `find-links|/workspace/` to the R3 grep.
+6. **The handoff table is a starting point, never the set** (R3, R4). Every
+   repo so far had references the table missed: a README the table skipped,
+   a `subprocess.run([".venv-linux/bin/alembic", …])` call (→
+   `[sys.executable, "-m", "alembic", …]`, no venv name at all), docstrings and
+   runtime-printed run hints, notebooks, skill files. The sweep is
+   `git grep -n -E '\.venv(-linux|-sandbox)?/bin|\.venv-linux|UV_PROJECT_ENVIRONMENT|os\(\)|find-links'`
+   in the repo, and the hand-back re-runs the scan.
+7. **`just` paths: `join()`, not `/`** (R4). `root / venv` doubles an absolute
+   venv. The working shape is
+   `python := join(env_var_or_default("UV_PROJECT_ENVIRONMENT", ".venv"), "bin/python")`,
+   which evaluates to `.venv/bin/python` on the host and
+   `.venv-sandbox/bin/python` in the container.
+8. **Allow rules move to `uv run …`; ask/deny fences list every spelling** (R1,
+   R4). Rules cannot interpolate the variable, and matching is literal, so a
+   `.venv/bin/python scripts/x.py` allow rule is dead in the container and a
+   fence that names only that spelling lets `python3 scripts/x.py` fall
+   through to the sandbox's broad allow. Also **argparse prefix matching**:
+   `--w`, `--wr`, `--writ` all reach `--write`, and `*--write*` matches none of
+   them. Fence on the shortest unambiguous prefix (`*--w*`).
+9. **VS Code remembers each workspace's interpreter; the default never
+   overrides it** (R2). A workspace that had `.venv-linux` selected kept
+   auto-activating it in new terminals after the switch, so `python` and
+   `pytest` ran the retired venv while uv, correctly, ignored `VIRTUAL_ENV`
+   and targeted `.venv-sandbox`. Once per workspace: `deactivate`, then
+   *Python: Select Interpreter* → `.venv-sandbox`. Never `uv sync --active`.
+   Repos with only a host `.venv` show "could not resolve `.venv-sandbox`"
+   until built; that is expected. For W this is the §3.7 decision, plus a
+   re-pick pass per workspace.
+10. **`just` shebang recipes fail under a `noexec` `/tmp`** (R1). Fixed on the
+    Mac with `JUST_TEMPDIR=/home/agent/.cache` in compose (just ≥1.51 honours
+    it; `verify-sandbox.sh` now runs a shebang recipe to prove it). Check
+    whether W's `/tmp` is `noexec`; if so the equivalent is
+    `JUST_TEMPDIR=/root/.cache`, and the depot AGENTS.md `TMPDIR=` workaround
+    becomes unnecessary.
+11. **W's managed notice block is where the wrong instruction lives** (R1).
+    One nranthony repo's `AGENTS.md` carries W's block verbatim, and inside the
+    markers it says `UV_PROJECT_ENVIRONMENT=.venv-linux uv sync`, "`uv sync` is
+    denied" and "`.venv/` is irreplaceable" — all false after the switch, and
+    echoed into that repo's own ADR, README and a skill. Repo agents are told
+    not to edit inside the markers, so **R1's re-sync of the block is what
+    fixes those repos**, and it must happen before their handoffs are applied,
+    not after. Name those three claims in W's notice rewrite.
+12. **Repos have competing drafts of the same change** (R3). Found so far: an
+    `os()` selector, an `export UV_PROJECT_ENVIRONMENT=.venv-linux` in a
+    CLAUDE.md plus a setup script, and a four-phase in-repo proposal with open
+    questions. A handoff that does not name the draft and mark it superseded
+    leaves two instructions standing. The scan's `HARDCODED-VENV-LINUX` hit is
+    the pointer; read the file it lands in.
+13. **Re-run the scan on the day, not from the snapshot** (R3, R4). A profile
+    that had "no gate blockers" on 2026-09-11 had one on 09-13 (ikigai's block
+    was under `work/` on the first pass, or the repo had changed). The
+    done-check is `--fail-on HARDCODED-VENV-LINUX,OS-VENV-SELECT` run *after*
+    the handoffs land, and it exits 0 or the stage is not done.
+14. **Delivery for profiles without an `inbox/`** (R4). A handoff goes to the
+    workspace root, outside every repo: `${HOME}/repo/<p>/inbox/0008/`, seen in
+    the container as `/workspace/inbox/0008/`. Confirm the directory is inside
+    no git repo before writing.
+15. **What T0 established for the image side** (§0.1): the image's uv (0.12.9)
+    matched the host's; a relative value resolves against the project root
+    from a subdirectory and via `uv run --project` from a parent; the host-slot
+    `.venv` was byte-identical after a container sync; `python -m …` works from
+    a venv even where `/tmp` is `noexec`, because `bin/python` links into the
+    managed interpreter tree. Running that venv's console scripts directly is
+    untested.
+16. **Egress windows opened by hand leave no record** (R4, §3.6). The Mac's
+    sittings opened `[pypi]` by uncommenting lines rather than through the
+    egress script, so no sentinel, no age gate, no dependency-gate line; one
+    sync pulled ~120 packages through it. Use W's scripted window where it
+    exists; either way the close is explicit, and the open state is the
+    standing hazard until then.
+17. **Hosts confirmed clean on the Mac, with one near-miss**: the shell profile
+    exports `UV_PYTHON_INSTALL_DIR`, which is harmless, but it is the kind of
+    `UV_*` line R6's grep must read rather than count.
+
 ## 4. Steps (for W's own work item)
 
 **Use macolima's rollout order, not just its steps** (plan "Rollout order"),
@@ -140,7 +246,7 @@ applies.
 **R2 — VS Code (Windows host, human):** §3.7 decision; apply it in the Windows
 user `settings.json`, then verify in an attached window.
 
-**R3 — Scan, per machine (macolima plan A1, run there):** same checks, over
+**R3 — Scan, per machine (macolima plan A1, run there; re-run on activation day, §3a.13):** same checks, over
 `${HOME}/repo/<p>/` for each profile under `~/.ai-sandbox/profiles/`, plus any
 checkout under `/mnt/c` (§3.3). Classify venvs by shebang (§3.2), not `home`
 alone. Output is **local only**, e.g. `scan.local.md` in W's work item, and the
@@ -151,7 +257,7 @@ from that machine, citing the agentic-conventions ADR.
 **R4 — Activate, then pull (macolima plan C):** human `recreate` of every
 profile → verify `echo $UV_PROJECT_ENVIRONMENT` prints `.venv-sandbox` inside
 each → **then** pull the migrated repos (their edits assume the variable) →
-`uv sync --frozen` per active repo, in an egress window where the cache is cold
+pin `.python-version` (§3a.1) → `uv sync --frozen` with like-for-like extras (§3a.2) per active repo, in an egress window where the cache is cold
 → each repo's gate → re-comment the planning-mode domains. A repo that exists
 only on this machine gets its handoff from this machine's scan, in the same
 final form.

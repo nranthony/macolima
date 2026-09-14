@@ -125,6 +125,67 @@ handoff-depot amended (third time) with **T0**, the one-shell test, and
 re-delivered. The owner will run the depot agent in the `nranthony` container.
 Results are to come back as handoff §6 item 0; PR-2's merge waits on them.
 
+## 2026-09-13 — stage 6: wearable_data_testing done, two venvs re-pinned, ikigai surfaced
+
+Run as three parallel host-side agents; hand-backs verified against the scan.
+
+**wearable_data_testing** (`aa23ea7` lock, `81c0b45` migration; not pushed):
+- 0010 §4 done by hand for this repo: the channel's `paperbridge-0.3.0` wheel
+  copied into `therapod/dist/` with sha256 `4be3a996…` matching the depot
+  manifest; 0.1.0 left in place and `paperbridge>=0.3` pinned, so the flat index
+  stays append-only. `uv lock` added only paperbridge 0.3.0 and
+  `pydantic-settings`.
+- **Blocker not in the spec:** `[tool.uv] find-links = ["/workspace/dist"]`, a
+  container-absolute leftover of the hand-copy workflow, made `uv lock` fail on
+  the Mac. Removed; the `../dist` index is the route.
+- Migration in end-state form, sweep wider than the handoff's table: scripts
+  derive `PY` from the variable; justfile `python :=` uses `join()`;
+  `just install` moved off `uv pip install -e` (ignores the variable) to
+  `uv sync --extra db --extra dev`; five allow rules → `uv run python …`;
+  AGENTS.md, README, the setup doc and the four runnable lines in the research
+  plan; `.python-version` 3.12; `.gitignore` `.venv*/` plus the `.local` trio.
+  Two stale "editable dependency at /Volumes/…/paperbridge" claims corrected.
+- Built `uv sync --frozen --extra research --extra db` on 3.12.14 (the 3.13
+  venv was recreated by uv after the pin, not deleted). `--extra db` is one
+  extra beyond parity, so `weardata.reference.seed` works in-container.
+  Preflight: all checks passed, paperbridge imports as 0.3.0. `just validate`
+  exits 0 (38/38 devices). No test suite exists.
+- Scan: no findings for the repo at all.
+
+**Pins/rebuilds:**
+- jeremy_dahl_analytics: `.python-version` 3.12 (`41fd0d0` on `dev/refactor`,
+  not pushed); no host `.venv` exists there; `uv sync --frozen` rebuilt
+  `.venv-sandbox` on 3.12.14, lock frozen-consistent.
+- paperbridge: already pinned; `uv sync --frozen --group dev` (no extras, per
+  its justfile: bibtexparser ships no wheel) rebuilt on 3.12.14; 146 passed,
+  7 skipped (the zotero extras), ruff clean. Host `.venv` untouched.
+- **`.venv-linux` is gone everywhere**, jeremy_dahl_analytics' included — the
+  drive-wide find shows none. Phase F step 1 for that name is effectively done;
+  only `depot/myclickup/.venv` (container-built, host slot) remains for F.
+
+**ikigai is a wave-1 gate blocker.** The 2026-09-11 entry says nranthony has
+none; the 2026-09-13 scan lists `nranthony/ikigai` under
+`HARDCODED-VENV-LINUX`. Handoff written ([handoff-ikigai.md](handoff-ikigai.md))
+and delivered to `/Volumes/DataDrive/repo/nranthony/inbox/0008/` (the
+nranthony workspace root, outside every repo, `/workspace/inbox/0008/` in the
+container — same precedent as therapod's). What it found:
+- no venv of any kind on the clone; 154 `.venv/bin` lines across 52 tracked
+  files point at nothing;
+- the `.venv-linux` line sits inside **windows-ai-sandbox's managed notice
+  block** in its AGENTS.md, whose claims ("`uv sync` is denied", "`.venv/` is
+  irreplaceable") are false here and are echoed into its ADR-0014, README and
+  checkpoint-gate skill. Owner/host-side to refresh; the agent is told not to
+  edit inside the markers;
+- the repo has its own draft `work/0023` proposal for the same change, now
+  superseded by the handoff, which answers its three open questions;
+- the `load_blocks.py` deny fence has an argparse prefix hole (`--w`, `--wr`
+  reach `--write`); the fence in the handoff uses `*--w*`.
+
+**Not done here:** the owner's global `~/.claude/CLAUDE.md` line (D2) — the
+agent cannot write that file; text is in the session. Egress: `[pypi]` stays
+open by the owner's decision until the remaining builds finish; all three
+profiles (nranthony, jeremy_dahl, therapod) were brought up and left up.
+
 ## 2026-09-12 — stage 6: misc_code done
 
 Hand-back verified host-side: commit **`eedeb9b`**, clean tree,

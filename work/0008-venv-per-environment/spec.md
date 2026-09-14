@@ -1,6 +1,6 @@
 # 0008 — One venv per environment: `.venv-sandbox` in every sandbox, `.venv` on every host
 
-**State:** spec + plan, not started. **Opened:** 2026-09-11.
+**State:** in execution — switch merged and live in all four profiles; repos migrating (stage 6). **Opened:** 2026-09-11.
 **Plan:** [plan.md](plan.md). **Depot side:** [handoff-depot.md](handoff-depot.md).
 **WSL / bare-Linux machines:** [replay-other-hosts.md](replay-other-hosts.md).
 

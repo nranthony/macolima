@@ -150,5 +150,12 @@ Note the two `comm` invocations use temp files rather than process substitution:
   the block-walker guard in `proxy.py`, and the unguarded `CLAUDE.md` overwrite
   in `sync-agent-files.sh`.
 
+- [`work/0008`](../work/0008-venv-per-environment/replay-other-hosts.md) —
+  here → sibling. The venv rule ([ADR-0013](adr/0013-the-environment-names-the-venv.md))
+  replayed on every WSL and bare-Linux machine: what differs there, the R1–R6
+  order, and the corrections the Mac rollout found (its §3a). Human-ferried;
+  ferry only once its §0 start conditions hold, and each machine reports back
+  per its §5.
+
 There is no automated sync between the repos and there should not be. Every
 carry is a decision with a substrate filter in front of it.
