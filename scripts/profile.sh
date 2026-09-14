@@ -890,13 +890,29 @@ ensure_state() {
   # one thing that silently lagged its template, the exact failure ADR-0005 was
   # written about, never applied where it matters most.
   converge_agent_policies
-  # Refresh the managed sandbox-notice in the agent's GLOBAL memory
-  # (~/.claude/CLAUDE.md, auto-loaded every session) so agents see the
-  # capabilities and prohibitions even in a workspace repo whose own AGENTS.md
-  # has not been synced. Rewrites only the marked block, idempotently.
+  # Refresh the managed sandbox-notice in BOTH agents' GLOBAL homes, from the
+  # one template, so agents see the capabilities and prohibitions in any repo —
+  # and so the notice never has to live inside a repo, where it goes stale and
+  # no repo agent may edit it (0011):
+  #   - ~/.claude/CLAUDE.md            — Claude Code's global memory, auto-loaded
+  #                                      every session, any cwd;
+  #   - ~/.gemini/config/rules/sandbox-notice.md
+  #                                    — agy's global customization root; per its
+  #                                      embedded docs, rules under `rules/` of
+  #                                      any root "apply to all projects and
+  #                                      workspaces" (measured status recorded in
+  #                                      work/0011).
+  # Rewrites only the marked block, idempotently. gemini-home/config/ already
+  # exists here: converge_antigravity_hooks mkdirs it and converge_agent_policies
+  # runs just above — and sync_one mkdir -p's the rules/ leaf anyway.
+  # Mode note: the create path leaves 644, the update path 600 (mktemp + mv), so
+  # each file flips 644 -> 600 after its first converge. Harmless; not chmod'd.
   if [[ -f "$SCRIPT_DIR/scripts/sync-agent-notice.sh" ]]; then
     bash "$SCRIPT_DIR/scripts/sync-agent-notice.sh" "$p/claude-home/CLAUDE.md" >/dev/null \
       || warn "could not sync sandbox-notice into $p/claude-home/CLAUDE.md"
+    bash "$SCRIPT_DIR/scripts/sync-agent-notice.sh" \
+      "$p/gemini-home/config/rules/sandbox-notice.md" >/dev/null \
+      || warn "could not sync sandbox-notice into $p/gemini-home/config/rules/"
   fi
   # Skills CONVERGE to the template tree on every `up` (ADR-0005) — they are no
   # longer seeded create-only. Create-only is what let profiles drift behind the
@@ -1648,6 +1664,29 @@ case "$CMD" in
     # cannot see this repo, so it has no template to compare a policy against.
     check_agent_policy_sync || verify_rc=1
 
+    # The ONE host→container value the verify passes. The streamed script runs
+    # inside the agent, which cannot see this repo, so it has no template to
+    # compare the two synced sandbox-notice files against — it can only read
+    # what is in the agent's homes. So hash the template here and hand the
+    # digest over with -e; in-container the check re-hashes the region between
+    # the markers in each file, which sync-agent-notice.sh writes byte-for-byte
+    # from this same template, and a mismatch means "converge has not run since
+    # the template moved". (The other host-side checks — check_allowlist_sync,
+    # check_agent_policy_sync — stay host-side and report through shell
+    # variables; only this one needs a value on the inside.)
+    # macOS has shasum, the Linux hosts have sha256sum; first field only. If
+    # neither exists the variable arrives empty and the in-container check
+    # degrades to markers-only with a WARN.
+    notice_tpl="$SCRIPT_DIR/sandbox_templates/common/agent-notice.md"
+    notice_sha=""
+    if [[ -f "$notice_tpl" ]]; then
+      if command -v shasum >/dev/null 2>&1; then
+        notice_sha="$(shasum -a 256 "$notice_tpl" | awk '{print $1}')"
+      elif command -v sha256sum >/dev/null 2>&1; then
+        notice_sha="$(sha256sum "$notice_tpl" | awk '{print $1}')"
+      fi
+    fi
+
     info "Running verify-sandbox.sh inside $AGENT (streamed via stdin)"
     # Streamed, NOT staged: no file has to be copied into /workspace first, so
     # verify leaves no trace in the profile's workspace and cannot run a stale
@@ -1655,7 +1694,7 @@ case "$CMD" in
     # stage-audit-package.sh path; that remains how the tier-2 audit works.)
     #
     # NOT `exec` — the host-side result above still has to affect the exit code.
-    docker exec -i "$AGENT" bash -s -- "$@" < "$src" || verify_rc=1
+    docker exec -i -e NOTICE_SHA="$notice_sha" "$AGENT" bash -s -- "$@" < "$src" || verify_rc=1
 
     # The tally printed by the streamed script is the CONTAINER's, and it cannot
     # count the host-side checks, which ran here before the stream. Without this
@@ -1807,10 +1846,24 @@ case "$CMD" in
     # the live values, capturing what it replaced to settings.discarded.json.
     converge_agent_policies "$@"
     converge_skills
+    # The sandbox-notice goes into BOTH agents' GLOBAL homes, from the one
+    # template, and never into a repo (0011): ~/.claude/CLAUDE.md, which Claude
+    # Code auto-loads every session from any cwd, and
+    # ~/.gemini/config/rules/sandbox-notice.md, agy's global customization root
+    # — per its embedded docs, rules under `rules/` of any root "apply to all
+    # projects and workspaces" (measured status recorded in work/0011).
+    # Same two targets as `ensure_state` writes on up/recreate/rebuild.
+    # gemini-home/config/ exists by now: converge_antigravity_hooks mkdirs it and
+    # converge_agent_policies ran just above; sync_one mkdir -p's rules/ anyway.
+    # Mode note: each file is 644 when created and 600 after its first converge
+    # (the update path is mktemp + mv). Harmless; deliberately not chmod'd.
     if [[ -f "$SCRIPT_DIR/scripts/sync-agent-notice.sh" ]]; then
       bash "$SCRIPT_DIR/scripts/sync-agent-notice.sh" \
         "$PROFILES_ROOT/$PROFILE/claude-home/CLAUDE.md" >/dev/null \
         || warn "could not sync sandbox-notice into claude-home/CLAUDE.md"
+      bash "$SCRIPT_DIR/scripts/sync-agent-notice.sh" \
+        "$PROFILES_ROOT/$PROFILE/gemini-home/config/rules/sandbox-notice.md" >/dev/null \
+        || warn "could not sync sandbox-notice into gemini-home/config/rules/"
     fi
     case " $* " in
       *" --defaults "*) ok "policy + skills converged for '$PROFILE' from sandbox_templates/ (preferences RESET to template defaults)" ;;

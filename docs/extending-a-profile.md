@@ -57,8 +57,8 @@ or run time.
 | An agent skill | per-profile | `sandbox_templates/skills/<name>/` → converged to `claude-home/skills/` | yes |
 | A Claude Code plugin / marketplace | per-profile | `claude-home/plugins/` | yes |
 | Agent tool policy (allow/deny/hooks) | per-profile | `sandbox_templates/claude/` **and** `sandbox_templates/antigravity/` → converged | yes |
-| Standing instructions for every repo in a profile | per-profile | `claude-home/CLAUDE.md` via `scripts/sync-agent-notice.sh` | yes |
-| Standing instructions for one repo | workspace | that repo's `AGENTS.md` / `.claude/` | yes |
+| Standing instructions for every repo in a profile | per-profile | the sandbox notice, written into both agent homes (`claude-home/CLAUDE.md`, `gemini-home/config/rules/sandbox-notice.md`) on every `up`/`converge` — never into a repo ([ADR-0015](adr/0015-the-sandbox-briefs-agents-from-their-homes.md)) | yes |
+| Standing instructions for one repo | workspace | that repo's `AGENTS.md` / `.claude/` — the repo's own text; it never carries the sandbox notice | yes |
 | A Python dependency of a project | workspace | the manifest + the project's `.venv-sandbox` (`uv sync`, in a `with-egress.sh` window). The repo's plain `.venv` is the host's — ADR-0013 | yes (`.venv-sandbox` is in the bind mount) |
 | A Python lib not on PyPI | workspace | `/Volumes/DataDrive/repo/<p>/dist/*.whl` — [local-wheels.md](local-wheels.md) | yes |
 | A private CLI the whole fleet needs | image | a vendored wheel — [ADR-0004](adr/0004-python-wheels-only.md) | yes |

@@ -161,6 +161,7 @@ test-offline:
     bash {{justfile_directory()}}/scripts/webfetch.test.sh
     bash {{justfile_directory()}}/scripts/agent-policy.test.sh
     bash {{justfile_directory()}}/scripts/agent-notice.test.sh
+    bash {{justfile_directory()}}/scripts/sync-agent-notice.test.sh
     bash {{justfile_directory()}}/scripts/private-names-check.sh
     bash {{justfile_directory()}}/scripts/sync-agent-files.sh --check
 

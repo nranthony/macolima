@@ -46,34 +46,33 @@ The hook still blocks writes to a workspace `hooks.json` (rule
 `agy-workspace-hook-tamper`, both the write-tool and the shell route), and
 `scripts/audit/probes/antigravity.py` fails if one exists anyway.
 
-## Open: `agy` has the policy but not the guidance
+## Briefed from `~/.gemini/config/rules/` (ADR-0015)
 
-Phase D gave `agy` a real tool policy. It did **not** give it the standing
-guidance Claude gets, and that gap is deliberate rather than overlooked.
+Phase D gave `agy` a real tool policy. The standing guidance Claude gets —
+`sandbox_templates/common/agent-notice.md` — now reaches `agy` too, by the
+same mechanism and on the same verbs: `scripts/profile.sh` writes the notice
+into **both** agent homes on every `up`, `recreate`, `rebuild` and `converge`:
 
-Claude receives `sandbox_templates/common/agent-notice.md` because
-`scripts/profile.sh` syncs it into `claude-home/CLAUDE.md` on every `up` —
-Claude Code auto-loads that file in every session. `agy` reuses the `~/.gemini`
-home and has no equivalent path this repo has been able to verify from profile
-state: there is no global context file in `gemini-home/` to write into, and
-guessing one would produce a file nothing reads, which is worse than an
-acknowledged gap because it looks solved.
+| Agent | File in the container | On the host |
+|---|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` (auto-loaded every session) | `profiles/<p>/claude-home/CLAUDE.md` |
+| `agy` | `~/.gemini/config/rules/sandbox-notice.md` | `profiles/<p>/gemini-home/config/rules/sandbox-notice.md` |
 
-What `agy` **does** read natively is a workspace `AGENTS.md`. So the notice can
-reach it today, per workspace:
+The second target follows `agy`'s embedded documentation: `~/.gemini/config/`
+is its global customization root ("applies to all projects and workspaces"),
+and within any root, rules live under `rules/` as plain markdown. Global rules
+are tier three of five, below workspace rules; that ordering settles name
+conflicts between skills and plugins only — rules merge and deduplicate, so a
+repo's `AGENTS.md` adds to the notice rather than replacing it. The
+measurement that `agy` loads the file is recorded in
+`work/0011-sandbox-notice-global-homes/notes.md`; until it is, the route is
+documented rather than observed, which is the same standing the hooks had
+before test G.
 
-```bash
-scripts/sync-agent-notice.sh /Volumes/DataDrive/repo/<profile>/<repo>
-# -> writes the managed block into that repo's AGENTS.md, idempotently
-```
-
-This is **not** wired into `up`, and should not be without a decision: it writes
-into the operator's own git tree, and a script that edits a user's repository on
-every container start is a different kind of thing from one that edits profile
-state. The block is marker-delimited and idempotent, so re-running only replaces
-the managed region — but the first run creates or modifies a tracked file.
-
-Consequence to hold in mind meanwhile: **`agy` is gated but not briefed.** It
-will be stopped by the deny list and the hook, and it will not know *why*, nor
-that a denial is a human step rather than something to route around. The policy
-is the control; the notice is what stops the agent burning turns on workarounds.
+The notice is **never written into a repo.** The earlier per-workspace recipe
+(sync into a repo's `AGENTS.md`) is retired: blocks placed that way went stale
+in every repo that carried one, repo agents may not edit inside the markers,
+and two sandboxes writing different markers into one slot stacked blocks
+instead of replacing them. `scripts/sync-agent-notice.sh --strip` removes a
+block met in the wild, `workspace-scan.py` flags one (`NOTICE-IN-REPO`), and
+`verify-sandbox.sh` asserts both home files carry the current template.

@@ -9,6 +9,10 @@ repo:
   agents    AGENTS.md is the source and CLAUDE.md the thin `@AGENTS.md` stub?
             (Claude Code reads CLAUDE.md, agy reads AGENTS.md; anything else
             leaves one agent reading nothing, or two files drifting apart.)
+  notice    no sandbox-notice block inside the repo — AGENTS.md, CLAUDE.md or
+            GEMINI.md, root or tracked nested? (The sandbox briefs agents from
+            their global homes, ADR-0015; a block in a repo goes stale and repo
+            agents may not edit inside the markers.)
   settings  .claude/settings.json + settings.local.json: venv paths in allow
             rules, host paths, bare WebFetch, bypass mode, hooks, and whether
             the ask/deny fence around each script catches every spelling.
@@ -48,6 +52,10 @@ Those are the only findings that go SILENTLY stale once a profile exports
 UV_PROJECT_ENVIRONMENT: a pinned `.venv-linux` keeps running an old, working
 venv. A stale `.venv/bin/…` inside the sandbox points at the host's venv and
 fails loudly, so it is ordinary cleanup, not part of the check.
+
+The work/0011 done-check is
+    workspace-scan.py --fail-on NOTICE-IN-REPO
+A notice block cannot come back through a pull unnoticed.
 
 Usage:
     workspace-scan.py [--profiles-dir DIR] [--workspaces-root DIR] [--also DIR]...
@@ -334,6 +342,48 @@ def check_agents(r: Repo, files: list[str]) -> None:
         flag, level, msg = agent_pair("AGENTS.md" in names, cs)
         if flag and flag != "NO-AGENT-FILES":
             r.add(f"NESTED-{flag}", level, f"{d}/: {msg}", [d + "/"])
+
+
+# --------------------------------------------------------------------------- #
+# the sandbox notice
+# --------------------------------------------------------------------------- #
+
+# Any `managed by …` name matches: the neutral marker the sandbox writes today,
+# and the two legacy ones (`macolima`, `windows-ai-sandbox`) it replaces once.
+NOTICE_MARKER_RE = re.compile(r"^<!--\s*BEGIN sandbox-notice")
+# GEMINI.md joins the pair check_agents enumerates BECAUSE agy reads it as a
+# rules file — so a notice block lands there too. It is NOT half of the
+# AGENTS-source / CLAUDE-stub pair (0009), which is why this check keeps its own
+# enumeration instead of widening check_agents'.
+NOTICE_NAMES = ("AGENTS.md", "CLAUDE.md", "GEMINI.md")
+
+
+def check_notice(r: Repo, files: list[str]) -> None:
+    """A sandbox-notice block inside a repo (ADR-0015).
+
+    The notice belongs in each agent's GLOBAL home, where every `up` and
+    `converge` regenerates it from one template. A copy inside a repo goes
+    stale the moment the template moves, and the conventions rule forbids repo
+    agents editing inside the markers — so it is unfixable from within the repo
+    that carries it. Root files count whether tracked or not (an untracked one
+    still briefs this clone's agents); nested ones only when tracked, since an
+    untracked nested copy reaches nobody else."""
+    root = r.path
+    rels = [n for n in NOTICE_NAMES if (root / n).is_file()]
+    rels += [f for f in files
+             if Path(f).name in NOTICE_NAMES and len(Path(f).parts) > 1
+             and not nested_excluded(str(Path(f).parent))]
+    ev = []
+    for rel in dict.fromkeys(rels):
+        for i, line in enumerate(read(root / rel).splitlines(), 1):
+            if NOTICE_MARKER_RE.match(line):
+                ev.append(f"{rel}:{i}: {line.strip()}")
+    r.summary["notice"] = "in repo" if ev else "—"
+    if ev:
+        r.add("NOTICE-IN-REPO", ACTION,
+              "a sandbox-notice block inside a repo — the sandbox writes its "
+              "notice into the agent homes (macolima ADR-0015); strip it with "
+              "`scripts/sync-agent-notice.sh --strip`", ev)
 
 
 # --------------------------------------------------------------------------- #
@@ -742,6 +792,7 @@ def scan(args) -> tuple[list[Repo], list[str]]:
             r = Repo(rp, label, kind, rel)
             files = tracked_files(rp)
             check_agents(r, files)
+            check_notice(r, files)
             check_settings(r, files)
             check_python(r, files)
             check_local(r, files)
@@ -774,11 +825,12 @@ def render_md(repos: list[Repo], notes: list[str], args) -> str:
         by_root.setdefault(r.root_label, []).append(r)
     for label, rs in by_root.items():
         out += ["", f"## {label} ({rs[0].kind})", "",
-                "| Repo | Agents | Settings | Python | Venvs | Local |",
-                "|---|---|---|---|---|---|"]
+                "| Repo | Agents | Notice | Settings | Python | Venvs | Local |",
+                "|---|---|---|---|---|---|---|"]
         for r in rs:
             s = r.summary
-            out.append(f"| {r.rel} | {s.get('agents','')} | {s.get('settings','')} | "
+            out.append(f"| {r.rel} | {s.get('agents','')} | {s.get('notice','')} | "
+                       f"{s.get('settings','')} | "
                        f"{s.get('python','')} | {s.get('venvs','')} | {s.get('local','')} |")
         for r in rs:
             fs = [f for f in r.findings if args.verbose or f.level != INFO]

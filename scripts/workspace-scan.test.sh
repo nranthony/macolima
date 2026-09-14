@@ -111,6 +111,39 @@ printf '# old\n' > "$R/work/archive/old/AGENTS.md"
 printf '# stamped into other repos\n' > "$R/templates/AGENTS.md"
 commit "$R"
 
+# --- notice: a sandbox-notice block inside a repo (neutral marker, root) ------
+R="$ROOT/p1/notice"; mkrepo "$R"
+cat > "$R/AGENTS.md" <<'EOF'
+# a
+
+<!-- BEGIN sandbox-notice (managed by the sandbox — do not edit here) -->
+You are running inside a sandbox.
+<!-- END sandbox-notice -->
+EOF
+printf '@AGENTS.md\n' > "$R/CLAUDE.md"
+printf '*.local\n*.local.*\n' > "$R/.gitignore"; commit "$R"
+
+# --- notice-nested: the sibling's legacy marker in a tracked nested GEMINI.md -
+# GEMINI.md is agy's other name for a rules file, so the notice check enumerates
+# it — even though check_agents' AGENTS-source/CLAUDE-stub pair (0009) does not.
+R="$ROOT/p1/notice-nested"; mkrepo "$R"
+printf '# a\n' > "$R/AGENTS.md"; printf '@AGENTS.md\n' > "$R/CLAUDE.md"
+printf '*.local\n*.local.*\n' > "$R/.gitignore"
+mkdir -p "$R/sub" "$R/work/archive/old"
+cat > "$R/sub/GEMINI.md" <<'EOF'
+# sub
+
+<!-- BEGIN sandbox-notice (managed by windows-ai-sandbox — do not edit here) -->
+stale
+<!-- END sandbox-notice -->
+EOF
+cat > "$R/work/archive/old/GEMINI.md" <<'EOF'
+<!-- BEGIN sandbox-notice (managed by macolima — do not edit here) -->
+history, not live guidance
+<!-- END sandbox-notice -->
+EOF
+commit "$R"
+
 # --- CLAUDE.md shapes the docs accept as a stub (code.claude.com/docs/en/memory)
 # An inline import is a stub ("See @AGENTS.md for …"); a symlink to AGENTS.md is
 # the other documented way; an import inside a code span is NOT an import.
@@ -226,6 +259,27 @@ expect parent/member SANDBOX-VENV-IN-HOST-SLOT ACTION
 refute parent SANDBOX-VENV-IN-HOST-SLOT
 expect hostrepo HOST-PATH INFO
 
+echo "== sandbox notice in a repo"
+expect notice NOTICE-IN-REPO ACTION
+expect notice-nested NOTICE-IN-REPO ACTION
+refute good NOTICE-IN-REPO
+notice_ev=$(python3 -c "
+import json
+d=json.load(open('$JSON'))
+print(' | '.join(e for r in d['repos'] if r['rel']=='notice' for f in r['findings'] if f['id']=='NOTICE-IN-REPO' for e in f['evidence']))")
+[[ "$notice_ev" == "AGENTS.md:3: <!-- BEGIN sandbox-notice"* ]] \
+  && ok "notice: evidence is <relpath>:<line>: <marker>" \
+  || bad "notice: evidence wrong (got: $notice_ev)"
+nested_notice_ev=$(python3 -c "
+import json
+d=json.load(open('$JSON'))
+print(' | '.join(e for r in d['repos'] if r['rel']=='notice-nested' for f in r['findings'] if f['id']=='NOTICE-IN-REPO' for e in f['evidence']))")
+[[ "$nested_notice_ev" == *"sub/GEMINI.md:3:"* && "$nested_notice_ev" == *windows-ai-sandbox* ]] \
+  && ok "notice-nested: evidence names the nested path and the legacy marker" \
+  || bad "notice-nested: evidence wrong (got: $nested_notice_ev)"
+[[ "$nested_notice_ev" != *archive* ]] && ok "notice-nested: archive/ excluded" \
+  || bad "notice-nested: archive/ reported"
+
 echo "== rule matching (documented semantics)"
 python3 - "$WS" <<'EOF' && ok "rule_regex cases" || bad "rule_regex cases"
 import importlib.util, sys
@@ -262,6 +316,15 @@ python3 "$WS" --profiles-dir "$PROFILES" --workspaces-root "$ROOT" --also "$HOST
 python3 "$WS" --profiles-dir "$PROFILES" --workspaces-root "$ROOT" --also "$HOSTROOT" \
   --fail-on NO-SUCH-ID >/dev/null 2>&1
 [[ $? -eq 0 ]] && ok "--fail-on an absent ID exits 0" || bad "--fail-on an absent ID did not exit 0"
+# work/0011's done-check: red while any scanned repo carries a block, green when
+# the roots hold none (here: the host-only root alone, profiles dir absent).
+python3 "$WS" --profiles-dir "$PROFILES" --workspaces-root "$ROOT" --also "$HOSTROOT" \
+  --fail-on NOTICE-IN-REPO >/dev/null 2>&1
+[[ $? -eq 1 ]] && ok "--fail-on NOTICE-IN-REPO exits 1" || bad "--fail-on NOTICE-IN-REPO did not exit 1"
+python3 "$WS" --profiles-dir "$T/no-profiles" --workspaces-root "$ROOT" --also "$HOSTROOT" \
+  --fail-on NOTICE-IN-REPO >/dev/null 2>&1
+[[ $? -eq 0 ]] && ok "--fail-on NOTICE-IN-REPO exits 0 with no block in range" \
+  || bad "--fail-on NOTICE-IN-REPO exited nonzero with no block in range"
 
 echo
 echo "workspace-scan.test: $PASS passed, $FAIL failed"

@@ -475,6 +475,60 @@ case "${UV_PROJECT_ENVIRONMENT:-}" in
   *)             fail "UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT, expected .venv-sandbox — hosts, the deletion hook and workspace-scan all key on that name (ADR-0013)" ;;
 esac
 
+# 0011: the sandbox notice is written into BOTH agents' GLOBAL homes — never
+# into a repo — from one template, on every up/recreate/rebuild/converge:
+#   ~/.claude/CLAUDE.md                        Claude Code, auto-loaded every
+#                                              session from any cwd;
+#   ~/.gemini/config/rules/sandbox-notice.md   agy's global customization root.
+# Three ways this goes wrong, all checked here:
+#   missing        — converge never ran for this profile, so the agent is gated
+#                    but not briefed;
+#   legacy marker  — the BEGIN line still names a sandbox ("managed by macolima"
+#                    / "managed by windows-ai-sandbox"). Two sandboxes writing
+#                    two different markers is what made one sync APPEND a second
+#                    block instead of replacing the first;
+#   stale content  — the markers are right but the text between them is behind
+#                    the template.
+# This script cannot see the repo, so the template's sha256 is handed in by
+# profile.sh's verify arm as NOTICE_SHA. sync-agent-notice.sh writes the region
+# between the markers byte-for-byte from that template, so the digest of the
+# lines strictly between BEGIN and END must equal it. Run by hand (no
+# profile.sh), NOTICE_SHA is empty and the markers are still checked.
+NOTICE_BEGIN='<!-- BEGIN sandbox-notice (managed by the sandbox — do not edit here) -->'
+NOTICE_END='<!-- END sandbox-notice -->'
+for _nf in "$HOME/.claude/CLAUDE.md" "$HOME/.gemini/config/rules/sandbox-notice.md"; do
+  if [[ ! -f "$_nf" ]]; then
+    fail "sandbox-notice missing: $_nf — the agent is gated but not briefed; run \`converge\`"
+    continue
+  fi
+  if grep -qE '^<!-- BEGIN sandbox-notice.*managed by (macolima|windows-ai-sandbox)' "$_nf"; then
+    fail "sandbox-notice in $_nf carries a legacy marker; run \`converge\`"
+    continue
+  fi
+  if ! grep -qF "$NOTICE_BEGIN" "$_nf" || ! grep -qF "$NOTICE_END" "$_nf"; then
+    fail "sandbox-notice markers missing/incomplete in $_nf; run \`converge\`"
+    continue
+  fi
+  if [[ -z "${NOTICE_SHA:-}" ]]; then
+    warn "sandbox-notice present with current markers: $_nf (NOTICE_SHA not provided — marker checks only)"
+    continue
+  fi
+  # awk prints each in-region line with its newline, so the stream is exactly
+  # the template's bytes (content + trailing newline) — verified host-side
+  # against a fixture built by sync-agent-notice.sh.
+  _nsha=$(awk -v beg="$NOTICE_BEGIN" -v end="$NOTICE_END" '
+    index($0, end) == 1 { inb = 0 }
+    inb { print }
+    index($0, beg) == 1 { inb = 1 }
+  ' "$_nf" | sha256sum | awk '{print $1}')
+  if [[ "$_nsha" == "$NOTICE_SHA" ]]; then
+    pass "sandbox-notice current in $_nf"
+  else
+    fail "sandbox-notice in $_nf is stale vs the template; run \`converge\`"
+  fi
+done
+unset _nf _nsha
+
 # `just` shebang recipes execute a temp file; /tmp is noexec here, so compose
 # points JUST_TEMPDIR at the exec-capable cache volume. BEHAVIOURAL, for the
 # same reason as the uv gate probe above: the variable being set proves nothing
