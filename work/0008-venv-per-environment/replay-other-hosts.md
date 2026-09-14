@@ -1,6 +1,6 @@
 # 0008 — replaying the venv rule on the WSL and bare-Linux hosts
 
-**State:** waiting on macolima — one repo (ikigai) still to land; the Mac rollout's corrections are folded in (§3a, 2026-09-13). **Written:** 2026-09-11.
+**State:** ready to ferry 2026-09-14 — the Mac rollout is done (done-check exits 0), corrections folded in (§3a), and the notice steps are superseded by [0011's replay](../0011-sandbox-notice-global-homes/replay-sibling.md), which travels with this file. **Written:** 2026-09-11.
 **Carrier:** human-ferried. Every non-Mac machine runs **windows-ai-sandbox**
 (W), and no macolima container or host session can reach them. The executing
 tier is W: it opens its own work item from this file (numbering continues from
